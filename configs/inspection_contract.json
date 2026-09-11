@@ -1,0 +1,14 @@
+{
+  "version": "automotive-inspection-v1",
+  "prompt_sha256": "a43db23a0d91a26fad7dac074d7fdb2867da3ac2d44622f73034f2c2f16efaf0",
+  "scenario": "four_module_battery_tray",
+  "prompt": "Inspect the battery assembly tray in this night-vision camera image. Four rectangular battery modules should be present, seated, and aligned side by side in the tray. Reply G if all four are visibly present, seated, and aligned; R if a module is visibly missing, raised, or misaligned; or A if occlusion or image quality prevents a reliable inspection. Reply with exactly one letter: G, A, or R.",
+  "labels": {
+    "G": {"name": "normal", "action": "pass", "meaning": "All four modules visibly present, seated, and aligned."},
+    "A": {"name": "insufficient_evidence", "action": "hold", "meaning": "Occlusion or image quality prevents reliable inspection."},
+    "R": {"name": "visible_anomaly", "action": "reject", "meaning": "A module is visibly missing, raised, or misaligned."}
+  },
+  "image": {"format": "PNG", "width": 448, "height": 256, "bit_depth": 8},
+  "generation": {"max_completion_tokens": 1, "temperature": 0, "enable_think": false, "top_k": 1, "seed": 42, "stream": false},
+  "policy": {"error_action": "hold", "stale_action": "hold", "mock_is_accuracy_evidence": false}
+}

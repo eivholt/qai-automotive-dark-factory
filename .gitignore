@@ -216,3 +216,26 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Unreal generated files and licensed/generated content
+unreal/Binaries/
+unreal/Intermediate/
+unreal/Saved/
+unreal/DerivedDataCache/
+unreal/.vs/
+unreal/*.sln
+unreal/*.suo
+*.uasset
+*.umap
+
+# Local datasets, render captures, model weights and experiment output
+data/
+artifacts/
+outputs/
+checkpoints/
+*.safetensors
+*.gguf
+*.onnx
+*.bin
+*.pt
+*.pth

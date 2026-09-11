@@ -1,0 +1,10 @@
+// One-sample preview of the fixed sensor's raw normalized thermal scalar.
+// SensorImage must use a LINEAR view (forceLinearGamma=true, TargetGamma=1).
+// Only the display palette changes; the model/saved image remains raw grayscale.
+FDarkFactoryThermal Thermal;
+uint Width, Height;
+SensorImage.GetDimensions(Width, Height);
+float2 HalfTexel = 0.5 / max(float2(Width, Height), float2(1.0, 1.0));
+float2 P = clamp(UV, HalfTexel, 1.0 - HalfTexel);
+float Signal = Texture2DSample(SensorImage, SensorImageSampler, P).r;
+return Thermal.Palette(Signal, ThermalPalette);

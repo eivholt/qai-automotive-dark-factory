@@ -1,0 +1,107 @@
+{
+  "passed": true,
+  "gpu_preview_without_cpu_readback": true,
+  "sync_async_png_identical": true,
+  "stale_capture_discarded": true,
+  "obsolete_preview_rejected": true,
+  "sensor_stays_infrared": true,
+  "gpu_preview_captures": 38,
+  "async_readbacks": 2,
+  "offline_reference_readbacks": 1,
+  "cpu_preview_uploads": 0,
+  "single_sync_capture_encode_game_thread_ms": 9.602300822734833,
+  "single_async_enqueue_game_thread_ms": 0.03850087523460388,
+  "timing_scope": "One diagnostic sample; asynchronous completion latency and GPU work excluded from enqueue time. Not an FPS or GPU speedup benchmark.",
+  "png_sha256": {
+    "model_reference": "bebdfee81ddd0d704ab8af6033a3f9c6101a3c31b8e74eacaf63ff9afe932bb8",
+    "model_async": "bebdfee81ddd0d704ab8af6033a3f9c6101a3c31b8e74eacaf63ff9afe932bb8"
+  },
+  "readback_source_sha256": {
+    "unreal/Source/DarkFactory/DarkFactorySensorReadback.cpp": "737c3fe220b89b76e083a3146c17c5b487a3514fdfcaa23e782acc7a74455028",
+    "unreal/Source/DarkFactory/DarkFactorySensorReadback.h": "a4d7023df4cab8ee8c9bdfd9ffed9f34da70e0f6e47a68f448dc9f20408f15b4"
+  },
+  "date": "2026-09-11",
+  "unreal_engine": "5.8.1",
+  "live_bridge": {
+    "passed": true,
+    "scope": "Local mock plumbing only; no Cosmos or IQ9 inference",
+    "checks": [
+      {
+        "expected": "G",
+        "passed": true,
+        "decision": "G",
+        "source": "MOCK",
+        "status": "PASS: releasing tray",
+        "travel_cm": 290,
+        "reject_gate_roll_deg": 75,
+        "latency_ms": 1.7879999876022339,
+        "real_model_accuracy_evidence": false,
+        "capture_stats": {
+          "gpu_preview": 76,
+          "async_readbacks": 1,
+          "sync_readbacks": 0,
+          "stale_discarded": 0,
+          "cpu_preview_uploads": 0
+        },
+        "live_gpu_path_passed": true
+      },
+      {
+        "expected": "A",
+        "passed": true,
+        "decision": "A",
+        "source": "MOCK",
+        "status": "HOLD: insufficient visual evidence",
+        "travel_cm": 0,
+        "reject_gate_roll_deg": 75,
+        "latency_ms": 1.5240000486373901,
+        "real_model_accuracy_evidence": false,
+        "capture_stats": {
+          "gpu_preview": 77,
+          "async_readbacks": 5,
+          "sync_readbacks": 0,
+          "stale_discarded": 0,
+          "cpu_preview_uploads": 0
+        },
+        "live_gpu_path_passed": true
+      },
+      {
+        "expected": "R",
+        "passed": true,
+        "decision": "R",
+        "source": "MOCK",
+        "status": "REJECT: tray held, reject gate engaged",
+        "travel_cm": 0,
+        "reject_gate_roll_deg": 0,
+        "latency_ms": 1.6319999694824219,
+        "real_model_accuracy_evidence": false,
+        "capture_stats": {
+          "gpu_preview": 74,
+          "async_readbacks": 1,
+          "sync_readbacks": 0,
+          "stale_discarded": 0,
+          "cpu_preview_uploads": 0
+        },
+        "live_gpu_path_passed": true
+      },
+      {
+        "expected": "ERROR",
+        "passed": true,
+        "decision": "A",
+        "source": "DISCONNECTED",
+        "status": "HOLD: bridge unavailable or HTTP error",
+        "travel_cm": 0,
+        "reject_gate_roll_deg": 75,
+        "latency_ms": 0,
+        "real_model_accuracy_evidence": false,
+        "capture_stats": {
+          "gpu_preview": 76,
+          "async_readbacks": 3,
+          "sync_readbacks": 0,
+          "stale_discarded": 0,
+          "cpu_preview_uploads": 0
+        },
+        "live_gpu_path_passed": true
+      }
+    ]
+  }
+}

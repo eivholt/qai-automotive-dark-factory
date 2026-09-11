@@ -1,0 +1,1272 @@
+{
+  "verified_date": "2026-09-11",
+  "engine": "Unreal Engine 5.8.1 / D3D12 SM6",
+  "scope": "Spatial thermal proxy rendering, not camera calibration or model accuracy",
+  "field_checks": {
+    "scope": "GPU scalar thermal-field QA, with visible-stencil-filtered samples; procedural thermal proxy, not a heat-transport or model validation.",
+    "directory": "artifacts/thermal-fields-v1",
+    "encoding": {
+      "size": [
+        448,
+        256
+      ],
+      "min_apparent_c": 20,
+      "max_apparent_c": 120,
+      "ambient_c": 24,
+      "ambient_u8": 10.2
+    },
+    "thresholds": {
+      "minimum_target_pixels": 3,
+      "core_edge_difference_u8_min": 5.0,
+      "core_rib_difference_u8_min": 5.0,
+      "pose_mean_spread_u8_max": 6.0,
+      "pose_body_mask_changed_pixels_min": 4,
+      "uniform_body_pooled_stddev_u8_max": 1.0,
+      "uniform_body_mean_spread_u8_max": 1.0,
+      "cooling_initial_excess_above_ambient_u8_min": 5.0,
+      "cooling_mean_drop_u8_min": 1.0,
+      "rib_additional_fractional_cooling_min": 0.03,
+      "powered_heater_mean_drift_u8_max": 1.0
+    },
+    "checks": {
+      "all_pose_sample_declarations_valid": true,
+      "semantic_stencil_ids_match_across_poses": true,
+      "reference_body_regions_share_surface": true,
+      "reference_rib_and_heater_are_distinct_surfaces": true,
+      "translated_body_regions_share_surface": true,
+      "translated_rib_and_heater_are_distinct_surfaces": true,
+      "rotated_body_regions_share_surface": true,
+      "rotated_rib_and_heater_are_distinct_surfaces": true,
+      "all_eight_pngs_are_8bit_grayscale_and_448x256": true,
+      "reference_body_core_visible_surface_pixels": true,
+      "reference_body_edge_near_visible_surface_pixels": true,
+      "reference_body_edge_far_visible_surface_pixels": true,
+      "reference_thin_rib_visible_surface_pixels": true,
+      "reference_heater_visible_surface_pixels": true,
+      "reference_core_hotter_than_both_edges": true,
+      "reference_thin_rib_cooler_than_core": true,
+      "translated_body_core_visible_surface_pixels": true,
+      "translated_body_edge_near_visible_surface_pixels": true,
+      "translated_body_edge_far_visible_surface_pixels": true,
+      "translated_thin_rib_visible_surface_pixels": true,
+      "translated_heater_visible_surface_pixels": true,
+      "translated_core_hotter_than_both_edges": true,
+      "translated_thin_rib_cooler_than_core": true,
+      "rotated_body_core_visible_surface_pixels": true,
+      "rotated_body_edge_near_visible_surface_pixels": true,
+      "rotated_body_edge_far_visible_surface_pixels": true,
+      "rotated_thin_rib_visible_surface_pixels": true,
+      "rotated_heater_visible_surface_pixels": true,
+      "rotated_core_hotter_than_both_edges": true,
+      "rotated_thin_rib_cooler_than_core": true,
+      "translated_actually_changes_projected_body": true,
+      "rotated_actually_changes_projected_body": true,
+      "body_core_object_local_temperature_invariant": true,
+      "body_edge_near_object_local_temperature_invariant": true,
+      "body_edge_far_object_local_temperature_invariant": true,
+      "thin_rib_object_local_temperature_invariant": true,
+      "heater_object_local_temperature_invariant": true,
+      "uniform_body_core_visible_surface_pixels": true,
+      "uniform_body_edge_near_visible_surface_pixels": true,
+      "uniform_body_edge_far_visible_surface_pixels": true,
+      "uniform_thin_rib_visible_surface_pixels": true,
+      "uniform_heater_visible_surface_pixels": true,
+      "cooled_body_core_visible_surface_pixels": true,
+      "cooled_body_edge_near_visible_surface_pixels": true,
+      "cooled_body_edge_far_visible_surface_pixels": true,
+      "cooled_thin_rib_visible_surface_pixels": true,
+      "cooled_heater_visible_surface_pixels": true,
+      "uniform_control_body_is_flat": true,
+      "cooling_age_control_is_15_to_45_seconds": true,
+      "body_core_has_measurable_initial_heat_excess": true,
+      "body_core_cools_over_30_seconds": true,
+      "thin_rib_has_measurable_initial_heat_excess": true,
+      "thin_rib_cools_over_30_seconds": true,
+      "powered_heater_stays_unchanged_during_cooling": true,
+      "thin_rib_loses_heat_excess_faster_than_body": true
+    },
+    "files": {
+      "field_reference": {
+        "sha256": "a3abf032fddef72afa090e60902cd882e47617babd009802fdd03fa4bc9627bb",
+        "bytes": 32648,
+        "size": [
+          448,
+          256
+        ]
+      },
+      "field_reference_ids": {
+        "sha256": "194f28cdb750e002203d0e52ea1f0e2451a946fc18eeaf488d5746a69e0ac6ac",
+        "bytes": 12343,
+        "size": [
+          448,
+          256
+        ]
+      },
+      "field_translated": {
+        "sha256": "bf77b13880fe816444d5f81cfc41dec8224434a0a61a724ba6ae5dc56ff4155a",
+        "bytes": 32057,
+        "size": [
+          448,
+          256
+        ]
+      },
+      "field_translated_ids": {
+        "sha256": "a28d5f2a438d4d97be106abab2ef320b566c4e6063a71c6282f9e6a3639915e1",
+        "bytes": 12125,
+        "size": [
+          448,
+          256
+        ]
+      },
+      "field_rotated": {
+        "sha256": "a01cd8140c24525a1f5ae40c60d6fcaac3f1aeb25504c0464c72c4e7e20d5b0b",
+        "bytes": 32378,
+        "size": [
+          448,
+          256
+        ]
+      },
+      "field_rotated_ids": {
+        "sha256": "21207046a715d843f444021e80b3ecb321e19f38d822dd77dcfdb5898bcb2e5d",
+        "bytes": 12659,
+        "size": [
+          448,
+          256
+        ]
+      },
+      "field_uniform": {
+        "sha256": "6bf47f388c5a55bb3bf2ecfb164a48eccdf8c68e558fe8fb1f4898076b21b908",
+        "bytes": 7419,
+        "size": [
+          448,
+          256
+        ]
+      },
+      "field_cooled": {
+        "sha256": "02b618c20d2fa81e65c61ae8136be48ff9a7b53b5aaf494dc25e20aba54166ae",
+        "bytes": 31166,
+        "size": [
+          448,
+          256
+        ]
+      }
+    },
+    "samples": {
+      "reference": {
+        "body_core": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 53.25,
+          "stddev_u8": 1.145644,
+          "min_u8": 51,
+          "max_u8": 55,
+          "apparent_mean_c": 40.882353
+        },
+        "body_edge_near": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 31.6875,
+          "stddev_u8": 0.845484,
+          "min_u8": 30,
+          "max_u8": 33,
+          "apparent_mean_c": 32.426471
+        },
+        "body_edge_far": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 31.875,
+          "stddev_u8": 1.111024,
+          "min_u8": 30,
+          "max_u8": 34,
+          "apparent_mean_c": 32.5
+        },
+        "thin_rib": {
+          "target_pixels": 15,
+          "box_pixels": 16,
+          "coverage_fraction": 0.9375,
+          "mean_u8": 28.866667,
+          "stddev_u8": 4.587907,
+          "min_u8": 20,
+          "max_u8": 35,
+          "apparent_mean_c": 31.320261
+        },
+        "heater": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 108.8125,
+          "stddev_u8": 0.390312,
+          "min_u8": 108,
+          "max_u8": 109,
+          "apparent_mean_c": 62.671569
+        }
+      },
+      "translated": {
+        "body_core": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 53.375,
+          "stddev_u8": 1.111024,
+          "min_u8": 52,
+          "max_u8": 55,
+          "apparent_mean_c": 40.931373
+        },
+        "body_edge_near": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 31.375,
+          "stddev_u8": 0.780625,
+          "min_u8": 30,
+          "max_u8": 33,
+          "apparent_mean_c": 32.303922
+        },
+        "body_edge_far": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 31.8125,
+          "stddev_u8": 1.184206,
+          "min_u8": 30,
+          "max_u8": 34,
+          "apparent_mean_c": 32.47549
+        },
+        "thin_rib": {
+          "target_pixels": 14,
+          "box_pixels": 16,
+          "coverage_fraction": 0.875,
+          "mean_u8": 28.428571,
+          "stddev_u8": 5.260558,
+          "min_u8": 20,
+          "max_u8": 35,
+          "apparent_mean_c": 31.148459
+        },
+        "heater": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 108.8125,
+          "stddev_u8": 0.390312,
+          "min_u8": 108,
+          "max_u8": 109,
+          "apparent_mean_c": 62.671569
+        }
+      },
+      "rotated": {
+        "body_core": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 53.3125,
+          "stddev_u8": 1.043956,
+          "min_u8": 52,
+          "max_u8": 55,
+          "apparent_mean_c": 40.906863
+        },
+        "body_edge_near": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 31.125,
+          "stddev_u8": 0.856957,
+          "min_u8": 30,
+          "max_u8": 33,
+          "apparent_mean_c": 32.205882
+        },
+        "body_edge_far": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 31.5625,
+          "stddev_u8": 0.933324,
+          "min_u8": 30,
+          "max_u8": 33,
+          "apparent_mean_c": 32.377451
+        },
+        "thin_rib": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 29.5625,
+          "stddev_u8": 4.40126,
+          "min_u8": 21,
+          "max_u8": 35,
+          "apparent_mean_c": 31.593137
+        },
+        "heater": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 108.8125,
+          "stddev_u8": 0.390312,
+          "min_u8": 108,
+          "max_u8": 109,
+          "apparent_mean_c": 62.671569
+        }
+      },
+      "uniform": {
+        "body_core": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 60,
+          "stddev_u8": 0.0,
+          "min_u8": 60,
+          "max_u8": 60,
+          "apparent_mean_c": 43.529412
+        },
+        "body_edge_near": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 60,
+          "stddev_u8": 0.0,
+          "min_u8": 60,
+          "max_u8": 60,
+          "apparent_mean_c": 43.529412
+        },
+        "body_edge_far": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 60,
+          "stddev_u8": 0.0,
+          "min_u8": 60,
+          "max_u8": 60,
+          "apparent_mean_c": 43.529412
+        },
+        "thin_rib": {
+          "target_pixels": 15,
+          "box_pixels": 16,
+          "coverage_fraction": 0.9375,
+          "mean_u8": 60,
+          "stddev_u8": 0.0,
+          "min_u8": 60,
+          "max_u8": 60,
+          "apparent_mean_c": 43.529412
+        },
+        "heater": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 109,
+          "stddev_u8": 0.0,
+          "min_u8": 109,
+          "max_u8": 109,
+          "apparent_mean_c": 62.745098
+        }
+      },
+      "cooled": {
+        "body_core": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 48.125,
+          "stddev_u8": 0.992157,
+          "min_u8": 46,
+          "max_u8": 50,
+          "apparent_mean_c": 38.872549
+        },
+        "body_edge_near": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 29.3125,
+          "stddev_u8": 0.768013,
+          "min_u8": 28,
+          "max_u8": 31,
+          "apparent_mean_c": 31.495098
+        },
+        "body_edge_far": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 29.3125,
+          "stddev_u8": 1.1022,
+          "min_u8": 28,
+          "max_u8": 31,
+          "apparent_mean_c": 31.495098
+        },
+        "thin_rib": {
+          "target_pixels": 15,
+          "box_pixels": 16,
+          "coverage_fraction": 0.9375,
+          "mean_u8": 15.066667,
+          "stddev_u8": 1.123487,
+          "min_u8": 13,
+          "max_u8": 17,
+          "apparent_mean_c": 25.908497
+        },
+        "heater": {
+          "target_pixels": 16,
+          "box_pixels": 16,
+          "coverage_fraction": 1.0,
+          "mean_u8": 108.8125,
+          "stddev_u8": 0.390312,
+          "min_u8": 108,
+          "max_u8": 109,
+          "apparent_mean_c": 62.671569
+        }
+      }
+    },
+    "stats": {
+      "reference_core_contrasts_u8": {
+        "body_edge_near": 21.5625,
+        "body_edge_far": 21.375,
+        "thin_rib": 24.383333333333333
+      },
+      "translated_core_contrasts_u8": {
+        "body_edge_near": 22.0,
+        "body_edge_far": 21.5625,
+        "thin_rib": 24.946428571428573
+      },
+      "rotated_core_contrasts_u8": {
+        "body_edge_near": 22.1875,
+        "body_edge_far": 21.75,
+        "thin_rib": 23.75
+      },
+      "translated_body_mask_changed_pixels": 4690,
+      "rotated_body_mask_changed_pixels": 1886,
+      "body_core_pose_mean_spread_u8": 0.125,
+      "body_edge_near_pose_mean_spread_u8": 0.5625,
+      "body_edge_far_pose_mean_spread_u8": 0.3125,
+      "thin_rib_pose_mean_spread_u8": 1.133929,
+      "heater_pose_mean_spread_u8": 0.0,
+      "uniform_body": {
+        "pooled_stddev_u8": 0.0,
+        "region_mean_spread_u8": 0,
+        "target_pixels": 48
+      },
+      "cooling": {
+        "body_core": {
+          "initial_mean_u8": 53.25,
+          "cooled_mean_u8": 48.125,
+          "mean_drop_u8": 5.125,
+          "initial_excess_u8": 43.05,
+          "fraction_of_excess_lost": 0.11904761904761907
+        },
+        "thin_rib": {
+          "initial_mean_u8": 28.866666666666667,
+          "cooled_mean_u8": 15.066666666666666,
+          "mean_drop_u8": 13.8,
+          "initial_excess_u8": 18.666666666666668,
+          "fraction_of_excess_lost": 0.7392857142857143
+        },
+        "heater": {
+          "initial_mean_u8": 108.8125,
+          "cooled_mean_u8": 108.8125,
+          "mean_drop_u8": 0.0,
+          "initial_excess_u8": 98.6125,
+          "fraction_of_excess_lost": 0.0
+        }
+      }
+    },
+    "errors": [],
+    "metadata": {
+      "cooling": {
+        "initial_age_seconds": 15,
+        "cooled_age_seconds": 45
+      },
+      "poses": {
+        "reference": {
+          "body_core": {
+            "box": [
+              244,
+              113,
+              248,
+              117
+            ],
+            "stencil_id": 52
+          },
+          "body_edge_near": {
+            "box": [
+              202,
+              135,
+              206,
+              139
+            ],
+            "stencil_id": 52
+          },
+          "body_edge_far": {
+            "box": [
+              266,
+              102,
+              270,
+              106
+            ],
+            "stencil_id": 52
+          },
+          "thin_rib": {
+            "box": [
+              236,
+              116,
+              240,
+              120
+            ],
+            "stencil_id": 54
+          },
+          "heater": {
+            "box": [
+              418,
+              116,
+              422,
+              120
+            ],
+            "stencil_id": 73
+          }
+        },
+        "translated": {
+          "body_core": {
+            "box": [
+              215,
+              103,
+              219,
+              107
+            ],
+            "stencil_id": 52
+          },
+          "body_edge_near": {
+            "box": [
+              170,
+              124,
+              174,
+              128
+            ],
+            "stencil_id": 52
+          },
+          "body_edge_far": {
+            "box": [
+              238,
+              92,
+              242,
+              96
+            ],
+            "stencil_id": 52
+          },
+          "thin_rib": {
+            "box": [
+              207,
+              105,
+              211,
+              109
+            ],
+            "stencil_id": 54
+          },
+          "heater": {
+            "box": [
+              418,
+              116,
+              422,
+              120
+            ],
+            "stencil_id": 73
+          }
+        },
+        "rotated": {
+          "body_core": {
+            "box": [
+              242,
+              116,
+              246,
+              120
+            ],
+            "stencil_id": 52
+          },
+          "body_edge_near": {
+            "box": [
+              190,
+              132,
+              194,
+              136
+            ],
+            "stencil_id": 52
+          },
+          "body_edge_far": {
+            "box": [
+              270,
+              108,
+              274,
+              112
+            ],
+            "stencil_id": 52
+          },
+          "thin_rib": {
+            "box": [
+              232,
+              118,
+              236,
+              122
+            ],
+            "stencil_id": 54
+          },
+          "heater": {
+            "box": [
+              418,
+              116,
+              422,
+              120
+            ],
+            "stencil_id": 73
+          }
+        }
+      },
+      "scope": "Offline spatial-field QA; ID masks never enter sensor exports or model inference"
+    },
+    "passed": true,
+    "failed_checks": []
+  },
+  "thermal_regression": {
+    "scope": "GPU thermal rendering QA; apparent-temperature proxy, no thermal model or radiometric calibration.",
+    "directory": "artifacts/thermal-fields-v1",
+    "thresholds": {
+      "roi_min_pixels": 16,
+      "anomaly_mean_delta_u8_min": 5.0,
+      "anomaly_changed_fraction_min": 0.1,
+      "changed_pixel_delta_u8_min": 3,
+      "intact_glue_mean_drift_u8_max": 3.0,
+      "glue_gap_intact_contrast_u8_min": 5.0,
+      "occlusion_mean_drop_u8_min": 10.0,
+      "occlusion_ambient_mean_tolerance_c": 3.0,
+      "occlusion_ambient_p95_tolerance_c": 5.0,
+      "palette_gray_mean_spread_u8_max": 2.0,
+      "palette_gray_p95_spread_u8_max": 4,
+      "white_black_correlation_max": -0.6,
+      "white_black_luma_stddev_min": 3.0,
+      "iron_mean_spread_u8_min": 3.0,
+      "iron_color_fraction_min": 0.03
+    },
+    "checks": {
+      "runtime_observer_material_loaded": true,
+      "runtime_sensor_material_loaded": true,
+      "runtime_temperature_lut_loaded": true,
+      "runtime_emissivity_lut_loaded": true,
+      "runtime_nir_contract_unchanged": true,
+      "runtime_async_snapshot_matches_raw": true,
+      "runtime_radiometry_self_test": true,
+      "runtime_stale_snapshot_rejected": true,
+      "runtime_stale_preview_rejected": true,
+      "runtime_passed": true,
+      "runtime_thermal_sent_to_nir_contract_false": true,
+      "runtime_adapter_ready_false": true,
+      "no_inference_requests_during_thermal_smoke": true,
+      "live_thermal_preview_has_no_cpu_readbacks": true,
+      "nir_contract_identity_matches_repository": true,
+      "declared_linear_apparent_temperature_encoding": true,
+      "projected_raw_regions_valid": true,
+      "normal_exact_grayscale": true,
+      "overheated_exact_grayscale": true,
+      "heater_fault_exact_grayscale": true,
+      "glue_gap_exact_grayscale": true,
+      "light_on_exact_grayscale": true,
+      "light_off_exact_grayscale": true,
+      "occluded_exact_grayscale": true,
+      "nir_before_exact_grayscale": true,
+      "nir_after_exact_grayscale": true,
+      "all_expected_pngs_valid": true,
+      "nir_png_bytes_unchanged": true,
+      "thermal_independent_of_visible_and_nir_lights": true,
+      "overheated_has_expected_local_temperature_change": true,
+      "heater_fault_has_expected_local_temperature_change": true,
+      "glue_gap_has_expected_local_temperature_change": true,
+      "glue_gap_preserves_intact_heated_glue": true,
+      "opaque_cover_blocks_hot_custom_depth_surface": true,
+      "white_hot_observer_neutral": true,
+      "black_hot_observer_neutral": true,
+      "iron_observer_uses_color": true,
+      "white_black_observer_inverse": true,
+      "white_hot_thermal_preview_neutral": true,
+      "black_hot_thermal_preview_neutral": true,
+      "iron_thermal_preview_uses_color": true,
+      "white_black_thermal_preview_inverse": true
+    },
+    "files": {
+      "normal": {
+        "sha256": "a3abf032fddef72afa090e60902cd882e47617babd009802fdd03fa4bc9627bb",
+        "bytes": 32648,
+        "size": [
+          448,
+          256
+        ]
+      },
+      "overheated": {
+        "sha256": "57400683ca3d4a7f42be943c53efc507c90b19ad7328a932c78e0159484b397f",
+        "bytes": 33950,
+        "size": [
+          448,
+          256
+        ]
+      },
+      "heater_fault": {
+        "sha256": "1397bec170b38b6bb527df78d9ab2985523c83cafab0627c4594ed4b4a42b50d",
+        "bytes": 31972,
+        "size": [
+          448,
+          256
+        ]
+      },
+      "glue_gap": {
+        "sha256": "271813eabc28b217ebb0f3f49a9b99f1ac40322d815358f5ecf335f4be7244e5",
+        "bytes": 32492,
+        "size": [
+          448,
+          256
+        ]
+      },
+      "light_on": {
+        "sha256": "57400683ca3d4a7f42be943c53efc507c90b19ad7328a932c78e0159484b397f",
+        "bytes": 33950,
+        "size": [
+          448,
+          256
+        ]
+      },
+      "light_off": {
+        "sha256": "57400683ca3d4a7f42be943c53efc507c90b19ad7328a932c78e0159484b397f",
+        "bytes": 33950,
+        "size": [
+          448,
+          256
+        ]
+      },
+      "occluded": {
+        "sha256": "00d2942ad4d3b2c5cf9a1bb13bd410baa5cba927a1f85075eb4dee5533d15740",
+        "bytes": 23426,
+        "size": [
+          448,
+          256
+        ]
+      },
+      "nir_before": {
+        "sha256": "a5ecfe9fe65d7f479939a724d3d83f895a7f9d58ebb58dbe8e2472ec2f06c863",
+        "bytes": 109309,
+        "size": [
+          448,
+          256
+        ]
+      },
+      "nir_after": {
+        "sha256": "a5ecfe9fe65d7f479939a724d3d83f895a7f9d58ebb58dbe8e2472ec2f06c863",
+        "bytes": 109309,
+        "size": [
+          448,
+          256
+        ]
+      },
+      "white_hot": {
+        "sha256": "d7916ea3931f458970a21fec84c93cdb2b755f3ca74b8508128ec7414c902d72",
+        "bytes": 406367,
+        "size": [
+          1600,
+          900
+        ]
+      },
+      "black_hot": {
+        "sha256": "a9582343e444aa9581bf70488a21b87f9fce7e5d234d0976ccfaa3b6b190e986",
+        "bytes": 407958,
+        "size": [
+          1600,
+          900
+        ]
+      },
+      "iron": {
+        "sha256": "7c3cb5e93574a082a83d1e3874dee99af8f276e4c69aa85a524a7d6ae9e340f5",
+        "bytes": 458840,
+        "size": [
+          1600,
+          900
+        ]
+      }
+    },
+    "stats": {
+      "normal": {
+        "mean_u8": 15.64469,
+        "stddev_u8": 15.21546,
+        "p95_u8": 43,
+        "min_u8": 6,
+        "max_u8": 109,
+        "mean_rgb": [
+          15.64469,
+          15.64469,
+          15.64469
+        ],
+        "mean_channel_spread_u8": 0.0,
+        "p95_channel_spread_u8": 0,
+        "max_channel_spread_u8": 0,
+        "colored_pixel_fraction": 0.0
+      },
+      "overheated": {
+        "mean_u8": 17.04987,
+        "stddev_u8": 19.40367,
+        "p95_u8": 54,
+        "min_u8": 6,
+        "max_u8": 169,
+        "mean_rgb": [
+          17.04987,
+          17.04987,
+          17.04987
+        ],
+        "mean_channel_spread_u8": 0.0,
+        "p95_channel_spread_u8": 0,
+        "max_channel_spread_u8": 0,
+        "colored_pixel_fraction": 0.0
+      },
+      "heater_fault": {
+        "mean_u8": 14.80141,
+        "stddev_u8": 13.02687,
+        "p95_u8": 39,
+        "min_u8": 6,
+        "max_u8": 109,
+        "mean_rgb": [
+          14.80141,
+          14.80141,
+          14.80141
+        ],
+        "mean_channel_spread_u8": 0.0,
+        "p95_channel_spread_u8": 0,
+        "max_channel_spread_u8": 0,
+        "colored_pixel_fraction": 0.0
+      },
+      "glue_gap": {
+        "mean_u8": 15.61514,
+        "stddev_u8": 15.18038,
+        "p95_u8": 43,
+        "min_u8": 6,
+        "max_u8": 109,
+        "mean_rgb": [
+          15.61514,
+          15.61514,
+          15.61514
+        ],
+        "mean_channel_spread_u8": 0.0,
+        "p95_channel_spread_u8": 0,
+        "max_channel_spread_u8": 0,
+        "colored_pixel_fraction": 0.0
+      },
+      "light_on": {
+        "mean_u8": 17.04987,
+        "stddev_u8": 19.40367,
+        "p95_u8": 54,
+        "min_u8": 6,
+        "max_u8": 169,
+        "mean_rgb": [
+          17.04987,
+          17.04987,
+          17.04987
+        ],
+        "mean_channel_spread_u8": 0.0,
+        "p95_channel_spread_u8": 0,
+        "max_channel_spread_u8": 0,
+        "colored_pixel_fraction": 0.0
+      },
+      "light_off": {
+        "mean_u8": 17.04987,
+        "stddev_u8": 19.40367,
+        "p95_u8": 54,
+        "min_u8": 6,
+        "max_u8": 169,
+        "mean_rgb": [
+          17.04987,
+          17.04987,
+          17.04987
+        ],
+        "mean_channel_spread_u8": 0.0,
+        "p95_channel_spread_u8": 0,
+        "max_channel_spread_u8": 0,
+        "colored_pixel_fraction": 0.0
+      },
+      "occluded": {
+        "mean_u8": 13.0687,
+        "stddev_u8": 14.28293,
+        "p95_u8": 29,
+        "min_u8": 6,
+        "max_u8": 169,
+        "mean_rgb": [
+          13.0687,
+          13.0687,
+          13.0687
+        ],
+        "mean_channel_spread_u8": 0.0,
+        "p95_channel_spread_u8": 0,
+        "max_channel_spread_u8": 0,
+        "colored_pixel_fraction": 0.0
+      },
+      "nir_before": {
+        "mean_u8": 105.1039,
+        "stddev_u8": 71.85056,
+        "p95_u8": 217,
+        "min_u8": 0,
+        "max_u8": 246,
+        "mean_rgb": [
+          105.1039,
+          105.1039,
+          105.1039
+        ],
+        "mean_channel_spread_u8": 0.0,
+        "p95_channel_spread_u8": 0,
+        "max_channel_spread_u8": 0,
+        "colored_pixel_fraction": 0.0
+      },
+      "nir_after": {
+        "mean_u8": 105.1039,
+        "stddev_u8": 71.85056,
+        "p95_u8": 217,
+        "min_u8": 0,
+        "max_u8": 246,
+        "mean_rgb": [
+          105.1039,
+          105.1039,
+          105.1039
+        ],
+        "mean_channel_spread_u8": 0.0,
+        "p95_channel_spread_u8": 0,
+        "max_channel_spread_u8": 0,
+        "colored_pixel_fraction": 0.0
+      },
+      "nir_png_bytes_unchanged": {
+        "mean_signed_delta_u8": 0.0,
+        "mean_absolute_delta_u8": 0.0,
+        "changed_fraction": 0.0
+      },
+      "thermal_independent_of_visible_and_nir_lights": {
+        "mean_signed_delta_u8": 0.0,
+        "mean_absolute_delta_u8": 0.0,
+        "changed_fraction": 0.0
+      },
+      "overheated_contrast": {
+        "mean_signed_delta_u8": 102.27778,
+        "mean_absolute_delta_u8": 102.27778,
+        "changed_fraction": 1.0
+      },
+      "heater_fault_contrast": {
+        "mean_signed_delta_u8": -98.35,
+        "mean_absolute_delta_u8": 98.35,
+        "changed_fraction": 1.0
+      },
+      "glue_gap_contrast": {
+        "mean_signed_delta_u8": -49.4375,
+        "mean_absolute_delta_u8": 49.4375,
+        "changed_fraction": 1.0
+      },
+      "glue_intact_control": {
+        "mean_signed_delta_u8": 0.0,
+        "mean_absolute_delta_u8": 0.0,
+        "changed_fraction": 0.0
+      },
+      "glue_gap_intact_contrast_u8": 49.5,
+      "occlusion": {
+        "mean_signed_delta_u8": -144.88889,
+        "mean_absolute_delta_u8": 144.88889,
+        "changed_fraction": 1.0,
+        "apparent_mean_c": 23.92157,
+        "apparent_p95_c": 23.92157
+      },
+      "white_hot_observer": {
+        "mean_u8": 11.19741,
+        "stddev_u8": 10.23993,
+        "p95_u8": 26,
+        "min_u8": 0,
+        "max_u8": 179,
+        "mean_rgb": [
+          11.19741,
+          11.19741,
+          11.19741
+        ],
+        "mean_channel_spread_u8": 0.0,
+        "p95_channel_spread_u8": 0,
+        "max_channel_spread_u8": 0,
+        "colored_pixel_fraction": 0.0
+      },
+      "black_hot_observer": {
+        "mean_u8": 243.79068,
+        "stddev_u8": 10.24396,
+        "p95_u8": 249,
+        "min_u8": 76,
+        "max_u8": 255,
+        "mean_rgb": [
+          243.79068,
+          243.79068,
+          243.79068
+        ],
+        "mean_channel_spread_u8": 0.0,
+        "p95_channel_spread_u8": 0,
+        "max_channel_spread_u8": 0,
+        "colored_pixel_fraction": 0.0
+      },
+      "iron_observer": {
+        "mean_u8": 6.67409,
+        "stddev_u8": 6.15806,
+        "p95_u8": 13,
+        "min_u8": 3,
+        "max_u8": 152,
+        "mean_rgb": [
+          11.61082,
+          1.41787,
+          19.91827
+        ],
+        "mean_channel_spread_u8": 19.29938,
+        "p95_channel_spread_u8": 41,
+        "max_channel_spread_u8": 251,
+        "colored_pixel_fraction": 1.0
+      },
+      "white_black_observer_inverse": {
+        "pearson_luma_correlation": -0.999943,
+        "white_hot_stddev_u8": 10.23993,
+        "black_hot_stddev_u8": 10.24396
+      },
+      "white_hot_thermal_preview": {
+        "mean_u8": 17.1578,
+        "stddev_u8": 19.27634,
+        "p95_u8": 54,
+        "min_u8": 6,
+        "max_u8": 168,
+        "mean_rgb": [
+          17.1578,
+          17.1578,
+          17.1578
+        ],
+        "mean_channel_spread_u8": 0.0,
+        "p95_channel_spread_u8": 0,
+        "max_channel_spread_u8": 0,
+        "colored_pixel_fraction": 0.0
+      },
+      "black_hot_thermal_preview": {
+        "mean_u8": 237.83597,
+        "stddev_u8": 19.28003,
+        "p95_u8": 249,
+        "min_u8": 87,
+        "max_u8": 249,
+        "mean_rgb": [
+          237.83597,
+          237.83597,
+          237.83597
+        ],
+        "mean_channel_spread_u8": 0.0,
+        "p95_channel_spread_u8": 0,
+        "max_channel_spread_u8": 0,
+        "colored_pixel_fraction": 0.0
+      },
+      "iron_thermal_preview": {
+        "mean_u8": 9.82783,
+        "stddev_u8": 11.37369,
+        "p95_u8": 27,
+        "min_u8": 4,
+        "max_u8": 143,
+        "mean_rgb": [
+          18.73401,
+          2.25409,
+          25.49271
+        ],
+        "mean_channel_spread_u8": 27.22542,
+        "p95_channel_spread_u8": 74,
+        "max_channel_spread_u8": 241,
+        "colored_pixel_fraction": 1.0
+      },
+      "white_black_thermal_preview_inverse": {
+        "pearson_luma_correlation": -0.999992,
+        "white_hot_stddev_u8": 19.27634,
+        "black_hot_stddev_u8": 19.28003
+      }
+    },
+    "errors": [],
+    "runtime": {
+      "observer_material_loaded": true,
+      "sensor_material_loaded": true,
+      "temperature_lut_loaded": true,
+      "emissivity_lut_loaded": true,
+      "thermal_sent_to_nir_contract": false,
+      "nir_contract_unchanged": true,
+      "nir_png_unchanged": true,
+      "adapter_ready": false,
+      "radiometry_self_test": true,
+      "async_snapshot_matches_raw": true,
+      "stale_snapshot_rejected": true,
+      "stale_preview_rejected": true,
+      "async_snapshot": "unreal/Saved/Thermal/7C1AEB72476927A048CC8194F1B9E685.png",
+      "qa_screen_regions": {
+        "thermal_preview": [
+          1054,
+          535,
+          1348,
+          703
+        ]
+      },
+      "nir_inference_requests_before": 0,
+      "nir_inference_requests_after": 0,
+      "thermal_inference_requests": 0,
+      "cpu_readbacks_in_live_thermal_preview": 0,
+      "nir_contract_version": "automotive-inspection-v1",
+      "nir_prompt_sha256": "a43db23a0d91a26fad7dac074d7fdb2867da3ac2d44622f73034f2c2f16efaf0",
+      "thermal_encoding": {
+        "width": 448,
+        "height": 256,
+        "min_temperature_c": 20,
+        "max_temperature_c": 120,
+        "ambient_temperature_c": 24,
+        "band_um": [
+          8,
+          14
+        ],
+        "quantity": "apparent_temperature",
+        "linear_u8": true,
+        "model": "Flat-response 8-14um Planck band; graybody emissivity + reflected ambient; object-local surface field and V/A cooling proxy; no solved heat transport",
+        "field_model": "object-local-cooling-v1",
+        "spatial_fields_enabled": true,
+        "cooling_age_seconds": 15,
+        "cooling_time_constant_seconds_per_cm": 30
+      },
+      "qa_regions": {
+        "target_module": [
+          243,
+          112,
+          249,
+          118
+        ],
+        "occluder": [
+          243,
+          112,
+          249,
+          118
+        ],
+        "heater": [
+          418,
+          113,
+          422,
+          123
+        ],
+        "glue_gap": [
+          105,
+          77,
+          109,
+          81
+        ],
+        "glue_intact": [
+          116,
+          83,
+          120,
+          87
+        ]
+      },
+      "registered_profiles": 78,
+      "gpu_captures": 45,
+      "explicit_test_readbacks": 17,
+      "passed": true
+    },
+    "encoding_note": "20..120 degC apparent temperature, 100/255 = 0.392157 degC per count; simulated 8-14 um radiance with emissivity/reflected ambient.",
+    "qa_regions": {
+      "target_module": [
+        243,
+        112,
+        249,
+        118
+      ],
+      "heater": [
+        418,
+        113,
+        422,
+        123
+      ],
+      "glue_gap": [
+        105,
+        77,
+        109,
+        81
+      ],
+      "glue_intact": [
+        116,
+        83,
+        120,
+        87
+      ],
+      "occluder": [
+        243,
+        112,
+        249,
+        118
+      ]
+    },
+    "qa_screen_regions": {
+      "observer": [
+        30,
+        150,
+        990,
+        700
+      ],
+      "thermal_preview": [
+        1054,
+        535,
+        1348,
+        703
+      ]
+    },
+    "thermal_preview_palette_checked": true,
+    "performance": {
+      "measured": false,
+      "modes": {},
+      "note": "Optional total-frame timings; no claim of GPU-only time or target FPS without an explicit measured budget."
+    },
+    "passed": true,
+    "failed_checks": []
+  },
+  "source_sha256": {
+    "unreal/Shaders/ThermalPostProcess.usf": "bbc1223facfa873b4f6ec92d8805139a2a777f9659536cb6974bc39945004acd",
+    "unreal/Shaders/ThermalCommon.ush": "978d63217723ac11ef08673d6b2f3f397b1e200f43bceb925cfbf0ec56e765b8",
+    "unreal/Scripts/setup_content.py": "c35ce979025491571379bee15040d7d9b81fb6b2ad2914bce55dfd80b4207b6a",
+    "unreal/Source/DarkFactory/DarkFactoryThermalRig.cpp": "25b30960a29ff0e1296109c56b21b24a9a700bef38ab381b657407a1bb84f047",
+    "unreal/Source/DarkFactory/DarkFactoryThermalRadiometry.cpp": "a6596f977ff8e6808ead89e0e263da276c161bae1bee5becdb13437802b014c5",
+    "scripts/verify_thermal_fields.py": "f03e30064aaa72e453e89e790c11d285302ab84e20b74ca3811f02f89951837a"
+  },
+  "nir_bridge_regression": {
+    "passed": true,
+    "scope": "Local mock plumbing only; no Cosmos or IQ9 inference",
+    "cases": [
+      {
+        "expected": "G",
+        "passed": true,
+        "capture_stats": {
+          "gpu_preview": 76,
+          "async_readbacks": 1,
+          "sync_readbacks": 0,
+          "stale_discarded": 0,
+          "cpu_preview_uploads": 0
+        }
+      },
+      {
+        "expected": "A",
+        "passed": true,
+        "capture_stats": {
+          "gpu_preview": 77,
+          "async_readbacks": 5,
+          "sync_readbacks": 0,
+          "stale_discarded": 0,
+          "cpu_preview_uploads": 0
+        }
+      },
+      {
+        "expected": "R",
+        "passed": true,
+        "capture_stats": {
+          "gpu_preview": 77,
+          "async_readbacks": 1,
+          "sync_readbacks": 0,
+          "stale_discarded": 0,
+          "cpu_preview_uploads": 0
+        }
+      },
+      {
+        "expected": "ERROR",
+        "passed": true,
+        "capture_stats": {
+          "gpu_preview": 77,
+          "async_readbacks": 3,
+          "sync_readbacks": 0,
+          "stale_discarded": 0,
+          "cpu_preview_uploads": 0
+        }
+      }
+    ]
+  }
+}

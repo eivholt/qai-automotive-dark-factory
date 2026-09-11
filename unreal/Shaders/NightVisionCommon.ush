@@ -1,0 +1,63 @@
+// Canonical shared image-intensifier DISPLAY approximation. This is not a
+// spectral sensor, electron-tube simulation, thermal image, or model input.
+// setup_content.py embeds this source into both generated Custom expressions.
+struct FDarkFactoryNV
+{
+    float Luma(float3 Color)
+    {
+        return max(dot(Color, float3(0.2126, 0.7152, 0.0722)), 0.0);
+    }
+
+    float Hash(float2 Pixel, float Frame, float Seed)
+    {
+        // Integer screen-pixel coordinates keep grain fine at any HUD size.
+        float3 P = frac(float3(Pixel.x, Pixel.y, Frame + Seed * 19.19) * 0.1031);
+        P += dot(P, P.yzx + 33.33);
+        return frac((P.x + P.y) * P.z);
+    }
+
+    float BrightSignal(float3 Color)
+    {
+        // Dark regions cannot create halo. Threshold is display luminance.
+        float L = Luma(Color);
+        return max(L - 0.68, 0.0) * smoothstep(0.68, 1.0, L);
+    }
+
+    float3 Display(float Luminance, float Halo, float2 UV, float2 Pixel,
+        float Gain, float Grain, float Vignette, float Phosphor,
+        float Frame, float Seed, float HaloAmount)
+    {
+        float Signal = max(Luminance, 0.0) * clamp(Gain, 0.0, 5.0);
+        Signal += max(Halo, 0.0) * clamp(HaloAmount, 0.0, 1.0);
+        // Soft compression prevents gain from turning every module pure white.
+        float Level = 1.0 - exp(-Signal * 1.65);
+        // Recover viewport aspect from UV derivatives. This measures a round
+        // optical radius in screen pixels, even when the sensor inset is resized.
+        // Normalize to the corners for a gentle falloff without a hard iris mask.
+        float Aspect = clamp(abs(ddy(UV.y)) / max(abs(ddx(UV.x)), 1e-6), 0.25, 4.0);
+        float2 Lens = (UV - 0.5) * 2.0 * float2(Aspect, 1.0);
+        float RadiusSquared = dot(Lens, Lens) / (Aspect * Aspect + 1.0);
+        float Edge = pow(saturate(RadiusSquared), 1.20);
+        Level *= 1.0 - clamp(Vignette, 0.0, 0.85) * Edge;
+
+        float2 GrainPixel = floor(Pixel);
+        float Tick = floor(Frame);
+        float Noise = Hash(GrainPixel, Tick, Seed)
+            + Hash(GrainPixel + float2(71.0, 29.0), Tick + 13.0, Seed) - 1.0;
+        // Small read floor + shot-like sqrt(signal): absolute noise increases
+        // with signal while relative noise is strongest in dim regions.
+        float NoiseScale = clamp(Grain, 0.0, 0.20)
+            * (0.055 + 0.72 * sqrt(saturate(Level)));
+        Level = saturate(Level + Noise * NoiseScale);
+
+        // P43-inspired yellow-green display palette, artist-controlled RGB.
+        // Every term tends to zero at zero signal; there is no green fog.
+        float3 Shadow = float3(0.018, 0.38, 0.065) * Level;
+        float3 Midtone = float3(0.070, 0.82, 0.130) * Level;
+        float3 Highlight = float3(0.86, 1.00, 0.63) * Level;
+        float3 Green = lerp(Shadow, Midtone, smoothstep(0.00, 0.48, Level));
+        Green = lerp(Green, Highlight, smoothstep(0.55, 0.98, Level));
+        return saturate(lerp(Level.xxx, Green, saturate(Phosphor)));
+    }
+};
+

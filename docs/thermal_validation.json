@@ -1,0 +1,657 @@
+{
+  "scope": "GPU thermal rendering QA; apparent-temperature proxy, no thermal model or radiometric calibration.",
+  "directory": "artifacts/thermal-v1",
+  "thresholds": {
+    "roi_min_pixels": 16,
+    "anomaly_mean_delta_u8_min": 5.0,
+    "anomaly_changed_fraction_min": 0.1,
+    "changed_pixel_delta_u8_min": 3,
+    "intact_glue_mean_drift_u8_max": 3.0,
+    "glue_gap_intact_contrast_u8_min": 5.0,
+    "occlusion_mean_drop_u8_min": 10.0,
+    "occlusion_ambient_mean_tolerance_c": 3.0,
+    "occlusion_ambient_p95_tolerance_c": 5.0,
+    "palette_gray_mean_spread_u8_max": 2.0,
+    "palette_gray_p95_spread_u8_max": 4,
+    "white_black_correlation_max": -0.6,
+    "white_black_luma_stddev_min": 3.0,
+    "iron_mean_spread_u8_min": 3.0,
+    "iron_color_fraction_min": 0.03
+  },
+  "checks": {
+    "runtime_observer_material_loaded": true,
+    "runtime_sensor_material_loaded": true,
+    "runtime_temperature_lut_loaded": true,
+    "runtime_emissivity_lut_loaded": true,
+    "runtime_nir_contract_unchanged": true,
+    "runtime_async_snapshot_matches_raw": true,
+    "runtime_radiometry_self_test": true,
+    "runtime_stale_snapshot_rejected": true,
+    "runtime_stale_preview_rejected": true,
+    "runtime_passed": true,
+    "runtime_thermal_sent_to_nir_contract_false": true,
+    "runtime_adapter_ready_false": true,
+    "no_inference_requests_during_thermal_smoke": true,
+    "live_thermal_preview_has_no_cpu_readbacks": true,
+    "nir_contract_identity_matches_repository": true,
+    "declared_linear_apparent_temperature_encoding": true,
+    "projected_raw_regions_valid": true,
+    "normal_exact_grayscale": true,
+    "overheated_exact_grayscale": true,
+    "heater_fault_exact_grayscale": true,
+    "glue_gap_exact_grayscale": true,
+    "light_on_exact_grayscale": true,
+    "light_off_exact_grayscale": true,
+    "occluded_exact_grayscale": true,
+    "nir_before_exact_grayscale": true,
+    "nir_after_exact_grayscale": true,
+    "all_expected_pngs_valid": true,
+    "nir_png_bytes_unchanged": true,
+    "thermal_independent_of_visible_and_nir_lights": true,
+    "overheated_has_expected_local_temperature_change": true,
+    "heater_fault_has_expected_local_temperature_change": true,
+    "glue_gap_has_expected_local_temperature_change": true,
+    "glue_gap_preserves_intact_heated_glue": true,
+    "opaque_cover_blocks_hot_custom_depth_surface": true,
+    "white_hot_observer_neutral": true,
+    "black_hot_observer_neutral": true,
+    "iron_observer_uses_color": true,
+    "white_black_observer_inverse": true,
+    "white_hot_thermal_preview_neutral": true,
+    "black_hot_thermal_preview_neutral": true,
+    "iron_thermal_preview_uses_color": true,
+    "white_black_thermal_preview_inverse": true
+  },
+  "files": {
+    "normal": {
+      "sha256": "c5010071e7ad976ab6e1795ac59a48d44c0cae27a61157a4db0edd205844efab",
+      "bytes": 7364,
+      "size": [
+        448,
+        256
+      ]
+    },
+    "overheated": {
+      "sha256": "cc3a4227fde9dfdcbe01093c1d100ace598ea5159fec202eeb9ffb6339aeea01",
+      "bytes": 7665,
+      "size": [
+        448,
+        256
+      ]
+    },
+    "heater_fault": {
+      "sha256": "f2f5759253f9242536faa162d57ed18e7ca379dcc936f1665fb7b5b12b7fa9b6",
+      "bytes": 7409,
+      "size": [
+        448,
+        256
+      ]
+    },
+    "glue_gap": {
+      "sha256": "3fa4ec4da509a344565ec9a4746af54f14cd5d6e8c4c6ac1ee48cf9e0127eb78",
+      "bytes": 7390,
+      "size": [
+        448,
+        256
+      ]
+    },
+    "light_on": {
+      "sha256": "cc3a4227fde9dfdcbe01093c1d100ace598ea5159fec202eeb9ffb6339aeea01",
+      "bytes": 7665,
+      "size": [
+        448,
+        256
+      ]
+    },
+    "light_off": {
+      "sha256": "cc3a4227fde9dfdcbe01093c1d100ace598ea5159fec202eeb9ffb6339aeea01",
+      "bytes": 7665,
+      "size": [
+        448,
+        256
+      ]
+    },
+    "occluded": {
+      "sha256": "8b4a52027a138894dfffae0b5382e7abc6df127beb278c2a7f55162e66c2ba5d",
+      "bytes": 7331,
+      "size": [
+        448,
+        256
+      ]
+    },
+    "nir_before": {
+      "sha256": "a5ecfe9fe65d7f479939a724d3d83f895a7f9d58ebb58dbe8e2472ec2f06c863",
+      "bytes": 109309,
+      "size": [
+        448,
+        256
+      ]
+    },
+    "nir_after": {
+      "sha256": "a5ecfe9fe65d7f479939a724d3d83f895a7f9d58ebb58dbe8e2472ec2f06c863",
+      "bytes": 109309,
+      "size": [
+        448,
+        256
+      ]
+    },
+    "white_hot": {
+      "sha256": "a49327cadda957e71327a2e29bd81c02c2f5e859d7e36bc57f04278010bc2408",
+      "bytes": 357404,
+      "size": [
+        1600,
+        900
+      ]
+    },
+    "black_hot": {
+      "sha256": "3ef4610a9001bd3392e49bcdeefaaae43ff27fa10d96e24a8cd1998b45565659",
+      "bytes": 358787,
+      "size": [
+        1600,
+        900
+      ]
+    },
+    "iron": {
+      "sha256": "3d905705e6371e67a0b44ccfe85666b717889fca6b76f7e1be5177c334d8a0b7",
+      "bytes": 365791,
+      "size": [
+        1600,
+        900
+      ]
+    }
+  },
+  "stats": {
+    "normal": {
+      "mean_u8": 19.70012,
+      "stddev_u8": 21.61082,
+      "p95_u8": 60,
+      "min_u8": 5,
+      "max_u8": 109,
+      "mean_rgb": [
+        19.70012,
+        19.70012,
+        19.70012
+      ],
+      "mean_channel_spread_u8": 0.0,
+      "p95_channel_spread_u8": 0,
+      "max_channel_spread_u8": 0,
+      "colored_pixel_fraction": 0.0
+    },
+    "overheated": {
+      "mean_u8": 22.78905,
+      "stddev_u8": 32.77248,
+      "p95_u8": 94,
+      "min_u8": 5,
+      "max_u8": 179,
+      "mean_rgb": [
+        22.78905,
+        22.78905,
+        22.78905
+      ],
+      "mean_channel_spread_u8": 0.0,
+      "p95_channel_spread_u8": 0,
+      "max_channel_spread_u8": 0,
+      "colored_pixel_fraction": 0.0
+    },
+    "heater_fault": {
+      "mean_u8": 18.69275,
+      "stddev_u8": 19.64246,
+      "p95_u8": 60,
+      "min_u8": 5,
+      "max_u8": 109,
+      "mean_rgb": [
+        18.69275,
+        18.69275,
+        18.69275
+      ],
+      "mean_channel_spread_u8": 0.0,
+      "p95_channel_spread_u8": 0,
+      "max_channel_spread_u8": 0,
+      "colored_pixel_fraction": 0.0
+    },
+    "glue_gap": {
+      "mean_u8": 19.63849,
+      "stddev_u8": 21.50696,
+      "p95_u8": 60,
+      "min_u8": 5,
+      "max_u8": 109,
+      "mean_rgb": [
+        19.63849,
+        19.63849,
+        19.63849
+      ],
+      "mean_channel_spread_u8": 0.0,
+      "p95_channel_spread_u8": 0,
+      "max_channel_spread_u8": 0,
+      "colored_pixel_fraction": 0.0
+    },
+    "light_on": {
+      "mean_u8": 22.78905,
+      "stddev_u8": 32.77248,
+      "p95_u8": 94,
+      "min_u8": 5,
+      "max_u8": 179,
+      "mean_rgb": [
+        22.78905,
+        22.78905,
+        22.78905
+      ],
+      "mean_channel_spread_u8": 0.0,
+      "p95_channel_spread_u8": 0,
+      "max_channel_spread_u8": 0,
+      "colored_pixel_fraction": 0.0
+    },
+    "light_off": {
+      "mean_u8": 22.78905,
+      "stddev_u8": 32.77248,
+      "p95_u8": 94,
+      "min_u8": 5,
+      "max_u8": 179,
+      "mean_rgb": [
+        22.78905,
+        22.78905,
+        22.78905
+      ],
+      "mean_channel_spread_u8": 0.0,
+      "p95_channel_spread_u8": 0,
+      "max_channel_spread_u8": 0,
+      "colored_pixel_fraction": 0.0
+    },
+    "occluded": {
+      "mean_u8": 14.41706,
+      "stddev_u8": 18.51176,
+      "p95_u8": 32,
+      "min_u8": 5,
+      "max_u8": 179,
+      "mean_rgb": [
+        14.41706,
+        14.41706,
+        14.41706
+      ],
+      "mean_channel_spread_u8": 0.0,
+      "p95_channel_spread_u8": 0,
+      "max_channel_spread_u8": 0,
+      "colored_pixel_fraction": 0.0
+    },
+    "nir_before": {
+      "mean_u8": 105.1039,
+      "stddev_u8": 71.85056,
+      "p95_u8": 217,
+      "min_u8": 0,
+      "max_u8": 246,
+      "mean_rgb": [
+        105.1039,
+        105.1039,
+        105.1039
+      ],
+      "mean_channel_spread_u8": 0.0,
+      "p95_channel_spread_u8": 0,
+      "max_channel_spread_u8": 0,
+      "colored_pixel_fraction": 0.0
+    },
+    "nir_after": {
+      "mean_u8": 105.1039,
+      "stddev_u8": 71.85056,
+      "p95_u8": 217,
+      "min_u8": 0,
+      "max_u8": 246,
+      "mean_rgb": [
+        105.1039,
+        105.1039,
+        105.1039
+      ],
+      "mean_channel_spread_u8": 0.0,
+      "p95_channel_spread_u8": 0,
+      "max_channel_spread_u8": 0,
+      "colored_pixel_fraction": 0.0
+    },
+    "nir_png_bytes_unchanged": {
+      "mean_signed_delta_u8": 0.0,
+      "mean_absolute_delta_u8": 0.0,
+      "changed_fraction": 0.0
+    },
+    "thermal_independent_of_visible_and_nir_lights": {
+      "mean_signed_delta_u8": 0.0,
+      "mean_absolute_delta_u8": 0.0,
+      "changed_fraction": 0.0
+    },
+    "overheated_contrast": {
+      "mean_signed_delta_u8": 119.0,
+      "mean_absolute_delta_u8": 119.0,
+      "changed_fraction": 1.0
+    },
+    "heater_fault_contrast": {
+      "mean_signed_delta_u8": -99.0,
+      "mean_absolute_delta_u8": 99.0,
+      "changed_fraction": 1.0
+    },
+    "glue_gap_contrast": {
+      "mean_signed_delta_u8": -76.0,
+      "mean_absolute_delta_u8": 76.0,
+      "changed_fraction": 1.0
+    },
+    "glue_intact_control": {
+      "mean_signed_delta_u8": 0.0,
+      "mean_absolute_delta_u8": 0.0,
+      "changed_fraction": 0.0
+    },
+    "glue_gap_intact_contrast_u8": 76.0,
+    "occlusion": {
+      "mean_signed_delta_u8": -169.0,
+      "mean_absolute_delta_u8": 169.0,
+      "changed_fraction": 1.0,
+      "apparent_mean_c": 23.92157,
+      "apparent_p95_c": 23.92157
+    },
+    "white_hot_observer": {
+      "mean_u8": 12.45938,
+      "stddev_u8": 19.08169,
+      "p95_u8": 32,
+      "min_u8": 0,
+      "max_u8": 208,
+      "mean_rgb": [
+        12.45938,
+        12.45938,
+        12.45938
+      ],
+      "mean_channel_spread_u8": 0.0,
+      "p95_channel_spread_u8": 0,
+      "max_channel_spread_u8": 0,
+      "colored_pixel_fraction": 0.0
+    },
+    "black_hot_observer": {
+      "mean_u8": 242.39892,
+      "stddev_u8": 19.10379,
+      "p95_u8": 250,
+      "min_u8": 47,
+      "max_u8": 255,
+      "mean_rgb": [
+        242.39892,
+        242.39892,
+        242.39892
+      ],
+      "mean_channel_spread_u8": 0.0,
+      "p95_channel_spread_u8": 0,
+      "max_channel_spread_u8": 0,
+      "colored_pixel_fraction": 0.0
+    },
+    "iron_observer": {
+      "mean_u8": 8.12341,
+      "stddev_u8": 15.51141,
+      "p95_u8": 16,
+      "min_u8": 1,
+      "max_u8": 175,
+      "mean_rgb": [
+        13.66085,
+        2.61173,
+        19.94708
+      ],
+      "mean_channel_spread_u8": 20.65959,
+      "p95_channel_spread_u8": 50,
+      "max_channel_spread_u8": 238,
+      "colored_pixel_fraction": 0.999973
+    },
+    "white_black_observer_inverse": {
+      "pearson_luma_correlation": -0.999834,
+      "white_hot_stddev_u8": 19.08169,
+      "black_hot_stddev_u8": 19.10379
+    },
+    "white_hot_thermal_preview": {
+      "mean_u8": 23.06307,
+      "stddev_u8": 32.79822,
+      "p95_u8": 93,
+      "min_u8": 5,
+      "max_u8": 179,
+      "mean_rgb": [
+        23.06307,
+        23.06307,
+        23.06307
+      ],
+      "mean_channel_spread_u8": 0.0,
+      "p95_channel_spread_u8": 0,
+      "max_channel_spread_u8": 0,
+      "colored_pixel_fraction": 0.0
+    },
+    "black_hot_thermal_preview": {
+      "mean_u8": 231.93631,
+      "stddev_u8": 32.79864,
+      "p95_u8": 250,
+      "min_u8": 76,
+      "max_u8": 250,
+      "mean_rgb": [
+        231.93631,
+        231.93631,
+        231.93631
+      ],
+      "mean_channel_spread_u8": 0.0,
+      "p95_channel_spread_u8": 0,
+      "max_channel_spread_u8": 0,
+      "colored_pixel_fraction": 0.0
+    },
+    "iron_thermal_preview": {
+      "mean_u8": 14.66604,
+      "stddev_u8": 26.22482,
+      "p95_u8": 52,
+      "min_u8": 4,
+      "max_u8": 160,
+      "mean_rgb": [
+        26.57009,
+        5.87642,
+        27.10947
+      ],
+      "mean_channel_spread_u8": 33.42308,
+      "p95_channel_spread_u8": 126,
+      "max_channel_spread_u8": 241,
+      "colored_pixel_fraction": 1.0
+    },
+    "white_black_thermal_preview_inverse": {
+      "pearson_luma_correlation": -1.0,
+      "white_hot_stddev_u8": 32.79822,
+      "black_hot_stddev_u8": 32.79864
+    }
+  },
+  "errors": [],
+  "runtime": {
+    "observer_material_loaded": true,
+    "sensor_material_loaded": true,
+    "temperature_lut_loaded": true,
+    "emissivity_lut_loaded": true,
+    "thermal_sent_to_nir_contract": false,
+    "nir_contract_unchanged": true,
+    "nir_png_unchanged": true,
+    "adapter_ready": false,
+    "radiometry_self_test": true,
+    "async_snapshot_matches_raw": true,
+    "stale_snapshot_rejected": true,
+    "stale_preview_rejected": true,
+    "async_snapshot": "unreal/Saved/Thermal/EF24014242DC86AF821970AC38F73A6B.png",
+    "qa_screen_regions": {
+      "thermal_preview": [
+        1054,
+        535,
+        1348,
+        703
+      ]
+    },
+    "nir_inference_requests_before": 0,
+    "nir_inference_requests_after": 0,
+    "thermal_inference_requests": 0,
+    "cpu_readbacks_in_live_thermal_preview": 0,
+    "nir_contract_version": "automotive-inspection-v1",
+    "nir_prompt_sha256": "a43db23a0d91a26fad7dac074d7fdb2867da3ac2d44622f73034f2c2f16efaf0",
+    "thermal_encoding": {
+      "width": 448,
+      "height": 256,
+      "min_temperature_c": 20,
+      "max_temperature_c": 120,
+      "ambient_temperature_c": 24,
+      "band_um": [
+        8,
+        14
+      ],
+      "quantity": "apparent_temperature",
+      "linear_u8": true,
+      "model": "Flat-response 8-14um Planck band; graybody emissivity + uniform reflected ambient; opaque surfaces; no atmosphere or heat transport"
+    },
+    "qa_regions": {
+      "target_module": [
+        243,
+        112,
+        249,
+        118
+      ],
+      "occluder": [
+        243,
+        112,
+        249,
+        118
+      ],
+      "heater": [
+        418,
+        113,
+        422,
+        123
+      ],
+      "glue_gap": [
+        105,
+        77,
+        109,
+        81
+      ],
+      "glue_intact": [
+        116,
+        83,
+        120,
+        87
+      ]
+    },
+    "registered_profiles": 78,
+    "gpu_captures": 36,
+    "explicit_test_readbacks": 9,
+    "passed": true
+  },
+  "encoding_note": "20..120 degC apparent temperature, 100/255 = 0.392157 degC per count; simulated 8-14 um radiance with emissivity/reflected ambient.",
+  "qa_regions": {
+    "target_module": [
+      243,
+      112,
+      249,
+      118
+    ],
+    "heater": [
+      418,
+      113,
+      422,
+      123
+    ],
+    "glue_gap": [
+      105,
+      77,
+      109,
+      81
+    ],
+    "glue_intact": [
+      116,
+      83,
+      120,
+      87
+    ],
+    "occluder": [
+      243,
+      112,
+      249,
+      118
+    ]
+  },
+  "qa_screen_regions": {
+    "observer": [
+      30,
+      150,
+      990,
+      700
+    ],
+    "thermal_preview": [
+      1054,
+      535,
+      1348,
+      703
+    ]
+  },
+  "thermal_preview_palette_checked": true,
+  "performance": {
+    "measured": false,
+    "modes": {},
+    "note": "Optional total-frame timings; no claim of GPU-only time or target FPS without an explicit measured budget."
+  },
+  "passed": true,
+  "failed_checks": [],
+  "verified_date": "2026-09-11",
+  "render_environment": {
+    "engine": "Unreal Engine 5.8.1",
+    "rhi": "D3D12 SM6",
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "observer_resolution": [
+      1600,
+      900
+    ]
+  },
+  "source_sha256": {
+    "unreal/Shaders/ThermalCommon.ush": "978d63217723ac11ef08673d6b2f3f397b1e200f43bceb925cfbf0ec56e765b8",
+    "unreal/Shaders/ThermalPostProcess.usf": "6bae55dee45e5426d6c7b756952e639566026675c7d357aa597930b0284c09da",
+    "unreal/Shaders/ThermalSensorUI.usf": "9e19c88b6264caa32569a85205912a9e9c3cc4fcb56f75180ede1665e3ed7a19",
+    "unreal/Source/DarkFactory/DarkFactoryThermalRig.cpp": "856389fb11809748c05f079cef97981b44cc9eddcfcc7381495dce381359b73f",
+    "unreal/Source/DarkFactory/DarkFactoryThermalRadiometry.cpp": "a6596f977ff8e6808ead89e0e263da276c161bae1bee5becdb13437802b014c5",
+    "unreal/Scripts/setup_content.py": "34c44718b74a8a04bb9f35825785e5a6af409fe7f5d0dcca72010c5bd1855b78",
+    "scripts/verify_thermal.py": "a1d6aa268a5e4701b5470d1e33f4bf3e3330948b5d1e7a82eec611056eda4dbd"
+  },
+  "nir_bridge_regression": {
+    "passed": true,
+    "scope": "Local mock plumbing only; no Cosmos or IQ9 inference",
+    "cases": [
+      {
+        "decision": "G",
+        "passed": true,
+        "capture_stats": {
+          "gpu_preview": 77,
+          "async_readbacks": 1,
+          "sync_readbacks": 0,
+          "stale_discarded": 0,
+          "cpu_preview_uploads": 0
+        }
+      },
+      {
+        "decision": "A",
+        "passed": true,
+        "capture_stats": {
+          "gpu_preview": 76,
+          "async_readbacks": 5,
+          "sync_readbacks": 0,
+          "stale_discarded": 0,
+          "cpu_preview_uploads": 0
+        }
+      },
+      {
+        "decision": "R",
+        "passed": true,
+        "capture_stats": {
+          "gpu_preview": 76,
+          "async_readbacks": 1,
+          "sync_readbacks": 0,
+          "stale_discarded": 0,
+          "cpu_preview_uploads": 0
+        }
+      },
+      {
+        "decision": "ERROR",
+        "passed": true,
+        "capture_stats": {
+          "gpu_preview": 77,
+          "async_readbacks": 3,
+          "sync_readbacks": 0,
+          "stale_discarded": 0,
+          "cpu_preview_uploads": 0
+        }
+      }
+    ]
+  }
+}

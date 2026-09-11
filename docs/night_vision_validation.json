@@ -1,0 +1,325 @@
+{
+  "scope": "Rendered display-shader QA only; no model inference or spectral-camera validation.",
+  "directory": "artifacts/gpu-night-vision-fast",
+  "screen_size": [
+    1600,
+    900
+  ],
+  "crops": {
+    "observer": [
+      30,
+      150,
+      990,
+      710
+    ],
+    "preview": [
+      1055,
+      114,
+      1525,
+      375
+    ]
+  },
+  "thresholds": {
+    "green_channel_mean_min": 8.0,
+    "green_mean_advantage_min": 6.0,
+    "green_dominant_fraction_min": 0.3,
+    "monochrome_mean_channel_spread_max": 2.0,
+    "monochrome_p95_channel_spread_max": 4,
+    "grain_green_mean_abs_change_min": 0.25,
+    "grain_green_abs_change_stddev_min": 0.3,
+    "grain_changed_pixel_fraction_min": 0.05,
+    "dark_luma_mean_max": 3.0,
+    "dark_max_channel_p95_max": 12,
+    "dark_pixels_above_12_fraction_max": 0.02
+  },
+  "checks": {
+    "runtime_observer_material_loaded": true,
+    "runtime_preview_material_loaded": true,
+    "runtime_model_png_unchanged": true,
+    "runtime_model_recapture_unchanged": true,
+    "runtime_sensor_infrared_locked": true,
+    "runtime_passed": true,
+    "all_expected_pngs_valid": true,
+    "model_png_bytes_identical": true,
+    "model_before_exact_grayscale": true,
+    "model_after_exact_grayscale": true,
+    "green_observer_green": true,
+    "green_preview_green": true,
+    "green_next_frame_observer_green": true,
+    "green_next_frame_preview_green": true,
+    "monochrome_observer_neutral": true,
+    "monochrome_preview_neutral": true,
+    "dark_observer_near_black": true,
+    "dark_observer_preview_still_green": true,
+    "observer_animated_grain": true,
+    "preview_animated_grain": true
+  },
+  "stats": {
+    "model_before": {
+      "mean_rgb": [
+        98.50207,
+        98.50207,
+        98.50207
+      ],
+      "luma_mean": 98.50207,
+      "luma_p95": 217,
+      "mean_green_advantage": 0.0,
+      "green_dominant_fraction": 0.0,
+      "mean_channel_spread": 0.0,
+      "p95_channel_spread": 0,
+      "max_channel_spread": 0,
+      "max_channel_p95": 217,
+      "pixels_above_12_fraction": 0.871259
+    },
+    "model_after": {
+      "mean_rgb": [
+        98.50207,
+        98.50207,
+        98.50207
+      ],
+      "luma_mean": 98.50207,
+      "luma_p95": 217,
+      "mean_green_advantage": 0.0,
+      "green_dominant_fraction": 0.0,
+      "mean_channel_spread": 0.0,
+      "p95_channel_spread": 0,
+      "max_channel_spread": 0,
+      "max_channel_p95": 217,
+      "pixels_above_12_fraction": 0.871259
+    },
+    "green": {
+      "observer": {
+        "mean_rgb": [
+          3.84722,
+          21.5864,
+          4.71377
+        ],
+        "luma_mean": 14.38864,
+        "luma_p95": 74,
+        "mean_green_advantage": 16.87262,
+        "green_dominant_fraction": 0.343979,
+        "mean_channel_spread": 18.13958,
+        "p95_channel_spread": 102,
+        "max_channel_spread": 123,
+        "max_channel_p95": 118,
+        "pixels_above_12_fraction": 0.308276
+      },
+      "preview": {
+        "mean_rgb": [
+          12.07872,
+          53.25364,
+          13.14696
+        ],
+        "luma_mean": 36.40178,
+        "luma_p95": 133,
+        "mean_green_advantage": 40.10668,
+        "green_dominant_fraction": 0.628948,
+        "mean_channel_spread": 42.59056,
+        "p95_channel_spread": 109,
+        "max_channel_spread": 112,
+        "max_channel_p95": 172,
+        "pixels_above_12_fraction": 0.586932
+      }
+    },
+    "green_next_frame": {
+      "observer": {
+        "mean_rgb": [
+          3.84733,
+          21.58967,
+          4.71443
+        ],
+        "luma_mean": 14.39054,
+        "luma_p95": 74,
+        "mean_green_advantage": 16.87524,
+        "green_dominant_fraction": 0.344115,
+        "mean_channel_spread": 18.14287,
+        "p95_channel_spread": 102,
+        "max_channel_spread": 123,
+        "max_channel_p95": 118,
+        "pixels_above_12_fraction": 0.308361
+      },
+      "preview": {
+        "mean_rgb": [
+          12.0819,
+          53.25026,
+          13.14766
+        ],
+        "luma_mean": 36.40033,
+        "luma_p95": 133,
+        "mean_green_advantage": 40.1026,
+        "green_dominant_fraction": 0.628801,
+        "mean_channel_spread": 42.58586,
+        "p95_channel_spread": 109,
+        "max_channel_spread": 112,
+        "max_channel_p95": 172,
+        "pixels_above_12_fraction": 0.586663
+      }
+    },
+    "monochrome": {
+      "observer": {
+        "mean_rgb": [
+          30.21312,
+          30.21312,
+          30.21312
+        ],
+        "luma_mean": 30.21312,
+        "luma_p95": 143,
+        "mean_green_advantage": 0.0,
+        "green_dominant_fraction": 0.0,
+        "mean_channel_spread": 0.0,
+        "p95_channel_spread": 0,
+        "max_channel_spread": 0,
+        "max_channel_p95": 143,
+        "pixels_above_12_fraction": 0.3999
+      },
+      "preview": {
+        "mean_rgb": [
+          68.41493,
+          68.41493,
+          68.41493
+        ],
+        "luma_mean": 68.41493,
+        "luma_p95": 191,
+        "mean_green_advantage": 0.0,
+        "green_dominant_fraction": 0.0,
+        "mean_channel_spread": 0.0,
+        "p95_channel_spread": 0,
+        "max_channel_spread": 0,
+        "max_channel_p95": 191,
+        "pixels_above_12_fraction": 0.708535
+      }
+    },
+    "observer_dark": {
+      "observer": {
+        "mean_rgb": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "luma_mean": 0.0,
+        "luma_p95": 0,
+        "mean_green_advantage": 0.0,
+        "green_dominant_fraction": 0.0,
+        "mean_channel_spread": 0.0,
+        "p95_channel_spread": 0,
+        "max_channel_spread": 0,
+        "max_channel_p95": 0,
+        "pixels_above_12_fraction": 0.0
+      },
+      "preview": {
+        "mean_rgb": [
+          12.0819,
+          53.25026,
+          13.14766
+        ],
+        "luma_mean": 36.40033,
+        "luma_p95": 133,
+        "mean_green_advantage": 40.1026,
+        "green_dominant_fraction": 0.628801,
+        "mean_channel_spread": 42.58586,
+        "p95_channel_spread": 109,
+        "max_channel_spread": 112,
+        "max_channel_p95": 172,
+        "pixels_above_12_fraction": 0.586663
+      }
+    },
+    "observer_temporal_difference": {
+      "mean_absolute_rgb_change": [
+        0.25009,
+        0.58,
+        0.21968
+      ],
+      "absolute_rgb_change_stddev": [
+        1.27801,
+        1.10962,
+        0.88383
+      ],
+      "changed_pixel_fraction": 0.355843,
+      "scope": "Same frozen model input and stationary smoke scene; pixel changes demonstrate temporal display variation, not calibrated sensor noise."
+    },
+    "preview_temporal_difference": {
+      "mean_absolute_rgb_change": [
+        0.99094,
+        1.43279,
+        0.75732
+      ],
+      "absolute_rgb_change_stddev": [
+        2.79234,
+        1.85674,
+        1.87634
+      ],
+      "changed_pixel_fraction": 0.621782,
+      "scope": "Same frozen model input and stationary smoke scene; pixel changes demonstrate temporal display variation, not calibrated sensor noise."
+    }
+  },
+  "files": {
+    "green": {
+      "sha256": "70cbf413b9b850e8371dae8e7b02e92d64deda52c30512f7046715aaea44c791",
+      "bytes": 853128,
+      "size": [
+        1600,
+        900
+      ]
+    },
+    "green_next_frame": {
+      "sha256": "aebbc410d53b2636be2b92fd89e094c72937a6992fd8e69db2a92c0e6f03b3ae",
+      "bytes": 852414,
+      "size": [
+        1600,
+        900
+      ]
+    },
+    "monochrome": {
+      "sha256": "d43a25a645e6e8c7892f8c982eb0c4037d84409c844aed9622860fe7d1d311ad",
+      "bytes": 790478,
+      "size": [
+        1600,
+        900
+      ]
+    },
+    "observer_dark": {
+      "sha256": "9154643dc283e855cc23d93ddc738551112c5b4973ede9a603ff7c696d8a63cb",
+      "bytes": 299341,
+      "size": [
+        1600,
+        900
+      ]
+    },
+    "model_before": {
+      "sha256": "f3f990487de7bb1725f80c325dd665d434e19497b16b3ab074d256ae98051dac",
+      "bytes": 108576,
+      "size": [
+        448,
+        256
+      ]
+    },
+    "model_after": {
+      "sha256": "f3f990487de7bb1725f80c325dd665d434e19497b16b3ab074d256ae98051dac",
+      "bytes": 108576,
+      "size": [
+        448,
+        256
+      ]
+    }
+  },
+  "errors": [],
+  "runtime": {
+    "sensor_infrared_locked": true,
+    "model_png_unchanged": true,
+    "model_recapture_unchanged": true,
+    "observer_material_loaded": true,
+    "preview_material_loaded": true,
+    "passed": true,
+    "scope": "Display shader smoke; no model inference"
+  },
+  "passed": true,
+  "failed_checks": [],
+  "date": "2026-09-11",
+  "unreal_engine": "5.8.1",
+  "variant": "fast",
+  "shader_sources": {
+    "unreal/Shaders/NightVisionCommon.ush": "b4851b5602beb2536c34b1a739cefea2e678970db9aad2cc49fc33eedd42c24f",
+    "unreal/Shaders/NightVisionPostProcess.usf": "37db8efbc34158bc2ac2498c8cb95b65073e9d67ffe4056ae7539cae6add87b0",
+    "unreal/Shaders/NightVisionSensorUI.usf": "e774b2b9d7a7900ce694a5f5772d4ab0c7b74bcdb701f2d8a74c61424938e963"
+  }
+}

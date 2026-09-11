@@ -1,0 +1,245 @@
+{
+  "schema_version": 1,
+  "run": "artifacts/thermal-transfer-v2",
+  "scope": "Actual opaque-alpha Unreal GPU captures plus standalone numerical checks; coarse thermal proxy, not calibrated materials or model accuracy.",
+  "capture_times_utc": {
+    "initial": "2026-09-11T18:22:12.898Z",
+    "cooled": "2026-09-11T18:22:13.157Z"
+  },
+  "passed": true,
+  "suites": {
+    "rendered_transfer": {
+      "passed": true,
+      "checks": 138,
+      "report": "transfer_qa.json",
+      "transfer_enabled": true
+    },
+    "thermal_legacy": {
+      "passed": true,
+      "checks": 42,
+      "report": "qa.json",
+      "transfer_enabled": false
+    },
+    "spatial_fields_legacy": {
+      "passed": true,
+      "checks": 55,
+      "report": "field_qa.json",
+      "transfer_enabled": false
+    },
+    "standalone_solver": {
+      "passed": true,
+      "checks": 12,
+      "report": "solver_qa.json"
+    }
+  },
+  "strict_thresholds_unchanged": true,
+  "transfer_thresholds": {
+    "minimum_visible_receiver_pixels": 16,
+    "minimum_visible_face_pixels": 3,
+    "initial_ambient_mean_tolerance_u8": 1.0,
+    "near_top20_warming_u8_min": 3.0,
+    "radiation_control_top20_difference_u8_min": 2.0,
+    "contact_gap_top20_difference_u8_min": 2.0,
+    "moved_same_pixel_absolute_difference_u8_max": 1.0,
+    "cooldown_top20_drop_u8_min": 1.0,
+    "near_facing_warming_c_min": 1.0,
+    "facing_away_warming_difference_c_min": 0.5,
+    "radiation_control_facing_difference_c_min": 0.25,
+    "contact_gap_facing_difference_c_min": 0.5,
+    "moved_physical_temperature_drift_c_max": 1e-06,
+    "cooldown_facing_drop_c_min": 0.25,
+    "energy_absolute_residual_j_max": 0.001,
+    "energy_relative_to_supplied_residual_max": 1e-08
+  },
+  "encoding": {
+    "sensor_contract": "dark-factory-thermal-sensor-v3",
+    "width": 448,
+    "height": 256,
+    "quantity": "apparent_temperature",
+    "linear_u8": true,
+    "range_c": [
+      20,
+      120
+    ],
+    "band_um": [
+      8,
+      14
+    ],
+    "ambient_c": 24,
+    "source_maintained_c": 110,
+    "display_palette": "iron, display-only"
+  },
+  "physical_temperatures": {
+    "initial": {
+      "elapsed_seconds": 0,
+      "exposure_gap_cm": 50,
+      "source_visible": true,
+      "source_retracted_for_inspection": false,
+      "receiver_bulk_c": 24.0,
+      "receiver_facing_minus_y_c": 24.0,
+      "receiver_away_plus_y_c": 24.0
+    },
+    "near": {
+      "elapsed_seconds": 600,
+      "exposure_gap_cm": 50,
+      "source_visible": true,
+      "source_retracted_for_inspection": false,
+      "receiver_bulk_c": 24.988582611083984,
+      "receiver_facing_minus_y_c": 34.88485050201416,
+      "receiver_away_plus_y_c": 24.546049028635025
+    },
+    "far": {
+      "elapsed_seconds": 600,
+      "exposure_gap_cm": 100,
+      "source_visible": true,
+      "source_retracted_for_inspection": false,
+      "receiver_bulk_c": 24.323320388793945,
+      "receiver_facing_minus_y_c": 27.584008932113647,
+      "receiver_away_plus_y_c": 24.156062841415405
+    },
+    "blocked": {
+      "elapsed_seconds": 600,
+      "exposure_gap_cm": 50,
+      "source_visible": true,
+      "source_retracted_for_inspection": false,
+      "receiver_bulk_c": 24.0,
+      "receiver_facing_minus_y_c": 24.0,
+      "receiver_away_plus_y_c": 24.0
+    },
+    "contact": {
+      "elapsed_seconds": 600,
+      "exposure_gap_cm": 0,
+      "source_visible": true,
+      "source_retracted_for_inspection": true,
+      "receiver_bulk_c": 31.301671981811523,
+      "receiver_facing_minus_y_c": 102.84419822692871,
+      "receiver_away_plus_y_c": 27.518393754959106
+    },
+    "gap": {
+      "elapsed_seconds": 600,
+      "exposure_gap_cm": 2,
+      "source_visible": true,
+      "source_retracted_for_inspection": true,
+      "receiver_bulk_c": 27.053525924682617,
+      "receiver_facing_minus_y_c": 57.77763557434082,
+      "receiver_away_plus_y_c": 25.479308009147644
+    },
+    "moved": {
+      "elapsed_seconds": 600,
+      "exposure_gap_cm": 50,
+      "source_visible": true,
+      "source_retracted_for_inspection": false,
+      "receiver_bulk_c": 24.988582611083984,
+      "receiver_facing_minus_y_c": 34.88485050201416,
+      "receiver_away_plus_y_c": 24.546049028635025
+    },
+    "cooled": {
+      "elapsed_seconds": 1200,
+      "exposure_gap_cm": 50,
+      "source_visible": false,
+      "source_retracted_for_inspection": false,
+      "receiver_bulk_c": 24.901775360107422,
+      "receiver_facing_minus_y_c": 24.438175171613693,
+      "receiver_away_plus_y_c": 24.44087114930153
+    }
+  },
+  "rendered_comparisons": {
+    "initial_to_near": {
+      "common_receiver_pixels": 6929,
+      "hottest20_percent_mean_delta_u8": 25.407647907647906,
+      "mean_signed_delta_u8": 13.557800548419685,
+      "max_absolute_delta_u8": 26
+    },
+    "far_to_near": {
+      "common_receiver_pixels": 6929,
+      "hottest20_percent_mean_delta_u8": 16.87301587301587,
+      "mean_signed_delta_u8": 9.032183576273633,
+      "max_absolute_delta_u8": 18
+    },
+    "blocked_to_near": {
+      "common_receiver_pixels": 4322,
+      "hottest20_percent_mean_delta_u8": 25.16763005780347,
+      "mean_signed_delta_u8": 12.182322998611754,
+      "max_absolute_delta_u8": 26
+    },
+    "gap_to_contact": {
+      "common_receiver_pixels": 6929,
+      "hottest20_percent_mean_delta_u8": 106.24603174603176,
+      "mean_signed_delta_u8": 56.14129022947034,
+      "max_absolute_delta_u8": 110
+    },
+    "near_to_moved": {
+      "common_receiver_pixels": 6929,
+      "hottest20_percent_mean_delta_u8": 0.0,
+      "mean_signed_delta_u8": 0,
+      "max_absolute_delta_u8": 0
+    },
+    "cooled_to_moved": {
+      "common_receiver_pixels": 6929,
+      "hottest20_percent_mean_delta_u8": 24.407647907647906,
+      "mean_signed_delta_u8": 12.604993505556358,
+      "max_absolute_delta_u8": 25
+    }
+  },
+  "energy": {
+    "maximum_absolute_residual_j": 4.253059159964323e-06,
+    "maximum_relative_residual_to_abs_supplied": 5.110914470309541e-12,
+    "limit": "abs(residual_j) <= max(0.001, abs(supplied_energy_j) * 1e-8)",
+    "accounting": "Net reservoir input includes maintained sources and ambient removal; residual measures passive-node energy change minus reservoir supply."
+  },
+  "cpu_observations": {
+    "scope": "Last CPU heat advance for a 600-second offline simulation interval; includes network work. Not total frame time, GPU time, sustained live performance or FPS.",
+    "samples_ms": {
+      "near": 18.05410161614418,
+      "far": 17.702102661132812,
+      "blocked": 18.503300845623016,
+      "cooled": 18.533099442720413
+    },
+    "mean_ms": 18.198151141405106,
+    "minimum_ms": 17.702102661132812,
+    "maximum_ms": 18.533099442720413,
+    "nodes": 568,
+    "integration_steps_per_600s": 2393,
+    "excluded_states": {
+      "initial": "No time advance.",
+      "contact": "Last operation is zero-duration link refresh after donor retraction.",
+      "gap": "Last operation is zero-duration link refresh after donor retraction.",
+      "moved": "Last operation is zero-duration link refresh after donor relocation."
+    }
+  },
+  "evidence_figure": {
+    "file": "docs/media/thermal-transfer-comparison.png",
+    "generator": "scripts/render_thermal_transfer_comparison.py",
+    "panels": [
+      "initial",
+      "near",
+      "far",
+      "blocked",
+      "contact",
+      "cooled"
+    ],
+    "original_capture_pixels_preserved": true
+  },
+  "replay_commands": [
+    ".\\unreal\\Scripts\\run.ps1 -ThermalSmoke -Output artifacts\\thermal-transfer-v2",
+    "python scripts/verify_thermal_transfer.py --directory artifacts/thermal-transfer-v2 --output artifacts/thermal-transfer-v2/transfer_qa.json",
+    "python scripts/verify_thermal.py --directory artifacts/thermal-transfer-v2 --output artifacts/thermal-transfer-v2/qa.json",
+    "python scripts/verify_thermal_fields.py --directory artifacts/thermal-transfer-v2 --output artifacts/thermal-transfer-v2/field_qa.json",
+    "python scripts/render_thermal_transfer_comparison.py --directory artifacts/thermal-transfer-v2 --output docs/media/thermal-transfer-comparison.png"
+  ],
+  "source_sha256": {
+    "scripts/verify_thermal_transfer.py": "e491135de6491c8633bda45ecb792785417653bfb2b4a0b9037a32e9e53cca1b",
+    "scripts/render_thermal_transfer_comparison.py": "ba753a7a2a57187843d54aca0cfbac58b6c8a539fb082feb106b3d316a08cac1",
+    "docs/media/thermal-transfer-comparison.png": "d13a6675323a63496d77cf573c95654ca6f2d97f8326fa69b03e3dd506407f3a",
+    "unreal/Source/DarkFactory/DarkFactoryHeatSolver.cpp": "cb257146d81fd6ee222aa3de19533fa11a04d8e386fefe5db3d133cdf3b151f1",
+    "unreal/Source/DarkFactory/DarkFactoryHeatExchange.cpp": "11fd5d46b0873cbdd23eb074170d99269912ca1115c74206502e624b72d0138a",
+    "unreal/Source/DarkFactory/DarkFactoryThermalRig.cpp": "2addfa660767a24cdb7f912c70da2787835ad5a08459c429ec0e1c3a0e5a3db1",
+    "unreal/Source/DarkFactory/DarkFactoryThermalTransferQA.cpp": "32e26cb0005fb5da6c3f7abb55341a5384d96c369bb37d06021cabbc1f78b0f3",
+    "unreal/Shaders/ThermalPostProcess.usf": "71a11f7a1c70f0dc3ffcc15eebb2f04cecb1ee97506c88340736dd5dec5bc4af",
+    "artifacts/thermal-transfer-v2/transfer_states.json": "5affaf7dddaf946478ba0696b2438971c0432479668dba4fbed9ba7c7c7fc39e",
+    "artifacts/thermal-transfer-v2/transfer_qa.json": "9f04bc446b96fd7d93ed6a5ea193e6faaec5990dd945e8ec8f2e5f66e84569a2",
+    "artifacts/thermal-transfer-v2/qa.json": "3170ee71f4acacd9a9b558900ee11807ea5335b79be11fc90dbe1604c7c6dc2e",
+    "artifacts/thermal-transfer-v2/field_qa.json": "0bed395c1a118878b8f1643a6ac8a43cbee8c7d70d41ba49974ed43ec39bb276",
+    "artifacts/thermal-transfer-v2/solver_qa.json": "276dd4403abc77ee0f61cd09f91a6a4f6b5773d1a1dad12b17853a659b55ae1d"
+  }
+}

@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "status": "CAPTURE_AND_PROCESSOR_PREFLIGHT_PASSED",
+  "accuracy_evaluation": "NOT_RUN",
+  "dataset": {
+    "rows": 30,
+    "groups": 10,
+    "episodes": 30,
+    "counts": {
+      "train": {
+        "G": 8,
+        "A": 8,
+        "R": 8
+      },
+      "validation": {
+        "G": 1,
+        "A": 1,
+        "R": 1
+      },
+      "test": {
+        "G": 1,
+        "A": 1,
+        "R": 1
+      }
+    },
+    "images_checked": true,
+    "unique_image_hashes": 30,
+    "manifest_sha256": "4a58de93dd8d8bcb2be88be6e56fcbc0b59885a77a2a33d3132f150b7e94e55b",
+    "prompt_sha256": "a43db23a0d91a26fad7dac074d7fdb2867da3ac2d44622f73034f2c2f16efaf0"
+  },
+  "processor": {
+    "status": "PROCESSOR_CHECKED_NO_WEIGHTS_LOADED",
+    "model": "nvidia/Cosmos-Reason2-2B (existing local processor)",
+    "token_ids": {
+      "G": [
+        38
+      ],
+      "A": [
+        32
+      ],
+      "R": [
+        49
+      ]
+    },
+    "prompt_template_sha256": "581eac4812066d4480c27be66ff45e39ff6a8c910bd6a4471df0b59cdb743d65",
+    "context_tokens_including_answer": 209,
+    "visual_tokens": 112,
+    "versions": {
+      "torch": "2.9.0+cu128",
+      "transformers": "4.57.3",
+      "peft": "0.20.0",
+      "accelerate": "1.12.0",
+      "Pillow": "12.0.0"
+    },
+    "actual_image_preflight": true,
+    "model_weights_loaded": false,
+    "training_performed": false
+  },
+  "image_statistics": {
+    "images": 30,
+    "all_equal_channel_grayscale": true,
+    "all_nonblank": true,
+    "intensity_mean_range": [
+      71.8141,
+      111.2069
+    ],
+    "intensity_stddev_range": [
+      54.1605,
+      82.3592
+    ],
+    "maximum_rgb_channel_difference": 0,
+    "representative_by_variant": {
+      "normal": {
+        "sample_id": "fc87a5dfdf3c-group-000000-G-0000",
+        "label": "G",
+        "variant": "normal",
+        "min": 0,
+        "max": 243,
+        "mean": 90.1047,
+        "stddev": 67.8425,
+        "max_rgb_channel_difference": 0
+      },
+      "occluded": {
+        "sample_id": "fc87a5dfdf3c-group-000000-A-0000",
+        "label": "A",
+        "variant": "occluded",
+        "min": 0,
+        "max": 231,
+        "mean": 83.5276,
+        "stddev": 66.6481,
+        "max_rgb_channel_difference": 0
+      },
+      "missing": {
+        "sample_id": "fc87a5dfdf3c-group-000000-R-0000",
+        "label": "R",
+        "variant": "missing",
+        "min": 0,
+        "max": 243,
+        "mean": 89.2018,
+        "stddev": 67.1308,
+        "max_rgb_channel_difference": 0
+      },
+      "misaligned": {
+        "sample_id": "fc87a5dfdf3c-group-000001-R-0000",
+        "label": "R",
+        "variant": "misaligned",
+        "min": 0,
+        "max": 238,
+        "mean": 87.8955,
+        "stddev": 66.5884,
+        "max_rgb_channel_difference": 0
+      }
+    }
+  },
+  "note": "Thirty primitive-scene captures verify capture and preprocessing only. The 3-image validation and 3-image test panels do not satisfy release sample requirements. No trained adapter or Cosmos accuracy claim.",
+  "date": "2026-09-11",
+  "unreal_engine": "5.8.1",
+  "python_tests_passed": 34,
+  "scene_bridge_checks": [
+    {
+      "expected": "G",
+      "passed": true,
+      "decision": "G",
+      "source": "MOCK",
+      "status": "PASS: releasing tray",
+      "travel_cm": 290,
+      "reject_gate_roll_deg": 75,
+      "latency_ms": 2.259999990463257,
+      "real_model_accuracy_evidence": false
+    },
+    {
+      "expected": "A",
+      "passed": true,
+      "decision": "A",
+      "source": "MOCK",
+      "status": "HOLD: insufficient visual evidence",
+      "travel_cm": 0,
+      "reject_gate_roll_deg": 75,
+      "latency_ms": 1.909000039100647,
+      "real_model_accuracy_evidence": false
+    },
+    {
+      "expected": "R",
+      "passed": true,
+      "decision": "R",
+      "source": "MOCK",
+      "status": "REJECT: tray held, reject gate engaged",
+      "travel_cm": 0,
+      "reject_gate_roll_deg": 0,
+      "latency_ms": 1.819000005722046,
+      "real_model_accuracy_evidence": false
+    },
+    {
+      "expected": "ERROR",
+      "passed": true,
+      "decision": "A",
+      "source": "DISCONNECTED",
+      "status": "HOLD: bridge unavailable or HTTP error",
+      "travel_cm": 0,
+      "reject_gate_roll_deg": 75,
+      "latency_ms": 0,
+      "real_model_accuracy_evidence": false
+    }
+  ],
+  "night_vision_display": {
+    "passed": true,
+    "checks_passed": 20,
+    "evidence": "night_vision_validation.json",
+    "model_png_before_sha256": "f3f990487de7bb1725f80c325dd665d434e19497b16b3ab074d256ae98051dac",
+    "model_png_after_sha256": "f3f990487de7bb1725f80c325dd665d434e19497b16b3ab074d256ae98051dac",
+    "fresh_sensor_recapture_unchanged": true,
+    "real_model_accuracy_evidence": false,
+    "quality_evidence": "night_vision_quality_validation.json"
+  },
+  "gpu_capture": {
+    "passed": true,
+    "evidence": "gpu_capture_validation.json",
+    "sync_async_png_identical": true,
+    "stale_and_obsolete_frames_rejected": true,
+    "live_preview_cpu_uploads": 0,
+    "live_sync_readbacks": 0,
+    "gpu_fps_speedup_measured": false
+  }
+}

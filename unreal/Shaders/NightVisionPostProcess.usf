@@ -1,0 +1,26 @@
+// Custom expression inputs: SceneColor, NVGain, NVGrain, NVVignette,
+// NVPhosphor, NVFrame, NVSeed, NVHalo. SceneColor is a connected SceneTexture
+// PostProcessInput0 expression, ensuring scene texture helpers are compiled.
+// setup_content.py emits DF_NV_HALO=0 for the one-tap default and 1 for Quality.
+#ifndef DF_NV_HALO
+#define DF_NV_HALO 0
+#endif
+FDarkFactoryNV NV;
+float2 ViewUV = GetViewportUV(Parameters);
+float Halo = 0.0;
+#if DF_NV_HALO
+const int InputId = 14; // PPI_PostProcessInput0, UE MaterialSceneTextureId.h.
+float2 UV = GetDefaultSceneTextureUV(Parameters, InputId);
+float2 Texel = GetSceneTextureBufferSize(InputId).zw;
+float2 Offset = Texel * 2.25;
+// Input-viewport-aware clamping matters when the editor viewport is smaller
+// than its backing render target; raw screen UV would stretch the feed.
+float3 East = SceneTextureLookup(ClampSceneTextureUV(UV + float2(Offset.x, 0), InputId), InputId, true).rgb;
+float3 West = SceneTextureLookup(ClampSceneTextureUV(UV - float2(Offset.x, 0), InputId), InputId, true).rgb;
+float3 North = SceneTextureLookup(ClampSceneTextureUV(UV + float2(0, Offset.y), InputId), InputId, true).rgb;
+float3 South = SceneTextureLookup(ClampSceneTextureUV(UV - float2(0, Offset.y), InputId), InputId, true).rgb;
+Halo = 0.25 * (NV.BrightSignal(East) + NV.BrightSignal(West)
+    + NV.BrightSignal(North) + NV.BrightSignal(South));
+#endif
+return NV.Display(NV.Luma(SceneColor.rgb), Halo, ViewUV, Parameters.SvPosition.xy,
+    NVGain, NVGrain, NVVignette, NVPhosphor, NVFrame, NVSeed, NVHalo);

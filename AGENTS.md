@@ -1,0 +1,19 @@
+# Dark factory development
+
+Read [AGENT_MEMORY.md](AGENT_MEMORY.md) for the user's current demo direction, planned modalities and open adapter experiments. The implementation-specific rules below describe the current starter; evolve them with the approved modality work.
+
+- This is a preparation demo; the final vehicle manufacturing scenario and purchased assets are undecided. Keep the inspection cell replaceable.
+- Runtime starts with explicit mock inference. Never present mock decisions or primitive-scene metrics as Cosmos or EVK accuracy.
+- The spectator camera and fixed sensor are independent. Never send HUD, ground truth, seed, case name, or labels to the model.
+- Keep the NIR lossless 448 x 256 grayscale sensor processing and versioned prompt identical across capture, training, evaluation and deployment.
+- G means proceed, A means hold/insufficient evidence, and R means anomaly/reject. Transport failures and stale replies hold the simulation.
+- Night vision currently means an active-NIR rendering proxy. Unreal visible-spectrum materials are not measured infrared reflectance, and this is not thermal imaging.
+- Observer post-process and sensor-preview shaders are display-only. Keep their gain, phosphor palette, grain and lens effects out of the model PNG path. Rebuild generated materials from unreal/Shaders via setup_content.py after shader edits, then run NightVisionSmoke and scripts/verify_night_vision.py.
+- The normal visible observer uses dim roof-window spill on view channel 0. Keep it separate from the active-NIR channel 1; indirect and volumetric spill stay disabled. Zero-light NIR smoke/calibration and dataset capture explicitly disable roof light. Native modality screenshots verify both sensor PNGs remain identical with roof light on/off.
+- Interactive infrared switches affect only the observer. Keep the fixed sensor on its infrared view-lighting channel; sensor-off mode is only for explicit offline calibration/data.
+- Live HUD previews must sample the GPU render target directly. Keep async readback/encoding bounded, tag both preview and pending jobs with episode epoch/capture time, and reject stale pixels before publication. Offline synchronous capture remains the parity reference. Run ReadbackSmoke and scripts/verify_unreal_bridge.py for capture-path changes.
+- Thermal rendering uses assigned surface temperatures, emissivity and an 8-14 um apparent-temperature LUT. Keep the fixed thermal sensor linear grayscale at its recorded temperature window; palettes are display-only. Thermal snapshots have a separate contract and must not enter the NIR adapter/bridge. See docs/thermal_rendering.md.
+- Thermal shader edits require generated-material rebuilding, ThermalSmoke, scripts/verify_thermal.py, scripts/verify_thermal_fields.py and scripts/verify_thermal_transfer.py. Run the standalone heat solver tests for transport changes. Preserve opaque occlusion, lighting independence, NIR input invariance and async snapshot parity. Manual thermal captures need bAlwaysPersistRenderingState for Unreal blendable materials. Spatial fields use component-local bounds and selected cooling age; working powered heaters are thermal reservoirs; failed heaters are passive. Heat exchange is enabled by default; legacy field regression runs disable it. Preserve motion invariance and keep debug ID masks confined to offline QA.
+- Save whole randomization episodes to only one dataset split. Generated images, Unreal content, model weights and purchased assets stay out of Git; retain reproducible source/generation scripts.
+- Treat the adjacent qai-physics-reasoning repository and its running model services as reference material. Do not modify its production deployment as part of routine development here.
+- Build with the installed UE 5.8 toolchain. Run Python unittest discovery and a rendered Unreal smoke check for changes to capture, model transport or scene state.

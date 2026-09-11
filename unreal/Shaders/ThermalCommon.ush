@@ -1,0 +1,30 @@
+// Thermal surface appearance, independent of RGB lighting. Radiometry is
+// computed by the host's versioned CPU thermal profile, not from scene color.
+// This common source is embedded into observer and sensor-preview materials.
+struct FDarkFactoryThermal
+{
+    float NormalizeTemperature(float ApparentC, float MinC, float MaxC)
+    {
+        return saturate((ApparentC - MinC) / max(MaxC - MinC, 0.001));
+    }
+
+    float3 Palette(float Signal, float Mode)
+    {
+        float X = saturate(Signal);
+        // White-hot is also the fixed sensor's raw normalized scalar output.
+        if (Mode < 0.5) return X.xxx;
+        if (Mode < 1.5) return (1.0 - X).xxx;
+        // Iron-like false color is a display choice, not measured RGB emission.
+        const float3 Black = float3(0.006, 0.004, 0.014);
+        const float3 Violet = float3(0.18, 0.015, 0.32);
+        const float3 Red = float3(0.61, 0.045, 0.14);
+        const float3 Orange = float3(0.97, 0.31, 0.025);
+        const float3 Yellow = float3(1.0, 0.78, 0.16);
+        const float3 White = float3(1.0, 0.98, 0.87);
+        if (X < 0.20) return lerp(Black, Violet, X * 5.0);
+        if (X < 0.40) return lerp(Violet, Red, (X - 0.20) * 5.0);
+        if (X < 0.60) return lerp(Red, Orange, (X - 0.40) * 5.0);
+        if (X < 0.80) return lerp(Orange, Yellow, (X - 0.60) * 5.0);
+        return lerp(Yellow, White, (X - 0.80) * 5.0);
+    }
+};

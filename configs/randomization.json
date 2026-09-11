@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "seed": 20260911,
+  "scenario": "battery_tray_placeholder_v1",
+  "groups": 100,
+  "frames_per_episode": 1,
+  "split_fractions": {"train": 0.8, "validation": 0.1, "test": 0.1},
+  "sensor": {
+    "mode": "active_nir_proxy",
+    "width": 448,
+    "height": 256,
+    "fov": [56.0, 60.0],
+    "exposure_ev": [-0.5, 0.5],
+    "gain": [0.8, 1.25],
+    "noise_std": [0.0, 0.025],
+    "illumination_intensity": [12000.0, 18000.0]
+  },
+  "randomization": {
+    "tray_offset_cm": [-5.0, 5.0],
+    "module_reflectance": [0.4, 0.85],
+    "material_roughness": [0.2, 0.8],
+    "camera_position_jitter_cm": [-2.0, 2.0],
+    "camera_rotation_jitter_deg": [-1.0, 1.0]
+  },
+  "state": {
+    "misalignment_deg": [18.0, 35.0],
+    "occlusion_fraction": [0.65, 0.9]
+  }
+}
+

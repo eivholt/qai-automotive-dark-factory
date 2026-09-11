@@ -1,0 +1,28 @@
+// Custom expression inputs: SensorImage texture object, UV, NVGain, NVGrain,
+// NVVignette, NVPhosphor, NVFrame, NVSeed, NVHalo. SensorImage may be the direct
+// SRGB render target or SRGB grayscale texture; hardware decoding is unchanged.
+// Display shading does not mutate the source texture or exported model PNG.
+// setup_content.py emits DF_NV_HALO=0 for the one-tap default and 1 for Quality.
+#ifndef DF_NV_HALO
+#define DF_NV_HALO 0
+#endif
+FDarkFactoryNV NV;
+uint Width, Height;
+SensorImage.GetDimensions(Width, Height);
+float2 Texel = 1.0 / max(float2(Width, Height), float2(1.0, 1.0));
+float2 Lo = Texel * 0.5;
+float2 Hi = 1.0 - Lo;
+float2 P = clamp(UV, Lo, Hi);
+float3 Center = Texture2DSample(SensorImage, SensorImageSampler, P).rgb;
+float Halo = 0.0;
+#if DF_NV_HALO
+float2 Offset = Texel * 1.65;
+float3 East = Texture2DSample(SensorImage, SensorImageSampler, clamp(P + float2(Offset.x, 0), Lo, Hi)).rgb;
+float3 West = Texture2DSample(SensorImage, SensorImageSampler, clamp(P - float2(Offset.x, 0), Lo, Hi)).rgb;
+float3 North = Texture2DSample(SensorImage, SensorImageSampler, clamp(P + float2(0, Offset.y), Lo, Hi)).rgb;
+float3 South = Texture2DSample(SensorImage, SensorImageSampler, clamp(P - float2(0, Offset.y), Lo, Hi)).rgb;
+Halo = 0.25 * (NV.BrightSignal(East) + NV.BrightSignal(West)
+    + NV.BrightSignal(North) + NV.BrightSignal(South));
+#endif
+return NV.Display(NV.Luma(Center), Halo, UV, Parameters.SvPosition.xy,
+    NVGain, NVGrain, NVVignette, NVPhosphor, NVFrame, NVSeed, NVHalo);

@@ -1,0 +1,9 @@
+# Optional Linux/CUDA training environment, not needed for bridge or prepare.py.
+# Core versions follow NVIDIA's Cosmos-Reason2 inference_sample.py baseline.
+torch==2.9.0
+transformers==4.57.3
+accelerate==1.12.0
+Pillow==12.0.0
+# PEFT version observed in the previous-project WSL training environment.
+peft==0.20.0
+

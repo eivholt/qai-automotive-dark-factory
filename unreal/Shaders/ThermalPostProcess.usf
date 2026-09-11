@@ -1,0 +1,86 @@
+// Custom inputs: SceneDepthCm, SurfaceDepthCm, SurfaceId, ThermalLUT, WorldPositionCm,
+// ThermalAmbientC, ThermalMinC, ThermalMaxC, ThermalDepthToleranceCm,
+// ThermalPalette, ThermalSpatialEnabled, ThermalTransferEnabled, ThermalDebugIds.
+// The three scene inputs are POINT SceneTexture nodes. Absolute WorldPosition
+// is reconstructed by Unreal from scene depth, including viewport remapping.
+// No RGB/scene-color input exists: darkness cannot remove thermal radiation.
+// ThermalLUT is a 256x12 linear floating texture with exact integer indexing:
+// row0 = apparent C at fit minimum/midpoint/maximum, registered;
+// rows1..3 = world cm to normalized mesh-local [-1,1] affine rows;
+// row4 = edgeFalloff, oldUniformApparentC, coolingRetention, edgeRetainedFraction;
+// rows5..10 = face centerUV, inverseRadiusSquared, deltaSurfaceC, ordered
+// +X,-X,+Y,-Y,+Z,-Z; row11 = edgeSurfaceC, coreSurfaceC, fitMinC, invFitSpan.
+// CPU radiometry supplies the fit; transferred heat changes surface temperature
+// before the emissivity/reflected-ambient response is evaluated.
+FDarkFactoryThermal Thermal;
+int Id = clamp((int)round(SurfaceId.r), 0, 255);
+float ApparentC = ThermalAmbientC;
+float DepthTolerance = max(max(ThermalDepthToleranceCm, 0.001), abs(SceneDepthCm.r) * 1e-5);
+bool VisibleSurface = Id > 0 && SceneDepthCm.r > 0.0 && SurfaceDepthCm.r > 0.0
+    && abs(SceneDepthCm.r - SurfaceDepthCm.r) <= DepthTolerance;
+float VisibleId = 0.0;
+if (VisibleSurface)
+{
+    // Load bypasses filtering altogether; neighboring object profiles cannot mix.
+    float4 Profile = ThermalLUT.Load(int3(Id, 0, 0));
+    if (Profile.a > 0.5)
+    {
+        VisibleId = (float)Id;
+        float4 Field = ThermalLUT.Load(int3(Id, 4, 0));
+        ApparentC = Field.y;
+        if (ThermalSpatialEnabled > 0.5)
+        {
+            float4 WorldPoint = float4(WorldPositionCm, 1.0);
+            float3 Q = float3(
+                dot(WorldPoint, ThermalLUT.Load(int3(Id, 1, 0))),
+                dot(WorldPoint, ThermalLUT.Load(int3(Id, 2, 0))),
+                dot(WorldPoint, ThermalLUT.Load(int3(Id, 3, 0))));
+            // On a box face its normal coordinate has magnitude one. Subtracting
+            // that baseline leaves hot face centers and cool edges/corners.
+            float RadiusSquared = max(dot(Q, Q) - 1.0, 0.0);
+            float CoreWeight = exp2(-max(Field.x, 0.0) * RadiusSquared);
+            float4 SurfaceFit = ThermalLUT.Load(int3(Id, 11, 0));
+            float SurfaceC = lerp(SurfaceFit.x, SurfaceFit.y, CoreWeight);
+            if (ThermalTransferEnabled > 0.5)
+            {
+                float3 AbsQ = abs(Q);
+                int Face;
+                float2 FaceUV;
+                if (AbsQ.x >= AbsQ.y && AbsQ.x >= AbsQ.z)
+                {
+                    Face = Q.x >= 0.0 ? 0 : 1;
+                    FaceUV = Q.yz;
+                }
+                else if (AbsQ.y >= AbsQ.z)
+                {
+                    Face = Q.y >= 0.0 ? 2 : 3;
+                    FaceUV = Q.xz;
+                }
+                else
+                {
+                    Face = Q.z >= 0.0 ? 4 : 5;
+                    FaceUV = Q.xy;
+                }
+                float4 Patch = ThermalLUT.Load(int3(Id, 5 + Face, 0));
+                float2 DeltaUV = FaceUV - Patch.xy;
+                float S = saturate(1.0 - dot(DeltaUV, DeltaUV) * max(Patch.z, 0.0));
+                float PatchWeight = S * S * (3.0 - 2.0 * S);
+                // Convex mixing prevents a cooled skin producing an artificial cold ring.
+                SurfaceC = lerp(SurfaceC, SurfaceFit.y + Patch.w, PatchWeight);
+            }
+            // Fit coordinates cover the base field and all transferred temperatures.
+            // Zero span is the constant-temperature case and uses the first knot.
+            float H = SurfaceFit.w > 0.0 ? saturate((SurfaceC - SurfaceFit.z) * SurfaceFit.w) : 0.0;
+            float A = 2.0 * (Profile.b + Profile.r - 2.0 * Profile.g);
+            float B = 4.0 * Profile.g - 3.0 * Profile.r - Profile.b;
+            ApparentC = clamp(Profile.r + B * H + A * H * H,
+                min(Profile.r, Profile.b), max(Profile.r, Profile.b));
+        }
+    }
+}
+// Offline segmentation QA only; never enable for model images or presentation.
+if (ThermalDebugIds > 0.5) return (VisibleId / 255.0).xxx;
+// Hidden profiles never leak through nearer unregistered/opaque geometry.
+// Root binds Palette=0 and a linear render target for the fixed model sensor.
+float Signal = Thermal.NormalizeTemperature(ApparentC, ThermalMinC, ThermalMaxC);
+return Thermal.Palette(Signal, ThermalPalette);
