@@ -40,8 +40,9 @@ The [implementation comparison](night_vision_implementations.md) records the sou
 | `[` / `]`, Xbox LB / RB | Decrease/increase display gain by 0.1 |
 | `,` / `.` | Decrease/increase display grain by 0.005 |
 | `I` / `N`, Xbox B | Toggle the observer between assisted night vision and the dim visible view |
-| Tab / Xbox Y | Cycle visible → NIR → thermal observer modes |
+| Tab / Xbox Y | Cycle dim visible → NIR → thermal → bright factory |
 | `T` | Toggle thermal/NIR observer mode |
+| `L` | Toggle the visible-only headlamp; its preference is retained across modes |
 | `C` | Queue a fresh asynchronous sensor capture and save PNG + metadata |
 
 Monochrome mode retains display gain, grain and vignette, plus halo in quality mode. The fixed sensor stays in active-IR mode during the interactive demo. Observer modality controls affect only the observer. Sensor-off images are available through internal offline calibration, not an interactive sensor toggle. Use saved PNGs to examine the actual model input.
@@ -61,13 +62,13 @@ Executable overrides use `-DFNVGain=`, `-DFNVGrain=`, `-DFNVVignette=`, `-DFNVHa
 
 ## Dim visible view and zero-light calibration
 
-The visible observer receives light from two downward-facing roof-window rect-light proxies. Each starts at **80 lumens**, with a 220 × 180 cm source and a position 520 cm above the floor. This is an authored visual setting, not a measured window, daylight or camera response. Tune both lights together:
+In the procedural reference scene, the visible observer receives light from two downward-facing roof-window rect-light proxies. Each starts at **80 lumens**, with a 220 × 180 cm source and a position 520 cm above the floor. This is an authored visual setting, not a measured window, daylight or camera response. Tune both lights together:
 
 ```powershell
-.\unreal\Scripts\run.ps1 -NoInference -RoofLightLumens 80
+.\unreal\Scripts\run.ps1 -Scene procedural -NoInference -RoofLightLumens 80
 ```
 
-Use `-RoofLightLumens 0` for a zero-light comparison. `-Smoke`, `-NightVisionSmoke` and offline dataset runs explicitly set roof illumination to zero, preserving their dark-observer and sensor-off conditions. Thermal smoke switches off roof and NIR lights together for its lighting-independence comparison. Existing dark example images below show calibration, not the current visible-view default.
+Use `-RoofLightLumens 0` to remove roof fill, and turn off the observer headlamp with L for a zero-light visible comparison. The lamp emits only in visible mode; its on/off preference survives mode changes. `-Smoke`, `-NightVisionSmoke` and offline dataset runs explicitly disable roof illumination and the headlamp, preserving their dark-observer and sensor-off conditions. Thermal smoke switches off roof and NIR lights together for its lighting-independence comparison. Existing dark example images below show calibration, not the current visible-view default.
 
 The rect lights affect visible view channel 0; active NIR uses view channel 1. Roof lights have no indirect contribution, volumetric scattering or shadows. They approximate soft visible fill rather than window shafts or physically solved daylight. Their lumen setting is not directly comparable to the existing NIR illuminator's unitless Unreal intensity.
 

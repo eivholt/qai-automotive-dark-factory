@@ -13,6 +13,14 @@ class UTexture2D;
 class UMaterialInstanceDynamic;
 class ADarkFactoryWorld;
 class FJsonObject;
+struct FDarkFactoryImportedThermalSurface;
+
+/** Authored sheet-surface heat patch; local center, world-space radius, no bulk solver. */
+struct FDarkFactoryWeldHeatPatch {
+    FVector LocalPositionCm = FVector::ZeroVector;
+    float RadiusCm = 0;
+    float SurfaceC = 20;
+};
 
 struct FDarkFactoryThermalSurface {
     TWeakObjectPtr<UStaticMeshComponent> Mesh;
@@ -24,9 +32,17 @@ struct FDarkFactoryThermalSurface {
     float EdgeSurfaceC = 24;
     float EdgeFraction = .22f;
     float EdgeFalloff = 2.4f;
+    float AuthoredCoreEdgeDropC = 0; // Imported profiles: authored field, never a body-volume heat solver.
+    int32 ImportedCoreFieldAxis = 0; // Dominant mesh-local bounds extent; not world scale.
+    float ImportedCoreFieldOffset = -.18f; // Authored normalized-local displacement of the warm core.
+    FVector HotspotLocalCm = FVector::ZeroVector;
+    float HotspotRadiusCm = 0; // World-space radius; zero disables the optional tool hotspot.
+    float TipSurfaceC = 24;
+    TArray<FDarkFactoryWeldHeatPatch> WeldHeatPatches; // At most four, independent of tool heat.
     float CharacteristicLengthCm = 1;
     float CoolingRetention = 1;
     bool bPowered = false;
+    bool bMotorRadiometryCached = false; // Narrow dynamic casting path only.
     float FaceDeltaC[6] = {};
     FBox LocalBounds;
     FTransform LastTransform;
@@ -40,6 +56,19 @@ class DARKFACTORY_API ADarkFactoryThermalRig : public AActor {
 public:
     ADarkFactoryThermalRig();
     void Initialize(ADarkFactoryWorld* Cell, USceneCaptureComponent2D* NIRCamera);
+    // Validate the complete list before assigning stencil IDs; no legacy fixtures or heat network.
+    bool InitializeImported(ADarkFactoryWorld* Cell, USceneCaptureComponent2D* NIRCamera,
+        const TArray<FDarkFactoryImportedThermalSurface>& Profiles);
+    bool IsImportedProfileMode() const { return bImportedProfiles; }
+    // Continuous authored tool heat, game thread only. TipLocalCm follows the mesh;
+    // RadiusCm is world cm. Does not reset scene epochs or the sensor cadence.
+    bool SetImportedToolHeat(UStaticMeshComponent* Mesh, float BodyC, float TipC,
+        FVector TipLocalCm, float RadiusCm);
+    // Imported registered meshes only; 0..4 patches, ambient..500 C. Empty clears.
+    // Game thread only; continuous updates preserve epochs, snapshots and cadence.
+    bool SetImportedWeldHeat(UStaticMeshComponent* Mesh,
+        const TArray<FDarkFactoryWeldHeatPatch>& Patches);
+    bool SetImportedCastingTemperature(UStaticMeshComponent* Mesh,float TemperatureC);
     virtual void Tick(float DeltaSeconds) override;
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;
     int32 RegisterSurface(UStaticMeshComponent* Mesh, float TemperatureC, float Emissivity);
@@ -59,6 +88,7 @@ public:
     void ApplyMaterial(UMaterialInstanceDynamic* Material, int32 Palette) const;
     void CaptureGPU();
     bool SaveRawForSmoke(const FString& Path);
+    bool SaveSurfaceIdsForQA(const FString& Path); // Offline frozen-scene segmentation only.
     void RequestSnapshot();
     void NotifySceneChanged(); // Invalidates pending frames after shared geometry resets.
     void SetFrozen(bool Frozen) { bFrozen=Frozen; }
@@ -69,11 +99,12 @@ public:
     int32 GetStaleSnapshotDiscards() const { return StaleSnapshotDiscards; }
     int32 GetProfileCount() const { return Surfaces.Num(); }
     TSharedRef<FJsonObject> GetEncodingMetadata() const;
+    TSharedRef<FJsonObject> GetSnapshotMetadataForQA() const { return BuildSnapshotMetadata(); }
     TSharedRef<FJsonObject> GetQARegions() const;
     float AmbientC = 24;
     float MinC = 20;
     float MaxC = 120;
-    int32 DisplayPalette = 0;
+    int32 DisplayPalette = 2; // Iron color by default; white-hot and black-hot remain selectable.
     FString LastSnapshot;
 private:
     UPROPERTY() TObjectPtr<USceneComponent> SceneRoot;
@@ -90,10 +121,21 @@ private:
     UPROPERTY() TObjectPtr<UStaticMeshComponent> TransferReceiver;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> TransferBlocker;
     TArray<FDarkFactoryThermalSurface> Surfaces;
+    struct FMotorRadiometryTable {
+        float Emissivity=1,AmbientC=20,MaximumMidpointErrorC=0;
+        bool bValidated=false;
+        TArray<float> Samples;
+    };
+    TArray<FMotorRadiometryTable> MotorRadiometryTables;
+    float ProfileApparentTemperature(const FDarkFactoryThermalSurface& Surface,float TemperatureC);
+    TSharedRef<FJsonObject> MotorRadiometryMetadata() const;
     FDarkFactoryHeatExchange HeatExchange;
     bool bHeatTransferEnabled = true;
+    bool bImportedProfiles = false;
+    bool InitializeCaptureResources(ADarkFactoryWorld* Cell, USceneCaptureComponent2D* NIRCamera);
     void ResetExchange();
     TArray<FLinearColor> LUTEntries;
+    bool bLUTDirty = false;
     bool bSpatialFields = true;
     float CoolingAgeSeconds = 15;
     int32 LUTUploads = 0;
@@ -116,6 +158,8 @@ private:
     void UpdateLUT();
     void UpdateTransforms(bool Force=false);
     void UpdateProfile(int32 Index);
+    void UpdateHotspotTransform(int32 Index);
+    void UpdateWeldHeatTransforms(int32 Index);
     void UploadLUT();
     TSharedRef<FJsonObject> GetFieldQARegions() const;
     TSharedRef<FJsonObject> BuildSnapshotMetadata() const;

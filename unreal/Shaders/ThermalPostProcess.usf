@@ -4,12 +4,17 @@
 // The three scene inputs are POINT SceneTexture nodes. Absolute WorldPosition
 // is reconstructed by Unreal from scene depth, including viewport remapping.
 // No RGB/scene-color input exists: darkness cannot remove thermal radiation.
-// ThermalLUT is a 256x12 linear floating texture with exact integer indexing:
+// ThermalLUT is a 256x22 linear floating texture with exact integer indexing:
 // row0 = apparent C at fit minimum/midpoint/maximum, registered;
 // rows1..3 = world cm to normalized mesh-local [-1,1] affine rows;
 // row4 = edgeFalloff, oldUniformApparentC, coolingRetention, edgeRetainedFraction;
 // rows5..10 = face centerUV, inverseRadiusSquared, deltaSurfaceC, ordered
 // +X,-X,+Y,-Y,+Z,-Z; row11 = edgeSurfaceC, coreSurfaceC, fitMinC, invFitSpan.
+// row12 = optional tool hotspot world xyz, inverse radius squared (zero disables);
+// row13 = tool tip surface C, imported-core mode, dominant local axis (0/1/2),
+// normalized core offset along that axis. Mode zero retains the legacy box field.
+// rows14..21 = four optional weld heat pairs: world xyz/inverse radius squared,
+// then patch surface C/reserved. Zero inverse radius disables an unused pair.
 // CPU radiometry supplies the fit; transferred heat changes surface temperature
 // before the emissivity/reflected-ambient response is evaluated.
 FDarkFactoryThermal Thermal;
@@ -35,9 +40,21 @@ if (VisibleSurface)
                 dot(WorldPoint, ThermalLUT.Load(int3(Id, 1, 0))),
                 dot(WorldPoint, ThermalLUT.Load(int3(Id, 2, 0))),
                 dot(WorldPoint, ThermalLUT.Load(int3(Id, 3, 0))));
-            // On a box face its normal coordinate has magnitude one. Subtracting
-            // that baseline leaves hot face centers and cool edges/corners.
+            // Read once: the reserved channels select authored imported core heat;
+            // R remains the existing tool-tip temperature used below.
+            float4 CoreAndTip = ThermalLUT.Load(int3(Id, 13, 0));
+            // Preserve the procedural box formula exactly when imported mode is off.
             float RadiusSquared = max(dot(Q, Q) - 1.0, 0.0);
+            if (CoreAndTip.g > 0.5)
+            {
+                int CoreAxis = clamp((int)round(CoreAndTip.b), 0, 2);
+                float3 FieldQ = Q;
+                FieldQ[CoreAxis] -= CoreAndTip.a;
+                // No interior plateau: irregular imported surfaces can retain a
+                // visible gradient within their component's bounding volume.
+                RadiusSquared = 0.45 * dot(FieldQ, FieldQ)
+                    + 0.55 * FieldQ[CoreAxis] * FieldQ[CoreAxis];
+            }
             float CoreWeight = exp2(-max(Field.x, 0.0) * RadiusSquared);
             float4 SurfaceFit = ThermalLUT.Load(int3(Id, 11, 0));
             float SurfaceC = lerp(SurfaceFit.x, SurfaceFit.y, CoreWeight);
@@ -68,7 +85,35 @@ if (VisibleSurface)
                 // Convex mixing prevents a cooled skin producing an artificial cold ring.
                 SurfaceC = lerp(SurfaceC, SurfaceFit.y + Patch.w, PatchWeight);
             }
-            // Fit coordinates cover the base field and all transferred temperatures.
+            // The authored electrode hotspot follows the actual tool mesh. It is
+            // independent of the optional bulk/face heat-exchange network.
+            float4 Hotspot = ThermalLUT.Load(int3(Id, 12, 0));
+            if (Hotspot.w > 0.0)
+            {
+                float3 DeltaCm = WorldPositionCm - Hotspot.xyz;
+                float S = saturate(1.0 - dot(DeltaCm, DeltaCm) * Hotspot.w);
+                float HotspotWeight = S * S * (3.0 - 2.0 * S);
+                float TipC = CoreAndTip.r;
+                SurfaceC = lerp(SurfaceC, TipC, HotspotWeight);
+            }
+            // Each car weld is a mesh-local compact surface field independent of
+            // the bulk solver. Max-combine against the same original surface so
+            // overlapping patches are order-independent and cannot cool prior heat.
+            float WeldBaseC = SurfaceC;
+            [unroll]
+            for (int WeldIndex = 0; WeldIndex < 4; ++WeldIndex)
+            {
+                float4 WeldPatch = ThermalLUT.Load(int3(Id, 14 + 2 * WeldIndex, 0));
+                if (WeldPatch.w > 0.0)
+                {
+                    float3 DeltaCm = WorldPositionCm - WeldPatch.xyz;
+                    float S = saturate(1.0 - dot(DeltaCm, DeltaCm) * WeldPatch.w);
+                    float Weight = S * S * (3.0 - 2.0 * S);
+                    float PatchC = ThermalLUT.Load(int3(Id, 15 + 2 * WeldIndex, 0)).r;
+                    SurfaceC = max(SurfaceC, lerp(WeldBaseC, PatchC, Weight));
+                }
+            }
+            // Fit coordinates cover the base field, transfer, electrode and welds.
             // Zero span is the constant-temperature case and uses the first knot.
             float H = SurfaceFit.w > 0.0 ? saturate((SurfaceC - SurfaceFit.z) * SurfaceFit.w) : 0.0;
             float A = 2.0 * (Profile.b + Profile.r - 2.0 * Profile.g);

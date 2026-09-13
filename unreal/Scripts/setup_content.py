@@ -7,6 +7,7 @@ No Time node is used: the caller sets NVFrame for animation or fixed capture.
 """
 from pathlib import Path
 import hashlib
+import runpy
 import unreal
 
 MATERIAL = '/Game/Materials/M_Factory'
@@ -130,7 +131,7 @@ def thermal_fallback():
     if not target:
         raise RuntimeError('Could not create the thermal linear fallback texture')
     target.set_editor_property('size_x', 256)
-    target.set_editor_property('size_y', 12)
+    target.set_editor_property('size_y', 22)
     # UE5.8 PostEditChangeProperty sets forceLinearGamma=true for this format.
     target.set_editor_property('render_target_format', unreal.TextureRenderTargetFormat.RTF_RGBA32F)
     target.set_editor_property('target_gamma', 1.0)
@@ -212,7 +213,7 @@ def rebuild_thermal(path, source_name, is_ui, fallback):
     source_hash = hashlib.sha256(code.encode('utf-8')).hexdigest()
     assets.set_metadata_tag(material, 'DarkFactoryShaderSHA256', source_hash)
     assets.set_metadata_tag(material, 'DarkFactoryGenerator', 'setup_content.py/thermal-transfer-v3')
-    assets.set_metadata_tag(material, 'DarkFactoryThermalLUT', '256x12;row0=apparentFitMinMidMaxC,registered;rows1-3=worldToNormalizedLocal;row4=edgeFalloff,uniformC,coolingRetention,edgeRetainedFraction;rows5-10=faceCenterUV,invRadiusSquared,deltaSurfaceC;row11=edgeSurfaceC,coreSurfaceC,fitMinC,invFitSpan')
+    assets.set_metadata_tag(material, 'DarkFactoryThermalLUT', '256x22;row0=apparentFitMinMidMaxC,registered;rows1-3=worldToNormalizedLocal;row4=edgeFalloff,uniformC,coolingRetention,edgeRetainedFraction;rows5-10=faceCenterUV,invRadiusSquared,deltaSurfaceC;row11=edgeSurfaceC,coreSurfaceC,fitMinC,invFitSpan;row12=toolHotspotWorldXYZ,invRadiusSquared;row13=toolTipSurfaceC,importedCoreMode,dominantLocalAxis,coreOffsetNormalized;rows14-21=fourWeldPairs(worldXYZ,invRadiusSquared;surfaceC,reserved)')
     if not assets.save_loaded_asset(material, only_if_is_dirty=False):
         raise RuntimeError(f'Failed to save generated thermal material {path}')
     unreal.log(f'DF_THERMAL_MATERIAL_READY path={path} source_sha256={source_hash}')
@@ -230,6 +231,17 @@ if not assets.does_asset_exist(MATERIAL):
     editing.recompile_material(material)
     assets.save_loaded_asset(material)
 
+# Factory material is also used by the moving robot cable/hose spline meshes.
+# Apply on every run, including when the original material already exists.
+factory_material = material_at(MATERIAL)
+editing.set_material_usage(factory_material, unreal.MaterialUsage.MATUSAGE_SPLINE_MESH)
+editing.set_material_usage(factory_material, unreal.MaterialUsage.MATUSAGE_INSTANCED_STATIC_MESHES)
+if not factory_material.get_editor_property('used_with_spline_meshes'):
+    raise RuntimeError('M_Factory spline-mesh usage could not be enabled')
+editing.recompile_material(factory_material)
+if not assets.save_loaded_asset(factory_material, only_if_is_dirty=False):
+    raise RuntimeError('Failed to save M_Factory spline-mesh usage')
+
 rebuild_night_vision('/Game/Materials/M_PP_NightVision', 'NightVisionPostProcess.usf', is_ui=False)
 rebuild_night_vision('/Game/Materials/M_UI_NightVision', 'NightVisionSensorUI.usf', is_ui=True)
 rebuild_night_vision('/Game/Materials/M_PP_NightVisionQuality', 'NightVisionPostProcess.usf', is_ui=False, enable_halo=True)
@@ -238,6 +250,28 @@ rebuild_night_vision('/Game/Materials/M_UI_NightVisionQuality', 'NightVisionSens
 thermal_texture = thermal_fallback()
 rebuild_thermal('/Game/Materials/M_PP_Thermal', 'ThermalPostProcess.usf', is_ui=False, fallback=thermal_texture)
 rebuild_thermal('/Game/Materials/M_UI_Thermal', 'ThermalSensorUI.usf', is_ui=True, fallback=thermal_texture)
+
+# Keep effects independently reproducible without importing this entire generator.
+runpy.run_path(str(Path(__file__).with_name('setup_welding_effects.py')), run_name='__main__')
+runpy.run_path(str(Path(__file__).with_name('setup_welding_smoke.py')), run_name='__main__')
+runpy.run_path(str(Path(__file__).with_name('setup_welding_nir.py')), run_name='__main__')
+if (Path(__file__).resolve().parents[2] / 'assets' / 'iq9_evk' / 'mounts.json').exists():
+    runpy.run_path(str(Path(__file__).with_name('setup_iq9_evk.py')), run_name='__main__')
+
+# Upgrade already-imported local materials during a normal content rebuild.
+# Fresh imports perform the same augmentation through import_welding_cell.py.
+if assets.does_asset_exist('/Game/WeldingCell/Textures/T_WC_robots_screen'):
+    runpy.run_path(str(Path(__file__).with_name('setup_control_cabinet.py')), run_name='__main__')
+
+if assets.does_directory_exist('/Game/WeldingCell/Materials'):
+    tool_materials = [assets.load_asset(path) for path in assets.list_assets('/Game/WeldingCell/Materials', False, False)
+                      if path.rsplit('/', 1)[-1].startswith('M_WC_')]
+    if tool_materials:
+        tool_generator = runpy.run_path(str(Path(__file__).with_name('setup_welding_tool_materials.py')))
+        tool_generator['augment_materials'](tool_materials)
+        witness_generator = runpy.run_path(str(Path(__file__).with_name('setup_weld_witness.py')))
+        witness_generator['augment_materials'](tool_materials)
+
 
 if not assets.does_asset_exist(MAP):
     levels = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)

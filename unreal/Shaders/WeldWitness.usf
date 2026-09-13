@@ -1,0 +1,20 @@
+// Cosmetic contact witness: approximate burnished center and dark electrode ring.
+// Existing sheet geometry, normals, thermal emission and heat LUT stay unchanged.
+// Illustrative diameter 3.6 cm is deliberately enlarged for the demo camera.
+struct FWeldWitness {
+    float Mask(float3 P,float3 Center,float3 Normal,float Strength) {
+        float3 N=normalize(Normal.xyz+float3(0,0,0.000001));
+        float3 D=P-Center.xyz;
+        float Depth=abs(dot(D,N));
+        float R=length(D-N*dot(D,N));
+        float CenterMask=1.-smoothstep(0.55,1.1,R);
+        float Ring=smoothstep(1.0,1.25,R)*(1.-smoothstep(1.5,1.8,R));
+        return saturate(Strength)*(0.18*CenterMask+0.8*Ring)*(1.-smoothstep(0.12,0.35,Depth));
+    }
+};
+if (WeldWitnessEnabled<0.5) return 0.;
+FWeldWitness W;
+return saturate(W.Mask(WorldPosition.xyz,WitnessCenter0,WitnessNormal0,WitnessStrength0)
+    +W.Mask(WorldPosition.xyz,WitnessCenter1,WitnessNormal1,WitnessStrength1)
+    +W.Mask(WorldPosition.xyz,WitnessCenter2,WitnessNormal2,WitnessStrength2)
+    +W.Mask(WorldPosition.xyz,WitnessCenter3,WitnessNormal3,WitnessStrength3));

@@ -11,10 +11,21 @@ class USceneCaptureComponent2D;
 class UTextureRenderTarget2D;
 class UTexture2D;
 class UMaterialInterface;
+class UMaterialInstanceDynamic;
 class UPointLightComponent;
 class URectLightComponent;
 class FJsonObject;
 class ADarkFactoryThermalRig;
+class ADarkFactoryWeldingCell;
+class ADarkFactoryWeldingSparks;
+class ADarkFactoryWeldingSmoke;
+class ADarkFactoryIQ9Props;
+class ADarkFactoryEnvironmentDetails;
+class ADarkFactoryCellMechanisms;
+class ADarkFactorySoundscape;
+class ADarkFactoryControlCabinet;
+class ADarkFactoryCurtainPortal;
+class ADarkFactoryFactoryLights;
 
 UCLASS()
 class DARKFACTORY_API ADarkFactoryWorld : public AActor {
@@ -27,6 +38,10 @@ public:
     void SetScenario(int32 Variant, bool bNewSeed = true);
     void Randomize();
     void ToggleInference();
+    void ToggleWeldingAnimation();
+    bool IsImportedScene() const { return WeldingCell != nullptr; }
+    ADarkFactoryWeldingCell* GetWeldingCell() const { return WeldingCell; }
+    bool GetObserverHome(FVector& Location, FRotator& Rotation) const;
     void SaveSample();
     void RequestSample();
     bool bSensorActive = true;
@@ -42,6 +57,11 @@ public:
     int32 Seed = 42;
     UTextureRenderTarget2D* GetSensorTexture() const { return SensorTarget; }
     ADarkFactoryThermalRig* GetThermalRig() const { return ThermalRig; }
+    ADarkFactorySoundscape* GetSoundscape() const { return Soundscape; }
+    ADarkFactoryControlCabinet* GetControlCabinet() const { return ControlCabinet; }
+    bool AreRealismDetailsEnabled() const { return bRealismDetailsEnabled; }
+    void SetRealismDetailsEnabled(bool Enabled);
+    void SetFactoryLightsEnabled(bool Enabled);
     void SetRoofLightIntensity(float Lumens);
     float GetRoofLightIntensity() const { return RoofLightLumens; }
     FString GetScenarioName() const;
@@ -51,6 +71,7 @@ private:
     UPROPERTY() TObjectPtr<USceneComponent> TrayRoot;
     UPROPERTY() TObjectPtr<UStaticMesh> CubeMesh;
     UPROPERTY() TObjectPtr<UMaterialInterface> BaseMaterial;
+    UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> WeldingNIRMaterial;
     UPROPERTY() TArray<TObjectPtr<UStaticMeshComponent>> Modules;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> Occluder;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> RejectArm;
@@ -59,7 +80,80 @@ private:
     UPROPERTY() TObjectPtr<UPointLightComponent> IRLight;
     UPROPERTY() TArray<TObjectPtr<URectLightComponent>> RoofWindowLights;
     float RoofLightLumens = 80;
+    UPROPERTY() TObjectPtr<ADarkFactoryFactoryLights> FactoryLights;
     UPROPERTY() TObjectPtr<ADarkFactoryThermalRig> ThermalRig;
+    UPROPERTY() TObjectPtr<ADarkFactoryWeldingCell> WeldingCell;
+    UPROPERTY() TObjectPtr<ADarkFactoryWeldingSparks> WeldingSparks;
+    UPROPERTY() TObjectPtr<ADarkFactoryWeldingSmoke> WeldingSmoke;
+    UPROPERTY() TObjectPtr<ADarkFactoryIQ9Props> IQ9Props;
+    UPROPERTY() TObjectPtr<ADarkFactoryEnvironmentDetails> EnvironmentDetails;
+    UPROPERTY() TObjectPtr<ADarkFactoryCellMechanisms> CellMechanisms;
+    UPROPERTY() TObjectPtr<ADarkFactorySoundscape> Soundscape;
+    UPROPERTY() TObjectPtr<ADarkFactoryControlCabinet> ControlCabinet;
+    bool bCabinetQA=false;
+    int32 CabinetStep=0;
+    TSharedPtr<FJsonObject> CabinetReport;
+    void CabinetSmokeTick(double Now);
+    bool bRealismDetailsEnabled=false,bRealismQA=false;
+    int32 RealismStep=0;
+    TSharedPtr<FJsonObject> RealismReport;
+    void RealismSmokeTick(double Now);
+    bool bColliderQA=false;
+    int32 ColliderStep=0;
+    TSharedPtr<FJsonObject> ColliderReport;
+    void ColliderSmokeTick(double Now);
+    UPROPERTY() TArray<TObjectPtr<ADarkFactoryCurtainPortal>> CurtainPortals;
+    TSharedPtr<FJsonObject> WeldingProductionQA;
+    bool bPhysicsOverrideAcquired = false;
+    bool bWeldingSmoke = false;
+    TSharedPtr<FJsonObject> WeldingRestMetadata, WeldingMotionMetadata;
+    TSharedPtr<FJsonObject> WeldingFrozenScene, WeldingAfterGuards, WeldingSensorStats;
+    bool bWeldingSensorQA = true, bWeldingGuardsPassed = false;
+    int32 WeldingQAReadbacks = 0, WeldingThermalReadbackBaseline = 0;
+    float WeldingRoofLumens = 0;
+    bool SaveWeldingNIRQA(const FString& Name, const FString& StatsName);
+    TSharedRef<FJsonObject> WeldingSceneSnapshot() const;
+    bool TryBuildImportedCell(const FString& Manifest, FString& Error);
+    void WeldingSmokeTick(double Now);
+    void ToolCoolingSmokeTick(double Now);
+    void BodyWeldHeatSmokeTick(double Now);
+    void ImportedFieldsSmokeTick(double Now);
+    void FactoryLightingSmokeTick(double Now);
+    void RobotChoreographySmokeTick(double Now);
+    void MotorHeatSmokeTick(double Now);
+    void WeldingEffectsSmokeTick(double Now);
+    void RobotExpansionSmokeTick(double Now);
+    bool bRobotExpansionQA=false,bRobotExpansionPassed=true;
+    int32 RobotExpansionStep=0;
+    uint64 RobotExpansionFPSSamples=0;
+    TSharedPtr<FJsonObject> RobotExpansionReport;
+    bool bWeldingEffectsQA=false,bWeldingEffectsPassed=true;
+    int32 WeldingEffectsStep=0,WeldingEffectsPreviousTemporalFreeze=-1;
+    TSharedPtr<FJsonObject> WeldingEffectsReport;
+    FString WeldingEffectsStateSignature;
+    bool bMotorHeatQA=false, bMotorHeatPassed=true;
+    int32 MotorHeatStep=0;
+    TSharedPtr<FJsonObject> MotorHeatReport;
+    FString MotorHeatGeometrySignature, MotorHeatStageSignature, MotorHeatHotSignature;
+    bool bRobotChoreographyQA=false, bRobotChoreographyPassed=true;
+    int32 RobotChoreographyStep=0;
+    TSharedPtr<FJsonObject> RobotChoreographyReport;
+    bool bFactoryLightingQA=false, bFactoryLightingPassed=true;
+    int32 FactoryLightingStep=0;
+    TSharedPtr<FJsonObject> FactoryLightingReport;
+    FString FactoryLightingGeometrySignature;
+    bool bImportedFieldsQA=false, bImportedFieldsPassed=true;
+    int32 ImportedFieldsStep=0;
+    TSharedPtr<FJsonObject> ImportedFieldsReport;
+    FString ImportedFieldsGeometrySignature;
+    bool bBodyWeldHeatQA=false, bBodyWeldHeatPassed=true;
+    int32 BodyWeldHeatStep=0;
+    TSharedPtr<FJsonObject> BodyWeldHeatReport;
+    FString BodyWeldGeometrySignature, BodyWeldHeatSignature, BodyWeldLightingSignature;
+    bool bToolCoolingQA=false, bToolCoolingPassed=true;
+    int32 ToolCoolingStep=0;
+    TSharedPtr<FJsonObject> ToolCoolingReport;
+    FString ToolCoolingGeometrySignature, ToolCoolingHeatSignature;
     bool bModalityScreenshots = false;
     bool bRoofLightSensorParity = true;
     void CaptureModalitiesTick(double Now);

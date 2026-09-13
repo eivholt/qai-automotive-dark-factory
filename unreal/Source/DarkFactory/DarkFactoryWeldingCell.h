@@ -1,0 +1,194 @@
+#pragma once
+#include "CoreMinimal.h"
+#include "GameFramework/Actor.h"
+#include "DarkFactoryWeldingCell.generated.h"
+
+class UStaticMeshComponent;
+class USplineMeshComponent;
+class UBoxComponent;
+class FJsonObject;
+class ADarkFactoryThermalRig;
+class UMaterialInstanceDynamic;
+
+/** Authored visual temperature only; never a calibrated material or thermal body. */
+struct FDarkFactoryImportedThermalSurface {
+    UStaticMeshComponent* Mesh = nullptr;
+    float TemperatureC = 24;
+    float Emissivity = .9f;
+    float CoreEdgeDropC = 0;
+};
+struct FDarkFactoryWeldEmitter {
+    FString Id;
+    UStaticMeshComponent* SourceTool = nullptr;
+    FVector Position = FVector::ZeroVector;
+    FVector Direction = -FVector::UpVector;
+    FVector SurfacePosition = FVector::ZeroVector;
+    FVector SurfaceNormal = FVector::UpVector;
+    float Intensity = 0;
+    int32 EmitterIndex = 0; // Stable even when only a subset of robots is welding.
+    double WeldAgeSeconds = 0, WeldDurationSeconds = 7.5;
+};
+
+/** Cycle-local schedule derived from seed, robot identity and a bounded cycle bank. */
+struct FDarkFactoryRobotTiming {
+    bool Valid=false, Randomized=true;
+    FString RobotId;
+    int32 RobotIndex=-1, CycleIndex=0, ScheduleIndex=0;
+    double CycleSeconds=0, CycleDurationSeconds=21;
+    double RestDelaySeconds=0, PreWeldDelaySeconds=0;
+    double ApproachStartSeconds=3.5, ApproachEndSeconds=4.5;
+    double WeldStartSeconds=4.5, WeldEndSeconds=12, WithdrawEndSeconds=13;
+};
+
+/** Deterministic authored cell cycle; rigid visual robot links, no inspection decisions. */
+UCLASS()
+class DARKFACTORY_API ADarkFactoryWeldingCell : public AActor {
+    GENERATED_BODY()
+public:
+    static constexpr double CycleDurationSeconds = 21.;
+    static constexpr double LegacyCycleDurationSeconds = 18.;
+    static constexpr int32 RobotTimingBankCycles = 16;
+    ADarkFactoryWeldingCell();
+    bool LoadScene(const FString& Path, FString& Error);
+    virtual void Tick(float DeltaSeconds) override;
+    void SetAnimationEnabled(bool Enabled) { bAnimating = Enabled; }
+    bool IsAnimating() const { return bAnimating; }
+    void SetMotionTime(double Seconds);
+    double GetMotionTime() const { return MotionSeconds; }
+    double GetCycleSeconds() const;
+    double GetCycleDurationSeconds() const { return bRandomizedRobotTiming ? CycleDurationSeconds:LegacyCycleDurationSeconds; }
+    double GetCarriageDepartureStartSeconds() const { return bRandomizedRobotTiming ? 16.3:13.5; }
+    double GetCarriageDepartureEndSeconds() const { return GetCarriageDepartureStartSeconds()+3.5; }
+    bool IsRobotTimingRandomized() const { return bRandomizedRobotTiming; }
+    // Explicit old-fixture timing only. Interactive/default mode is randomized.
+    bool SetRobotTimingForQA(bool Randomized);
+    FDarkFactoryRobotTiming GetRobotTiming(int32 RobotIndex,double AbsoluteSeconds) const;
+    TSharedRef<FJsonObject> BuildRobotTimingMetadata(double AbsoluteSeconds) const;
+    int32 GetCycleIndex() const;
+    FString GetCyclePhaseName() const;
+    bool IsWelding() const;
+    TArray<FDarkFactoryWeldEmitter> GetWeldEmitters() const;
+    FBox GetCarriageBounds() const;
+    const TArray<TObjectPtr<UBoxComponent>>& GetCarriageColliders() const { return CarriageColliders; }
+    int32 GetMeshCount() const { return MeshComponents.Num(); }
+    int32 GetJointCount() const { return JointMotion.Num(); }
+    int32 GetHolderCount() const { return HolderComponents.Num(); }
+    const TArray<FDarkFactoryImportedThermalSurface>& GetThermalSurfaces() const { return ThermalSurfaces; }
+    FVector GetObserverLocation() const { return ObserverLocation; }
+    FRotator GetObserverRotation() const { return (ObserverLookAt-ObserverLocation).Rotation(); }
+    FVector GetSensorLocation() const { return SensorLocation; }
+    FVector GetSensorLookAt() const { return SensorLookAt; }
+    FRotator GetSensorRotation() const { return (SensorLookAt-SensorLocation).Rotation(); }
+    float GetSensorFOV() const { return SensorFOV; }
+    TSharedRef<FJsonObject> BuildPreviewMetadata() const;
+    void BindThermalRig(ADarkFactoryThermalRig* Rig);
+    void SetWeldWitnessEnabled(bool Enabled);
+    bool HasWeldWitness() const { return bWeldWitnessEnabled; }
+    void SetToolHeatTimeForQA(double Seconds); // Offline same-pose cooling evidence only.
+    TSharedRef<FJsonObject> BuildToolHeatMetadata() const;
+    void SetBodyWeldHeatTimeForQA(double Seconds); // Vary heat only in a frozen diagnostic pose.
+    TSharedRef<FJsonObject> BuildBodyWeldHeatMetadata() const;
+    void SetMotorHeatTimeForQA(double Seconds,double IdleSeconds=0); // Heat-only deterministic seek.
+    TSharedRef<FJsonObject> BuildMotorHeatMetadata() const;
+private:
+    UPROPERTY() TObjectPtr<USceneComponent> SceneRoot;
+    UPROPERTY() TObjectPtr<USceneComponent> CarriageRoot;
+    UPROPERTY() TArray<TObjectPtr<USceneComponent>> JointComponents;
+    UPROPERTY() TArray<TObjectPtr<UStaticMeshComponent>> MeshComponents;
+    UPROPERTY() TArray<TObjectPtr<UStaticMeshComponent>> BodyComponents;
+    UPROPERTY() TArray<TObjectPtr<UStaticMeshComponent>> HolderComponents;
+    UPROPERTY() TArray<TObjectPtr<UBoxComponent>> CarriageColliders;
+    UPROPERTY() TArray<TObjectPtr<USplineMeshComponent>> HoseComponents;
+    struct FJointMotion {
+        TWeakObjectPtr<USceneComponent> Component;
+        FString Id;
+        int32 RobotIndex=INDEX_NONE;
+        FVector Axis = FVector::UpVector;
+        FQuat RestRotation = FQuat::Identity;
+        double Minimum = 0, Maximum = 0, RestAngle = 0, WeldAmplitude = 0;
+        double Angle = 0;
+        TArray<double> WorkAngles;
+        TArray<double> ApproachAngles; // Three authored poses between rest and solved work.
+    };
+    struct FMotorHeatRig {
+        TWeakObjectPtr<UStaticMeshComponent> Mesh;
+        FString Role;
+        TArray<int32> Drivers;
+        TArray<double> DriverWeights;
+        double MaximumC=80, HeatingRate=40, CoolingTau=25, ReferenceSpeed=120;
+        float CoreEdgeDropC=0, TemperatureC=20, Activity=0;
+        TArray<double> PrefixDecay,PrefixRise;
+        TArray<float> Duty;
+    };
+    double EvaluateJointAngle(const FJointMotion& Joint,double Seconds) const;
+    double RobotCanonicalPhase(int32 RobotIndex,double Seconds) const;
+    double GetTimingBankSeconds() const { return GetCycleDurationSeconds()*(bRandomizedRobotTiming ? RobotTimingBankCycles:1); }
+    int32 MotorDutySteps=2160;
+    int32 RobotTimingSeed=42;
+    bool bRandomizedRobotTiming=true, bToolHeatContinuous=true;
+    bool InitializeMotorHeat();
+    void UpdateMotorHeat(double Seconds,double IdleSeconds=0);
+    double EvaluateMotorTemperature(const FMotorHeatRig& Rig,double Seconds,double IdleSeconds=0) const;
+    bool CheckMotorHeatModel();
+    TArray<FMotorHeatRig> MotorHeatRigs;
+    TSharedPtr<FJsonObject> MotorHeatSelfCheck;
+    double MotorHeatSeconds=0,MotorIdleSeconds=0;
+    struct FToolHeatCurve {
+        TArray<double> PrefixRise;
+        double Target=20, HeatingTau=1, CoolingTau=1, CycleDecay=0, BankDecay=0;
+    };
+    struct FEmitterRig {
+        FString Id;
+        TWeakObjectPtr<USceneComponent> Joint;
+        TWeakObjectPtr<UStaticMeshComponent> SourceTool;
+        FVector Position = FVector::ZeroVector;
+        FVector Direction = -FVector::UpVector;
+        TArray<FVector> SurfacePositions, SurfaceNormals;
+        FVector HeatTipLocal=FVector::ZeroVector;
+        TArray<TWeakObjectPtr<UMaterialInstanceDynamic>> HeatMaterials;
+        float BodyC=20, TipC=20, Glow=0;
+        FToolHeatCurve BodyCurve,TipCurve;
+    };
+    void BuildRobotHeatCurves();
+    double EvaluateToolTemperature(int32 RobotIndex,const FToolHeatCurve& Curve,double Seconds) const;
+    struct FHoseAnchor { TWeakObjectPtr<USceneComponent> Joint; FVector LocalPosition = FVector::ZeroVector; };
+    struct FHoseRig { TArray<FHoseAnchor> Anchors; TArray<TWeakObjectPtr<USplineMeshComponent>> Sections; };
+    struct FBodyWeldSpot {
+        FString Id;
+        TWeakObjectPtr<UStaticMeshComponent> Mesh;
+        FVector LocalPosition = FVector::ZeroVector;
+        FVector LocalNormal = FVector::UpVector;
+        float WitnessStrength = 0;
+        float RadiusCm = 12, TemperatureC = 20, Glow = 0, ContactErrorCm = 0;
+    };
+    struct FBodyWeldMaterial {
+        TWeakObjectPtr<UStaticMeshComponent> Mesh;
+        TArray<int32> SpotIndices;
+        TArray<TWeakObjectPtr<UMaterialInstanceDynamic>> Materials;
+    };
+    bool InitializeBodyWeldHeat();
+    void UpdateBodyWeldHeat(double Seconds);
+    double BodyWeldHeatSeconds = 0;
+    bool bWeldWitnessEnabled=false;
+    double EvaluateBodyWeldTemperature(int32 RobotIndex,double Seconds) const;
+    TArray<FBodyWeldSpot> BodyWeldSpots;
+    TArray<FBodyWeldMaterial> BodyWeldMaterials;
+    bool InitializeToolHeat();
+    void UpdateToolHeat(double Seconds);
+    TWeakObjectPtr<ADarkFactoryThermalRig> ToolThermalRig;
+    double ToolHeatSeconds=0;
+    void BuildCarriageCollision();
+    void BuildHoses(const TMap<FName,USceneComponent*>& Parents);
+    void UpdateHoses();
+    TArray<FJointMotion> JointMotion;
+    TArray<FEmitterRig> EmitterRigs;
+    TArray<FHoseRig> HoseRigs;
+    TArray<FDarkFactoryImportedThermalSurface> ThermalSurfaces;
+    FBox WorkingBodyBounds = FBox(ForceInit);
+    FVector ObserverLocation, ObserverLookAt, SensorLocation, SensorLookAt;
+    float SensorFOV = 58;
+    double MotionSeconds = 0, ArrivalOffset = -1500, DepartureOffset = 1500;
+    bool bLoaded = false, bAnimating = true, bCarVisible = false;
+    bool bDramaticApproach = false;
+    FString ManifestPath;
+};

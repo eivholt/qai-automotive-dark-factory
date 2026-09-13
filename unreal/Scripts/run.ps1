@@ -5,6 +5,13 @@ param(
     [int]$Seed = 42,
     [ValidateRange(0,20000)][float]$RoofLightLumens = 80,
     [switch]$NoInference,
+    [ValidateSet('auto','procedural','welding')][string]$Scene = 'auto',
+    [string]$SceneManifest = '',
+    [ValidateRange(0,20000)][float]$WeldingRoofLightLumens = 80,
+    [switch]$WeldingSmoke,
+    [switch]$RealismSmoke,
+    [switch]$ColliderSmoke,
+    [switch]$CabinetSmoke,
     [switch]$Smoke,
     [switch]$NightVisionSmoke,
     [switch]$ThermalSmoke,
@@ -18,9 +25,19 @@ param(
     [string]$Output = ''
 )
 $ErrorActionPreference = 'Stop'
+if (([int]$RealismSmoke.IsPresent + [int]$ColliderSmoke.IsPresent + [int]$CabinetSmoke.IsPresent) -gt 1) { throw 'Select one feature smoke check' }
+if ($RealismSmoke -or $ColliderSmoke -or $CabinetSmoke) { $WeldingSmoke = $true }
 $Project = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\DarkFactory.uproject'))
 $Exe = Join-Path $EngineRoot 'Engine\Binaries\Win64\UnrealEditor.exe'
 $Arguments = @($Project, '-game', '-windowed', '-ResX=1600', '-ResY=900', '-NoSplash', "-DFEndpoint=$Endpoint", "-DFSeed=$Seed", "-DFRoofLightLumens=$RoofLightLumens")
+if ($WeldingSmoke -and ($Smoke -or $NightVisionSmoke -or $ThermalSmoke -or $ModalityScreenshots -or $ReadbackSmoke -or $BridgeSmoke -or $Dataset -gt 0 -or $Plan)) { throw 'WeldingSmoke cannot use procedural smoke or training flags' }
+$Arguments += "-DFScene=$Scene"
+$Arguments += "-DFWeldingRoofLightLumens=$WeldingRoofLightLumens"
+if ($SceneManifest) { $Arguments += "-DFSceneManifest=$([IO.Path]::GetFullPath($SceneManifest))" }
+if ($WeldingSmoke) { $Arguments += '-DFWeldingSmoke' }
+if ($RealismSmoke) { $Arguments += '-DFRealismSmoke' }
+if ($ColliderSmoke) { $Arguments += '-DFColliderSmoke' }
+if ($CabinetSmoke) { $Arguments += '-DFCabinetSmoke' }
 if ($NoInference) { $Arguments += '-DFNoInference' }
 if ($Smoke) { $Arguments += '-DFSmoke' }
 if ($ModalityScreenshots) { $Arguments += '-DFModalityScreenshots' }

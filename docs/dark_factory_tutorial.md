@@ -1,6 +1,6 @@
 # Dark factory inspection with Unreal and Cosmos Reason2
 
-This tutorial starts a vehicle-manufacturing demonstration before the final factory assets and anomaly have been selected. A primitive battery tray stands in for a future inspection station. The complete target loop is:
+This tutorial covers the procedural battery-tray reference scene and its proposed Cosmos inspection loop. Select it with `run.ps1 -Scene procedural`. The [local welding preview](welding_production_cycle.md) has a separate production cycle and keeps inference and training disabled until its inspection scenario is defined. The imported preview also includes [ten researched factory details and production cues](realism_additions.md), with independent observer viewpoints and fixed sensors. The complete target loop is:
 
 ```text
 Xbox controller -> spectator camera                     (presentation only)
@@ -37,9 +37,9 @@ A single still image is appropriate for gross seating or presence inspection at 
 
 ## 2. Separate darkness, sensor illumination and display
 
-The virtual factory has no visible work lighting. The observer can use an assisted view to navigate. A fixed sensor uses an active near-infrared rendering proxy and exports grayscale RGB images. Both the observer and fixed-camera preview use display shaders with shaded greens, animated grain, soft highlight compression and mild lens falloff. The default shader uses one texture sample; `run.ps1 -NightVisionQuality` selects a five-sample variant with an optional bright-region halo. These sample counts describe the display shader, not the complete scene renderer.
+The procedural observer has dim roof-window fill and a visible-only headlamp for navigation. Complete darkness is an explicit calibration condition: remove the roof fill with `-RoofLightLumens 0` and turn off the headlamp with L. A fixed sensor uses an active near-infrared rendering proxy and exports grayscale RGB images. Both the observer and fixed-camera preview use display shaders with shaded greens, animated grain, soft highlight compression and mild lens falloff. The default shader uses one texture sample; `run.ps1 -NightVisionQuality` selects a five-sample variant with an optional bright-region halo. These sample counts describe the display shader, not the complete scene renderer.
 
-Press I or N, or Xbox Y or B, to toggle the observer's assisted view and visible darkness. The fixed sensor stays in active-IR mode throughout the interactive demo. Sensor illumination is disabled only by internal offline calibration for control images. Observer movement and display controls leave sensor pose and model input unchanged. Press V for green/monochrome, [ or ] (Xbox LB/RB) for display gain, and comma/period for grain.
+Press I or N, or Xbox B, to toggle the observer's NIR and visible views. Tab or Xbox Y cycles dim visible, NIR, thermal and bright factory. Bright factory switches on six overhead fluorescent banks with a brief staggered startup. L toggles the headlamp preference outside bright mode; the lamp emits only in dim visible and retains that preference when switching modes. See [factory lighting](factory_lighting.md) for the startup and sensor-isolation checks. The fixed sensor stays in active-IR mode throughout the interactive demo. Sensor illumination is disabled only by internal offline calibration for control images. Observer movement and display controls leave sensor pose and model input unchanged. Press V for green/monochrome, [ or ] (Xbox LB/RB) for display gain, and comma/period for grain.
 
 The HUD reads the sensor render target directly on the GPU, refreshing at 15 Hz by default. Configure `[DarkFactory.Sensor] PreviewHz` or pass `-DFPreviewHz=` to the executable for a rate from 1 to 30 Hz. Display palette and grain run on the GPU; the grain pattern changes at 24 Hz independently of camera refresh. The preview precedes CPU sensor augmentation, so it is not an exact copy of the saved/model PNG.
 

@@ -1,0 +1,31 @@
+// Procedural optical smoke opacity. Mesh is the engine unit sphere (radius50cm).
+// Instance-local position, age and seed are interpolated from the vertex stage.
+// No Time, texture lookup, scene-color feedback or thermal field is used here.
+struct FDarkFactorySmoke {
+    float Hash(float3 P) {
+        P=frac(P*float3(.1031,.1030,.0973));
+        P+=dot(P,P.yxz+33.33);
+        return frac((P.x+P.y)*P.z);
+    }
+    float Noise(float3 P) {
+        float3 I=floor(P),F=frac(P);
+        F=F*F*(3.0-2.0*F);
+        return lerp(
+            lerp(lerp(Hash(I),Hash(I+float3(1,0,0)),F.x),
+                 lerp(Hash(I+float3(0,1,0)),Hash(I+float3(1,1,0)),F.x),F.y),
+            lerp(lerp(Hash(I+float3(0,0,1)),Hash(I+float3(1,0,1)),F.x),
+                 lerp(Hash(I+float3(0,1,1)),Hash(I+float3(1,1,1)),F.x),F.y),F.z);
+    }
+};
+FDarkFactorySmoke Smoke;
+float3 Q=LocalPosition/50.0;
+float3 Drift=float3(.13,-.09,.18)*AgeSeconds;
+float3 Offset=float3(17.3,41.7,29.1)*Seed;
+float N=.68*Smoke.Noise(Q*2.4+Offset+Drift)
+       +.32*Smoke.Noise(Q*5.1+Offset*.71-Drift*.63);
+float Facing=saturate(dot(normalize(NormalWS),normalize(ViewDirectionWS)));
+// Broad interior with a zero-opacity silhouette; noise and DepthFade keep
+// overlapping envelopes from reading as opaque spheres.
+float SoftEdge=Facing*(.55+.45*Facing);
+float Density=smoothstep(.08,.72,N);
+return saturate(OpacityEnvelope*SmokeOpacity*SoftEdge*Density);

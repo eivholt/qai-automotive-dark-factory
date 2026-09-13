@@ -1,0 +1,5 @@
+// Fixed imported-scene NIR projection after tonemapping. One unfiltered
+// PostProcessInput0 sample is connected by setup_welding_nir.py.
+// No exposure, gamma conversion, noise, palette, gain or temporal input.
+float Gray = dot(SceneColor.rgb, float3(0.2126, 0.7152, 0.0722));
+return Gray.xxx;

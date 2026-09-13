@@ -239,3 +239,6 @@ checkpoints/
 *.bin
 *.pt
 *.pth
+
+# Purchased assets stay local and must never be redistributed
+/assets/

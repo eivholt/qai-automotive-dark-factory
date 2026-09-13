@@ -1,0 +1,166 @@
+// GPU cabinet HMI: authored surface graphics driven by the simulation clock.
+// Source RGB remains on the bezel/button legends. No render target, Time node,
+// scene-color feedback, new thermal field, or measured process/quality claim.
+struct FControlCabinet {
+    float Box(float2 P, float2 A, float2 B, float AA) {
+        float2 D=max(A-P,P-B);
+        return 1.-smoothstep(-AA,AA,max(D.x,D.y));
+    }
+    uint Bits(uint C) {
+        // Five three-bit rows, top to bottom. A tiny font avoids any new asset.
+        if(C==48u)return 31599u; // 0:111 101 101 101 111
+        if(C==49u)return 29850u; // 1:010 110 010 010 111
+        if(C==50u)return 29671u; // 2:111 001 111 100 111
+        if(C==51u)return 31207u; // 3:111 001 111 001 111
+        if(C==52u)return 18925u; // 4:101 101 111 001 001
+        if(C==53u)return 31183u; // 5:111 100 111 001 111
+        if(C==54u)return 31695u; // 6:111 100 111 101 111
+        if(C==55u)return 18727u; // 7:111 001 001 001 001
+        if(C==56u)return 31727u; // 8:111 101 111 101 111
+        if(C==57u)return 31215u; // 9:111 101 111 001 111
+        if(C==65u)return 23530u; // A
+        if(C==67u)return 29263u; // C
+        if(C==68u)return 15211u; // D
+        if(C==69u)return 29391u; // E
+        if(C==70u)return 4815u;  // F
+        if(C==73u)return 29847u; // I
+        if(C==75u)return 23277u; // K
+        if(C==76u)return 29257u; // L
+        if(C==77u)return 23549u; // M
+        if(C==78u)return 24573u; // N (compact diagonal)
+        if(C==79u)return 31599u; // O
+        if(C==80u)return 4843u;  // P
+        if(C==82u)return 23275u; // R
+        if(C==83u)return 31183u; // S
+        if(C==84u)return 9367u;  // T
+        if(C==85u)return 31597u; // U
+        if(C==86u)return 11117u; // V
+        if(C==87u)return 24557u; // W
+        if(C==89u)return 9389u;  // Y
+        if(C==46u)return 8192u;  // .
+        if(C==37u)return 21157u; // %
+        return 0u;
+    }
+    float Glyph(float2 UV,float2 Origin,float Height,uint C,float Aspect,float AA) {
+        float Pixel=Height/5.;
+        float2 G=(UV-Origin)/float2(Pixel/Aspect,Pixel);
+        if(any(G<0.)||G.x>=3.||G.y>=5.)return 0.;
+        uint2 Cell=(uint2)floor(G);
+        // Bits encode each row with the leftmost pixel at the low bit.
+        uint Bit=Cell.y*3u+Cell.x;
+        float On=(float)((Bits(C)>>Bit)&1u);
+        float2 F=frac(G);
+        float Edge=min(min(F.x,1.-F.x),min(F.y,1.-F.y));
+        return On*smoothstep(0.,max(.035,AA/Pixel),Edge);
+    }
+    float Word(float2 UV,float2 Origin,float Height,uint4 Letters,float Aspect,float AA) {
+        float Advance=.8*Height/Aspect;
+        return Glyph(UV,Origin,Height,Letters.x,Aspect,AA)
+             +Glyph(UV,Origin+float2(Advance,0),Height,Letters.y,Aspect,AA)
+             +Glyph(UV,Origin+float2(2.*Advance,0),Height,Letters.z,Aspect,AA)
+             +Glyph(UV,Origin+float2(3.*Advance,0),Height,Letters.w,Aspect,AA);
+    }
+    float Number(float2 UV,float2 Origin,float Height,float Value,int Digits,float Aspect,float AA) {
+        float Result=0., Advance=.8*Height/Aspect;
+        uint V=(uint)clamp(floor(Value+.0001),0.,999.);
+        if(Digits==3)Result+=Glyph(UV,Origin,Height,48u+(V/100u)%10u,Aspect,AA);
+        if(Digits>=2)Result+=Glyph(UV,Origin+float2((Digits-2)*Advance,0),Height,48u+(V/10u)%10u,Aspect,AA);
+        Result+=Glyph(UV,Origin+float2((Digits-1)*Advance,0),Height,48u+V%10u,Aspect,AA);
+        return Result;
+    }
+    float3 PhaseColor(float Phase) {
+        if(Phase>2.5&&Phase<3.5)return float3(1.,.47,.09);
+        if(Phase>.5&&Phase<4.5)return float3(.08,.62,.88);
+        return float3(.17,.36,.43);
+    }
+    uint4 PhaseText(float Phase) {
+        if(Phase<.5)return uint4(82u,69u,83u,84u); // REST
+        if(Phase<1.5)return uint4(77u,79u,86u,69u); // MOVE
+        if(Phase<2.5)return uint4(68u,87u,69u,76u); // DWEL
+        if(Phase<3.5)return uint4(87u,69u,76u,68u); // WELD
+        if(Phase<4.5)return uint4(82u,69u,84u,82u); // RETR
+        return uint4(80u,65u,82u,75u); // PARK
+    }
+    float3 Row(float2 UV,float Y,float Robot,float Phase,float Progress,float Aspect,float AA) {
+        float3 Color=float3(.009,.030,.049)*Box(UV,float2(.075,Y-.009),float2(.925,Y+.060),AA);
+        Color+=float3(.20,.61,.74)*Glyph(UV,float2(.092,Y),.046,82u,Aspect,AA);
+        Color+=float3(.20,.61,.74)*Number(UV,float2(.128,Y),.046,Robot,1,Aspect,AA);
+        float3 State=PhaseColor(Phase);
+        Color+=State*Word(UV,float2(.219,Y+.003),.041,PhaseText(Phase),Aspect,AA);
+        Color+=float3(.035,.082,.102)*Box(UV,float2(.425,Y+.012),float2(.892,Y+.034),AA);
+        if(Progress>.001)
+            Color+=State*.78*Box(UV,float2(.425,Y+.012),float2(lerp(.425,.892,saturate(Progress)),Y+.034),AA);
+        return Color;
+    }
+    float Button(float3 P,float3 Center,float3 Normal,float Radius,float Level) {
+        float3 D=P-Center;
+        float Depth=dot(D,Normal);
+        float R=length(D-Normal*Depth)/max(Radius,.01);
+        float Face=1.-smoothstep(.88,1.,R);
+        return saturate(Level)*Face*(1.-smoothstep(.55,1.,abs(Depth)))*(.60+.40*pow(saturate(1.-R),2.));
+    }
+};
+FControlCabinet H;
+float3 D=WorldPosition-ScreenCenter;
+float3 N=normalize(ScreenNormal);
+float Aspect=max(ScreenWidth,1.)/max(ScreenHeight,1.);
+// The imported +Right axis is viewer-left on this outward-facing cabinet.
+float2 UV=float2(.5-dot(D,normalize(ScreenRight))/max(ScreenWidth,1.),
+                 .5-dot(D,normalize(ScreenUp))/max(ScreenHeight,1.));
+float AA=max(.00045,max(fwidth(UV.x),fwidth(UV.y))*.60);
+float ScreenMask=H.Box(UV,float2(.035,.045),float2(.965,.955),AA)
+               *(1.-smoothstep(.60,1.,abs(dot(D,N))));
+float3 Emission=0.;
+if(ScreenMask>.0001) {
+    float3 LCD=float3(.004,.013,.023);
+    LCD+=float3(.012,.047,.068)*H.Box(UV,float2(.055,.065),float2(.945,.180),AA);
+    LCD+=float3(.10,.70,.89)*H.Word(UV,float2(.085,.089),.056,uint4(67u,69u,76u,76u),Aspect,AA);
+    LCD+=float3(.10,.70,.89)*H.Number(UV,float2(.245,.089),.056,1.,2,Aspect,AA);
+    LCD+=float3(.12,.43,.54)*H.Word(UV,float2(.807,.102),.038,uint4(83u,73u,77u,32u),Aspect,AA);
+    float3 Status=Paused>.5 ? float3(.80,.40,.08):float3(.08,.65,.39);
+    LCD+=Status*H.Box(UV,float2(.705,.111),float2(.725,.131),AA);
+    LCD+=float3(.018,.105,.145)*H.Box(UV,float2(.075,.19),float2(.925,.193),AA);
+    // Circular elapsed-cycle gauge, aspect corrected to physical screen size.
+    float2 Q=(UV-float2(.269,.379))*float2(Aspect,1.);
+    float R=length(Q);
+    float Ring=(1.-smoothstep(.137-AA,.137+AA,R))*smoothstep(.121-AA,.121+AA,R);
+    float Angle=frac(atan2(Q.x,-Q.y)/6.28318530718+1.);
+    float RingFill=1.-smoothstep(saturate(CycleProgress)-.003,saturate(CycleProgress)+.003,Angle);
+    LCD+=Ring*lerp(float3(.02,.07,.095),float3(.045,.67,.89),RingFill);
+    LCD+=float3(.25,.71,.85)*H.Number(UV,float2(.196,.347),.069,clamp(CycleProgress*100.,0.,100.),3,Aspect,AA);
+    LCD+=float3(.12,.38,.47)*H.Glyph(UV,float2(.334,.358),.040,37u,Aspect,AA);
+    LCD+=float3(.15,.46,.58)*H.Word(UV,float2(.480,.254),.043,uint4(67u,89u,67u,76u),Aspect,AA);
+    LCD+=float3(.15,.46,.58)*H.Glyph(UV,float2(.584,.254),.043,69u,Aspect,AA);
+    float Seconds=max(CycleSeconds,0.);
+    LCD+=float3(.24,.79,.92)*H.Number(UV,float2(.480,.320),.086,Seconds,2,Aspect,AA);
+    LCD+=float3(.24,.79,.92)*H.Glyph(UV,float2(.584,.320),.086,46u,Aspect,AA);
+    LCD+=float3(.24,.79,.92)*H.Number(UV,float2(.636,.320),.086,frac(Seconds)*10.,1,Aspect,AA);
+    LCD+=float3(.14,.43,.54)*H.Glyph(UV,float2(.697,.345),.056,83u,Aspect,AA);
+    LCD+=float3(.11,.41,.51)*H.Word(UV,float2(.480,.440),.040,uint4(65u,67u,84u,73u),Aspect,AA);
+    LCD+=float3(.11,.41,.51)*H.Word(UV,float2(.578,.440),.040,uint4(86u,69u,32u,32u),Aspect,AA);
+    LCD+=float3(.18,.68,.72)*H.Number(UV,float2(.744,.429),.060,ActiveRobotCount,1,Aspect,AA);
+    LCD+=float3(.016,.075,.101)*H.Box(UV,float2(.075,.544),float2(.925,.547),AA);
+    LCD+=H.Row(UV,.584,1.,RobotPhase0,RobotProgress0,Aspect,AA);
+    LCD+=H.Row(UV,.668,2.,RobotPhase1,RobotProgress1,Aspect,AA);
+    LCD+=H.Row(UV,.752,3.,RobotPhase2,RobotProgress2,Aspect,AA);
+    LCD+=H.Row(UV,.836,4.,RobotPhase3,RobotProgress3,Aspect,AA);
+    // Subtle deterministic LCD line structure stays subordinate to the gauges.
+    LCD*=.982+.018*cos(UV.y*ScreenHeight*20.);
+    Emission+=LCD*max(ScreenStrength,0.)*ScreenMask;
+}
+float Buttons=H.Button(WorldPosition,ButtonCenter0,N,ButtonRadius0,ButtonLevel0)
+    +H.Button(WorldPosition,ButtonCenter1,N,ButtonRadius1,ButtonLevel1)
+    +H.Button(WorldPosition,ButtonCenter2,N,ButtonRadius2,ButtonLevel2)
+    +H.Button(WorldPosition,ButtonCenter3,N,ButtonRadius3,ButtonLevel3)
+    +H.Button(WorldPosition,ButtonCenter4,N,ButtonRadius4,ButtonLevel4)
+    +H.Button(WorldPosition,ButtonCenter5,N,ButtonRadius5,ButtonLevel5)
+    +H.Button(WorldPosition,ButtonCenter6,N,ButtonRadius6,ButtonLevel6)
+    +H.Button(WorldPosition,ButtonCenter7,N,ButtonRadius7,ButtonLevel7)
+    +H.Button(WorldPosition,ButtonCenter8,N,ButtonRadius8,ButtonLevel8)
+    +H.Button(WorldPosition,ButtonCenter9,N,ButtonRadius9,ButtonLevel9)
+    +H.Button(WorldPosition,ButtonCenter10,N,ButtonRadius10,ButtonLevel10)
+    +H.Button(WorldPosition,ButtonCenter11,N,ButtonRadius11,ButtonLevel11);
+float MaxSource=max(SourceColor.r,max(SourceColor.g,SourceColor.b));
+float3 ButtonColor=saturate(SourceColor/max(.18,MaxSource));
+Emission+=ButtonColor*max(ButtonStrength,0.)*saturate(Buttons);
+return Emission*saturate(PanelPower);
