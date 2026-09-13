@@ -15,6 +15,7 @@ class UMaterialInstanceDynamic;
 class UPointLightComponent;
 class URectLightComponent;
 class FJsonObject;
+class FJsonValue;
 class ADarkFactoryThermalRig;
 class ADarkFactoryWeldingCell;
 class ADarkFactoryWeldingSparks;
@@ -26,6 +27,8 @@ class ADarkFactorySoundscape;
 class ADarkFactoryControlCabinet;
 class ADarkFactoryCurtainPortal;
 class ADarkFactoryFactoryLights;
+class ADarkFactoryProcessController;
+class ADarkFactoryProcessScene;
 
 UCLASS()
 class DARKFACTORY_API ADarkFactoryWorld : public AActor {
@@ -59,6 +62,8 @@ public:
     ADarkFactoryThermalRig* GetThermalRig() const { return ThermalRig; }
     ADarkFactorySoundscape* GetSoundscape() const { return Soundscape; }
     ADarkFactoryControlCabinet* GetControlCabinet() const { return ControlCabinet; }
+    ADarkFactoryProcessController* GetProcessController() const { return ProcessController; }
+    ADarkFactoryCellMechanisms* GetCellMechanisms() const { return CellMechanisms; }
     bool AreRealismDetailsEnabled() const { return bRealismDetailsEnabled; }
     void SetRealismDetailsEnabled(bool Enabled);
     void SetFactoryLightsEnabled(bool Enabled);
@@ -90,6 +95,22 @@ private:
     UPROPERTY() TObjectPtr<ADarkFactoryCellMechanisms> CellMechanisms;
     UPROPERTY() TObjectPtr<ADarkFactorySoundscape> Soundscape;
     UPROPERTY() TObjectPtr<ADarkFactoryControlCabinet> ControlCabinet;
+    UPROPERTY() TObjectPtr<ADarkFactoryProcessScene> ProcessScene;
+    UPROPERTY() TObjectPtr<ADarkFactoryProcessController> ProcessController;
+    bool bProcessEnabled=false;
+    // Dedicated native Chaos fixture. No controller, inference or training path.
+    bool bCurtainQA=false,bCurtainStarted=false,bCurtainFinished=false;
+    bool bCurtainPaused=false,bCurtainPauseDone=false;
+    int32 CurtainPassIndex=0,CurtainMovingSamples=0,CurtainContactBaseline=0;
+    double CurtainClock=0,CurtainPassTime=0,CurtainClearClock=-1,CurtainWallStarted=0;
+    double CurtainPauseStarted=0,CurtainCarriageOffset=-1800,CurtainMaxFrameDelta=0;
+    TSharedPtr<FJsonObject> CurtainReport,CurtainPass,CurtainPause;
+    TArray<TSharedPtr<FJsonValue>> CurtainSamples,CurtainPasses;
+    TArray<FTransform> CurtainPauseTransforms;
+    TArray<FVector> CurtainPauseLinear,CurtainPauseAngular;
+    bool InitializeCurtainSmoke();
+    void CurtainSmokeTick(float DeltaSeconds,double Now);
+    void FinishCurtainSmoke(bool Completed,const FString& Error=TEXT(""));
     bool bCabinetQA=false;
     int32 CabinetStep=0;
     TSharedPtr<FJsonObject> CabinetReport;

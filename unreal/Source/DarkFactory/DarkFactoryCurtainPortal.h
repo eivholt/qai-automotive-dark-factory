@@ -50,6 +50,7 @@ private:
     UPROPERTY() TObjectPtr<UPhysicalMaterial> StripContactMaterial;
     TArray<FDarkFactoryImportedThermalSurface> ThermalSurfaces;
     TArray<FTransform> RestTransforms;
+    TArray<FVector> PausedLinearVelocities,PausedAngularVelocities;
     TArray<int32> ShortenedStripIndices;
     struct FJointFrames {
         TWeakObjectPtr<UStaticMeshComponent> Parent, Child;
@@ -57,6 +58,7 @@ private:
     };
     TArray<FJointFrames> JointFrames;
     bool bInitialized=false, bSimulationEnabled=false, bFinitePhysicsState=true;
+    bool bPendingInitialSimulation=false;
     float WidthCm=420, HeightCm=390, TunnelCm=1000;
     int32 Strips=14, Segments=3, CarriageContactCount=0, RailCutStrips=0;
     float PeakDeflectionDegrees=0, PeakAnchorErrorCm=0, PeakLinearSpeedCmS=0;

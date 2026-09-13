@@ -1,6 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "DarkFactoryProcessTypes.h"
 #include "DarkFactoryCellMechanisms.generated.h"
 
 class ADarkFactoryWeldingCell;
@@ -9,6 +10,7 @@ class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class UStaticMesh;
 class UStaticMeshComponent;
+class USceneCaptureComponent2D;
 
 /** Authored fixture motion and geometric presence indicators; no inspection or safety controller. */
 UCLASS()
@@ -18,6 +20,8 @@ public:
     ADarkFactoryCellMechanisms();
     bool Initialize(ADarkFactoryWeldingCell* Cell);
     void SetEnabled(bool Enabled);
+    void SetProcessStatus(const FDarkFactoryProcessStatus& Status);
+    void HideProcessIndicatorsFrom(USceneCaptureComponent2D* Capture) const;
     bool IsEnabled() const { return bEnabled; }
     // Call after a direct cell time seek and before diagnostic captures.
     void UpdateFromCell();
@@ -31,6 +35,10 @@ private:
     UPROPERTY() TArray<TObjectPtr<UMaterialInstanceDynamic>> Materials;
     UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> GreenMaterial;
     UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> AmberMaterial;
+    UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> RedMaterial;
+    TArray<TWeakObjectPtr<UStaticMeshComponent>> ProcessTowerParts;
+    FDarkFactoryProcessStatus ProcessStatus;
+    bool bRed=false;
     TWeakObjectPtr<ADarkFactoryWeldingCell> SourceCell;
     struct FFixture {
         FString Id;

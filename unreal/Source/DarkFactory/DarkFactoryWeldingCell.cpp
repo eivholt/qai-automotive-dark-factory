@@ -310,8 +310,9 @@ FString ADarkFactoryWeldingCell::GetCyclePhaseName() const {
     return T<GetCarriageDepartureEndSeconds() ? TEXT("Body departing"):TEXT("Awaiting next body");
 }
 bool ADarkFactoryWeldingCell::IsWelding() const {
-    if (!bLoaded || BodyComponents.IsEmpty()) return false;
+    if (!bLoaded || BodyComponents.IsEmpty() || (bProcessControlled && !bProcessPermitWelding)) return false;
     for (int32 I=0;I<EmitterRigs.Num();++I) {
+        if (bProcessControlled && I==3) continue;
         const auto R=GetRobotTiming(I,MotionSeconds);
         if (R.CycleSeconds>=R.WeldStartSeconds && R.CycleSeconds<R.WeldEndSeconds) return true;
     }
@@ -319,8 +320,9 @@ bool ADarkFactoryWeldingCell::IsWelding() const {
 }
 TArray<FDarkFactoryWeldEmitter> ADarkFactoryWeldingCell::GetWeldEmitters() const {
     TArray<FDarkFactoryWeldEmitter> Result;
-    if (!bLoaded || BodyComponents.IsEmpty()) return Result;
+    if (!bLoaded || BodyComponents.IsEmpty() || (bProcessControlled && !bProcessPermitWelding)) return Result;
     for (int32 I=0;I<EmitterRigs.Num();++I) if (auto* Joint=EmitterRigs[I].Joint.Get()) {
+        if (bProcessControlled && I==3) continue;
         const auto Timing=GetRobotTiming(I,MotionSeconds);
         if (Timing.CycleSeconds<Timing.WeldStartSeconds || Timing.CycleSeconds>=Timing.WeldEndSeconds) continue;
         const double T=Timing.CycleSeconds-Timing.WeldStartSeconds;
@@ -448,11 +450,18 @@ void ADarkFactoryWeldingCell::SetMotionTime(double Seconds) {
     const double T=GetCycleSeconds();
     for (auto& J:JointMotion) if (auto* Component=J.Component.Get()) {
         J.Angle=EvaluateJointAngle(J,MotionSeconds);
+        if (bProcessControlled && J.RobotIndex==3) {
+            // Only thermal gates deploy R4 to the existing elevated .80 pose.
+            // The controller advances extension on the pausable process clock.
+            const double Blend=Smooth(ProcessInspectionExtension);
+            const double Raised=J.ApproachAngles.Num()==3 ? J.ApproachAngles[2]:J.RestAngle;
+            J.Angle=FMath::Lerp(J.RestAngle,Raised,Blend);
+        }
         Component->SetRelativeRotation(J.RestRotation*FQuat(J.Axis,FMath::DegreesToRadians(J.Angle)));
     }
     const double DepartureStart=GetCarriageDepartureStartSeconds(),DepartureEnd=GetCarriageDepartureEndSeconds();
-    const double Offset=T<3 ? ArrivalOffset*(1.-Smooth(T/3.)) : T<DepartureStart ? 0. : T<DepartureEnd ? DepartureOffset*Smooth((T-DepartureStart)/3.5) : DepartureOffset;
-    const bool Visible=T<DepartureEnd;
+    const double Offset=bProcessControlled ? ProcessCarriageOffset : T<3 ? ArrivalOffset*(1.-Smooth(T/3.)) : T<DepartureStart ? 0. : T<DepartureEnd ? DepartureOffset*Smooth((T-DepartureStart)/3.5) : DepartureOffset;
+    const bool Visible=bProcessControlled ? bProcessVisible:T<DepartureEnd;
     // Explicit seeks and the offscreen cycle reset teleport; ordinary tick travel
     // moves kinematic bodies normally so Chaos receives their surface velocity.
     const bool Jump=FMath::Abs(MotionSeconds-Previous)>.2 || (GetCycleIndex()!=static_cast<int32>(FMath::FloorToDouble(Previous/GetCycleDurationSeconds())));
@@ -471,7 +480,7 @@ void ADarkFactoryWeldingCell::SetMotionTime(double Seconds) {
 }
 void ADarkFactoryWeldingCell::Tick(float DeltaSeconds) {
     Super::Tick(DeltaSeconds);
-    if (bLoaded && bAnimating) SetMotionTime(MotionSeconds+FMath::Clamp(DeltaSeconds,0.f,.1f));
+    if (bLoaded && bAnimating && !bProcessControlled) SetMotionTime(MotionSeconds+FMath::Clamp(DeltaSeconds,0.f,.1f));
 }
 TSharedRef<FJsonObject> ADarkFactoryWeldingCell::BuildRobotTimingMetadata(double AbsoluteSeconds) const {
     auto Result=MakeShared<FJsonObject>();
@@ -606,6 +615,19 @@ void ADarkFactoryWeldingCell::BuildRobotHeatCurves() {
     }
 }
 double ADarkFactoryWeldingCell::EvaluateToolTemperature(int32 RobotIndex,const FToolHeatCurve& Curve,double Seconds) const {
+    if (bProcessControlled) {
+        if (RobotIndex==3) return 20.;
+        const auto Timing=GetRobotTiming(RobotIndex,MotionSeconds);
+        const float Initial=Curve.Target>200 ? ProcessInitialTipC[RobotIndex]:ProcessInitialBodyC[RobotIndex];
+        const double Age=FMath::Max(0.,ProcessClock-ProcessBirthClock);
+        if (!bProcessWeldStarted || ProcessClock<ProcessWeldEpoch+Timing.WeldStartSeconds)
+            return 20.+(Initial-20.)*FMath::Exp(-Age/Curve.CoolingTau);
+        const double Delay=FMath::Max(0.,ProcessWeldEpoch+Timing.WeldStartSeconds-ProcessBirthClock);
+        const double Start=(Initial-20.)*FMath::Exp(-Delay/Curve.CoolingTau);
+        const double HeatingAge=FMath::Clamp(ProcessClock-ProcessWeldEpoch-Timing.WeldStartSeconds,0.,7.5);
+        const double Rise=(Curve.Target-20.)+(Start-(Curve.Target-20.))*FMath::Exp(-HeatingAge/Curve.HeatingTau);
+        return 20.+Rise*FMath::Exp(-FMath::Max(0.,ProcessClock-ProcessWeldEpoch-Timing.WeldEndSeconds)/Curve.CoolingTau);
+    }
     const auto Timing=GetRobotTiming(RobotIndex,Seconds);
     if (!Timing.Valid || Curve.PrefixRise.IsEmpty()) return 20.;
     const int32 BankCycles=Curve.PrefixRise.Num()-1;
@@ -683,6 +705,13 @@ TSharedRef<FJsonObject> ADarkFactoryWeldingCell::BuildToolHeatMetadata() const {
 
 double ADarkFactoryWeldingCell::EvaluateBodyWeldTemperature(int32 RobotIndex,double Seconds) const {
     // Each replacement body starts cold; only this robot's active weld heats its patch.
+    if (bProcessControlled) {
+        if (RobotIndex==3 || !bProcessWeldStarted) return 20.;
+        const auto Timing=GetRobotTiming(RobotIndex,MotionSeconds);
+        const double Age=ProcessClock-ProcessWeldEpoch-Timing.WeldStartSeconds;
+        if (Age<=0) return 20.;
+        return 20.+400.*(1.-FMath::Exp(-FMath::Min(Age,7.5)/.65))*FMath::Exp(-FMath::Max(0.,Age-7.5)/2.5);
+    }
     const auto Timing=GetRobotTiming(RobotIndex,Seconds);
     if (!Timing.Valid || Timing.CycleSeconds<=Timing.WeldStartSeconds) return 20.;
     const double Rise=400.*(1.-FMath::Exp(-FMath::Min(Timing.CycleSeconds-Timing.WeldStartSeconds,7.5)/.65));
@@ -758,7 +787,8 @@ void ADarkFactoryWeldingCell::UpdateBodyWeldHeat(double Seconds) {
         const int32 RobotIndex=EmitterRigs.IndexOfByPredicate([&](const FEmitterRig& E){return E.Id==Spot.Id;});
         Spot.TemperatureC=static_cast<float>(EvaluateBodyWeldTemperature(RobotIndex,Seconds));
         const auto Timing=GetRobotTiming(RobotIndex,Seconds);
-        Spot.WitnessStrength=bWeldWitnessEnabled ? FMath::Clamp(static_cast<float>((Timing.CycleSeconds-Timing.WeldStartSeconds-.2)/.8),0.f,1.f):0.f;
+        const double WitnessAge=bProcessControlled ? (!bProcessWeldStarted || RobotIndex==3 ? -1.:ProcessClock-ProcessWeldEpoch-Timing.WeldStartSeconds):Timing.CycleSeconds-Timing.WeldStartSeconds;
+        Spot.WitnessStrength=bWeldWitnessEnabled ? FMath::Clamp(static_cast<float>((WitnessAge-.2)/.8),0.f,1.f):0.f;
         const float Incandescence=FMath::Clamp((Spot.TemperatureC-70.f)/350.f,0.f,1.f);
         Spot.Glow=180.f*Incandescence*Incandescence;
     }
@@ -938,6 +968,7 @@ void ADarkFactoryWeldingCell::SetMotorHeatTimeForQA(double Seconds,double IdleSe
 }
 void ADarkFactoryWeldingCell::UpdateMotorHeat(double Seconds,double IdleSeconds) {
     TRACE_CPUPROFILER_EVENT_SCOPE(DarkFactory_UpdateMotorHeat);
+    if (bProcessControlled) { UpdateProcessMotorHeat(); return; }
     MotorHeatSeconds=Seconds; MotorIdleSeconds=IdleSeconds;
     const int32 Step=FMath::Clamp(FMath::FloorToInt(FMath::Fmod(Seconds,GetTimingBankSeconds())/MotorDutyStep),0,MotorDutySteps-1);
     for (auto& Rig:MotorHeatRigs) if (auto* Mesh=Rig.Mesh.Get()) {
@@ -946,9 +977,46 @@ void ADarkFactoryWeldingCell::UpdateMotorHeat(double Seconds,double IdleSeconds)
         if (auto* Thermal=ToolThermalRig.Get()) Thermal->SetImportedCastingTemperature(Mesh,Rig.TemperatureC);
     }
 }
+void ADarkFactoryWeldingCell::UpdateProcessMotorHeat() {
+    // Unlike the repeating preview, a model gate can reject a body before any
+    // welding movement. Integrate only the joint travel that actually occurred.
+    // Every hold advances the same clock with zero duty and therefore cools.
+    MotorHeatSeconds=ProcessClock; MotorIdleSeconds=0;
+    const bool Rewind=ProcessClock<ProcessMotorLastClock-1.e-8;
+    const bool First=ProcessMotorLastClock<0 || ProcessPreviousJointAngles.Num()!=JointMotion.Num();
+    if (First || Rewind) {
+        ProcessPreviousJointAngles.Reset(JointMotion.Num());
+        for (const auto& Joint:JointMotion) ProcessPreviousJointAngles.Add(Joint.Angle);
+        if (Rewind) for (auto& Rig:MotorHeatRigs) { Rig.TemperatureC=MotorAmbientC; Rig.Activity=0; }
+        ProcessMotorLastClock=ProcessClock; ProcessMotorSampleSeconds=0;
+    }
+    const double Delta=FMath::Max(0.,ProcessClock-ProcessMotorLastClock);
+    if (Delta>0) {
+        ProcessMotorSampleSeconds=Delta;
+        for (auto& Rig:MotorHeatRigs) {
+            double Activity=0;
+            for (int32 D=0;D<Rig.Drivers.Num();++D) {
+                const int32 Joint=Rig.Drivers[D];
+                const double Travel=FMath::Abs(JointMotion[Joint].Angle-ProcessPreviousJointAngles[Joint]);
+                Activity+=Rig.DriverWeights[D]*FMath::Clamp(Travel/(Delta*Rig.ReferenceSpeed),0.,1.);
+            }
+            Rig.Activity=static_cast<float>(FMath::Clamp(Activity,0.,1.));
+            const double MaxRise=Rig.MaximumC-MotorAmbientC;
+            const double K=Rig.HeatingRate*Rig.Activity/MaxRise+1./Rig.CoolingTau;
+            const double Decay=FMath::Exp(-K*Delta);
+            const double Rise=(Rig.TemperatureC-MotorAmbientC)*Decay+Rig.HeatingRate*Rig.Activity/K*(1.-Decay);
+            Rig.TemperatureC=static_cast<float>(MotorAmbientC+FMath::Clamp(Rise,0.,MaxRise));
+        }
+    }
+    // Sampling an equal-clock pose change is a QA seek, not infinite motor power.
+    for (int32 J=0;J<JointMotion.Num();++J) ProcessPreviousJointAngles[J]=JointMotion[J].Angle;
+    ProcessMotorLastClock=ProcessClock;
+    for (const auto& Rig:MotorHeatRigs) if (auto* Mesh=Rig.Mesh.Get())
+        if (auto* Thermal=ToolThermalRig.Get()) Thermal->SetImportedCastingTemperature(Mesh,Rig.TemperatureC);
+}
 TSharedRef<FJsonObject> ADarkFactoryWeldingCell::BuildMotorHeatMetadata() const {
     auto Result=MakeShared<FJsonObject>();
-    Result->SetStringField(TEXT("model"),TEXT("authored-joint-duty-thermal-v1"));
+    Result->SetStringField(TEXT("model"),bProcessControlled ? TEXT("actual-process-joint-duty-thermal-v1"):TEXT("authored-joint-duty-thermal-v1"));
     Result->SetStringField(TEXT("scope"),TEXT("Casting-wide illustrative drive activity from angular travel; static holding torque, motor efficiency and physical heat transport are not modeled. No visible/NIR emission."));
     Result->SetNumberField(TEXT("duty_time_seconds"),MotorHeatSeconds); Result->SetNumberField(TEXT("idle_seconds"),MotorIdleSeconds);
     Result->SetNumberField(TEXT("ambient_temperature_c"),MotorAmbientC); Result->SetNumberField(TEXT("cycle_duration_seconds"),GetCycleDurationSeconds());
@@ -957,7 +1025,14 @@ TSharedRef<FJsonObject> ADarkFactoryWeldingCell::BuildMotorHeatMetadata() const 
     Result->SetNumberField(TEXT("duty_steps_per_profile"),MotorDutySteps);
     Result->SetNumberField(TEXT("integration_step_seconds"),MotorDutyStep); Result->SetNumberField(TEXT("profile_count"),MotorHeatRigs.Num());
     Result->SetStringField(TEXT("equation"),TEXT("dRise/dt=rate*activity-(rate*activity/maxRise+1/tau)*Rise; exact piecewise-constant duty steps and periodic affine recurrence; then exp(-idle/tau)"));
-    if (MotorHeatSelfCheck) Result->SetObjectField(TEXT("self_check"),MotorHeatSelfCheck);
+    if (!bProcessControlled && MotorHeatSelfCheck) Result->SetObjectField(TEXT("self_check"),MotorHeatSelfCheck);
+    if (bProcessControlled) {
+        Result->SetStringField(TEXT("timebase"),TEXT("continuous process clock; actual joint-angle deltas including inspection R4; no scheduled-bank heat"));
+        Result->SetNumberField(TEXT("duty_bank_seconds"),0);
+        Result->SetNumberField(TEXT("duty_steps_per_profile"),0);
+        Result->SetNumberField(TEXT("integration_step_seconds"),ProcessMotorSampleSeconds);
+        Result->SetStringField(TEXT("equation"),TEXT("dRise/dt=rate*actualActivity-(rate*actualActivity/maxRise+1/tau)*Rise; exact frame interval with measured mean joint travel; reset only on clock rewind"));
+    }
     TArray<TSharedPtr<FJsonValue>> Profiles;
     for (const auto& Rig:MotorHeatRigs) if (const auto* Mesh=Rig.Mesh.Get()) {
         auto P=MakeShared<FJsonObject>(); P->SetStringField(TEXT("id"),Mesh->GetName()); P->SetStringField(TEXT("surface"),Mesh->GetName());
@@ -973,4 +1048,47 @@ TSharedRef<FJsonObject> ADarkFactoryWeldingCell::BuildMotorHeatMetadata() const 
     }
     Result->SetArrayField(TEXT("profiles"),Profiles);
     return Result;
+}
+
+void ADarkFactoryWeldingCell::SetProcessControlled(bool Enabled) {
+    bProcessControlled=Enabled;
+    if (Enabled) {
+        ProcessInitialBodyC.Init(20.f,EmitterRigs.Num()); ProcessInitialTipC.Init(20.f,EmitterRigs.Num());
+        ProcessWeldEpoch=0; bProcessWeldStarted=false; ProcessClock=ProcessBirthClock=0; ProcessInspectionExtension=0;
+        ProcessMotorLastClock=0; ProcessMotorSampleSeconds=0; ProcessPreviousJointAngles.Reset(JointMotion.Num());
+        for (const auto& Joint:JointMotion) ProcessPreviousJointAngles.Add(Joint.Angle);
+    }
+    if (EmitterRigs.IsValidIndex(3)) if (auto* Tool=EmitterRigs[3].SourceTool.Get()) {
+        Tool->SetVisibility(!Enabled); Tool->SetCollisionEnabled(Enabled ? ECollisionEnabled::NoCollision:ECollisionEnabled::QueryOnly);
+    }
+}
+void ADarkFactoryWeldingCell::BeginProcessBody(int32 BodyIndex,double ClockSeconds) {
+    if (!bProcessControlled || !FMath::IsFinite(ClockSeconds)) return;
+    for (int32 I=0;I<EmitterRigs.Num();++I) {
+        ProcessInitialBodyC[I]=EmitterRigs[I].BodyC; ProcessInitialTipC[I]=EmitterRigs[I].TipC;
+    }
+    ProcessBodyIndex=FMath::Max(0,BodyIndex); ProcessClock=ProcessBirthClock=ClockSeconds;
+    ProcessWeldEpoch=0; bProcessWeldStarted=false; bProcessPermitWelding=false;
+}
+void ADarkFactoryWeldingCell::SetProcessFrame(double PoseSeconds,double ClockSeconds,double CarriageOffsetCm,bool Visible,bool PermitWelding,double InspectionExtension) {
+    if (!bProcessControlled || !FMath::IsFinite(PoseSeconds) || !FMath::IsFinite(ClockSeconds) || !FMath::IsFinite(CarriageOffsetCm) || !FMath::IsFinite(InspectionExtension)) return;
+    const double Pose=FMath::Clamp(PoseSeconds,0.,GetCarriageDepartureStartSeconds());
+    ProcessInspectionExtension=FMath::Clamp(InspectionExtension,0.,1.);
+    ProcessClock=ClockSeconds; ProcessCarriageOffset=CarriageOffsetCm; bProcessVisible=Visible; bProcessPermitWelding=PermitWelding;
+    if (PermitWelding && !bProcessWeldStarted) { ProcessWeldEpoch=ClockSeconds-Pose; bProcessWeldStarted=true; }
+    SetMotionTime(ProcessBodyIndex*GetCycleDurationSeconds()+Pose);
+}
+USceneComponent* ADarkFactoryWeldingCell::GetInspectionJoint() const {
+    return EmitterRigs.IsValidIndex(3) ? EmitterRigs[3].Joint.Get():nullptr;
+}
+UStaticMeshComponent* ADarkFactoryWeldingCell::FindSceneMesh(const FString& Name) const {
+    for (const auto& Mesh:MeshComponents) if (Mesh && Mesh->GetName()==Name) return Mesh;
+    return nullptr;
+}
+bool ADarkFactoryWeldingCell::GetWeldSite(int32 Index,FVector& LocalPosition,FVector& LocalNormal) const {
+    if (!EmitterRigs.IsValidIndex(Index) || EmitterRigs[Index].SurfacePositions.Num()!=5) return false;
+    LocalPosition=EmitterRigs[Index].SurfacePositions[2]; LocalNormal=EmitterRigs[Index].SurfaceNormals[2]; return true;
+}
+float ADarkFactoryWeldingCell::GetMaximumProcessWeldC() const {
+    float Maximum=23; for (const auto& Spot:BodyWeldSpots) Maximum=FMath::Max(Maximum,Spot.TemperatureC); return Maximum;
 }

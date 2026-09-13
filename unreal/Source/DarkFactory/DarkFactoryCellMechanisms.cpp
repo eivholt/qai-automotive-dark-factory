@@ -3,6 +3,7 @@
 #include "Components/BoxComponent.h"
 #include "CollisionQueryParams.h"
 #include "Components/SceneComponent.h"
+#include "Components/SceneCaptureComponent2D.h"
 #include "Components/StaticMeshComponent.h"
 #include "Dom/JsonObject.h"
 #include "Engine/StaticMesh.h"
@@ -203,6 +204,36 @@ bool ADarkFactoryCellMechanisms::Initialize(ADarkFactoryWeldingCell* Cell) {
 void ADarkFactoryCellMechanisms::SetEnabled(bool Enabled) {
     bEnabled=Enabled; SetActorHiddenInGame(!Enabled); SetActorTickEnabled(Enabled); UpdateFromCell();
 }
+void ADarkFactoryCellMechanisms::SetProcessStatus(const FDarkFactoryProcessStatus& Status) {
+    ProcessStatus=Status;
+    // World pushes process status after its controller update; avoid a duplicate
+    // per-frame mechanism/occupancy pass while that update path is active.
+    SetActorTickEnabled(bEnabled && !Status.bEnabled);
+    // Added only for the gated process; legacy smoke fixtures retain identical
+    // geometry, materials, stencil IDs and mesh counts.
+    if (Status.bEnabled && bInitialized && !RedMaterial) {
+        auto* Parent=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Materials/M_WeldingArc.M_WeldingArc"));
+        auto* Paint=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Materials/M_Factory.M_Factory"));
+        if (Parent && Paint) {
+            RedMaterial=MakeIndicator(Parent,FLinearColor(1.f,.012f,.005f));
+            auto* Dark=MakePaint(Paint,FLinearColor(.018f,.023f,.027f),.65f);
+            ProcessTowerParts.Add(AddPart(TEXT("tower_red"),Cylinder,RedMaterial,TowerBase+FVector(0,0,279),FVector(18,18,16),FRotator::ZeroRotator,false));
+            ProcessTowerParts.Add(AddPart(TEXT("tower_process_cap"),Cylinder,Dark,TowerBase+FVector(0,0,289),FVector(19,19,4)));
+        }
+    }
+    for (auto& Part:ProcessTowerParts) if (Part.IsValid()) Part->SetVisibility(Status.bEnabled);
+    UpdateFromCell();
+}
+void ADarkFactoryCellMechanisms::HideProcessIndicatorsFrom(USceneCaptureComponent2D* Capture) const {
+    if (!Capture) return;
+    // Keep fixture supports, clamps and all other physical occluders visible.
+    // Reapply after enabling process mode because the red segment is lazy.
+    for (const auto& Part:Meshes) if (Part) {
+        const FString Name=Part->GetName();
+        if (Name==TEXT("tower_green") || Name==TEXT("tower_amber") || Name==TEXT("tower_red"))
+            Capture->HideComponent(Part);
+    }
+}
 void ADarkFactoryCellMechanisms::Tick(float DeltaSeconds) { Super::Tick(DeltaSeconds); UpdateFromCell(); }
 void ADarkFactoryCellMechanisms::UpdateFromCell() {
     TRACE_CPUPROFILER_EVENT_SCOPE(DarkFactoryCellMechanisms);
@@ -220,6 +251,12 @@ void ADarkFactoryCellMechanisms::UpdateFromCell() {
     }
     Closure=CycleSeconds<OpenStart ? Ease((CycleSeconds-CloseStart)/(CloseEnd-CloseStart))
         :1.-Ease((CycleSeconds-OpenStart)/(OpenEnd-OpenStart));
+    if (ProcessStatus.bEnabled) {
+        const auto Phase=ProcessStatus.Phase;
+        const bool Secured=Phase==EDarkFactoryProcessPhase::Doors || Phase==EDarkFactoryProcessPhase::Adhesive
+            || Phase==EDarkFactoryProcessPhase::Welding || Phase==EDarkFactoryProcessPhase::WeldCooling;
+        Closure=Secured ? (Phase==EDarkFactoryProcessPhase::Doors ? Ease(ProcessStatus.StageSeconds/.35):1.):0.;
+    }
     ArmAngleDegrees=OpenAngle*(1.-Closure);
     const double A=FMath::DegreesToRadians(ArmAngleDegrees);
     for (auto& F:Fixtures) {
@@ -232,10 +269,21 @@ void ADarkFactoryCellMechanisms::UpdateFromCell() {
         SetSegment(F.Toggle.Get(),Elbow,F.Pivot+FVector(F.Side*6,0,-9),5.);
         bFinite &= !F.PadPosition.ContainsNaN();
     }
-    const bool Green=bEnabled && CycleSeconds>=CloseEnd && CycleSeconds<OpenStart;
-    const bool Amber=bEnabled && !Green;
+    bool Green=bEnabled && CycleSeconds>=CloseEnd && CycleSeconds<OpenStart;
+    bool Amber=bEnabled && !Green,Red=false;
+    if (ProcessStatus.bEnabled) {
+        bool Exception=ProcessStatus.Phase==EDarkFactoryProcessPhase::Returning;
+        for (const auto Gate:ProcessStatus.Gates)
+            Exception |= Gate==EDarkFactoryGateState::Rejected || Gate==EDarkFactoryGateState::Error;
+        const bool Working=ProcessStatus.Phase==EDarkFactoryProcessPhase::Arriving
+            || ProcessStatus.Phase==EDarkFactoryProcessPhase::Welding || ProcessStatus.Phase==EDarkFactoryProcessPhase::Departing;
+        Green=bEnabled && !ProcessStatus.bPaused && !Exception && Working;
+        Amber=bEnabled && (ProcessStatus.bPaused || (!Exception && !Working));
+        Red=bEnabled && !ProcessStatus.bPaused && Exception && FMath::Fmod(FMath::Max(0.,ProcessStatus.ClockSeconds),1.)<.5;
+    }
     if (Green!=bGreen) { GreenMaterial->SetScalarParameterValue(TEXT("EmissiveStrength"),Green ? 12.f:.04f); bGreen=Green; }
     if (Amber!=bAmber) { AmberMaterial->SetScalarParameterValue(TEXT("EmissiveStrength"),Amber ? 12.f:.04f); bAmber=Amber; }
+    if (RedMaterial && Red!=bRed) { RedMaterial->SetScalarParameterValue(TEXT("EmissiveStrength"),Red ? 16.f:.04f); bRed=Red; }
     for (auto& Eye:Photoeyes) {
         Eye.BlockingColliders.Reset(); Eye.TestedBoxes.Reset();
         for (const auto& Box:Cell->GetCarriageColliders()) {
@@ -278,6 +326,7 @@ TSharedRef<FJsonObject> ADarkFactoryCellMechanisms::BuildMetadata() const {
     O->SetNumberField(TEXT("closed_before_approach_margin_seconds"),FirstApproach-CloseEnd);
     O->SetNumberField(TEXT("opening_after_withdrawal_margin_seconds"),OpenStart-LatestWithdrawal);
     O->SetNumberField(TEXT("open_before_departure_margin_seconds"),DepartureStart-OpenEnd);
+    O->SetBoolField(TEXT("process_enabled"),ProcessStatus.bEnabled);
     O->SetNumberField(TEXT("fixture_closure"),Closure); O->SetNumberField(TEXT("fixture_angle_deg"),ArmAngleDegrees);
     O->SetStringField(TEXT("fixture_phase"),Closure<=0 ? TEXT("open") : Closure>=1 ? TEXT("closed") : CycleSeconds<OpenStart ? TEXT("closing"):TEXT("opening"));
     TArray<TSharedPtr<FJsonValue>> Rows;
@@ -300,6 +349,17 @@ TSharedRef<FJsonObject> ADarkFactoryCellMechanisms::BuildMetadata() const {
     Tower->SetBoolField(TEXT("green_run"),bGreen); Tower->SetBoolField(TEXT("amber_transfer_clearance"),bAmber);
     Tower->SetStringField(TEXT("state"),!bEnabled ? TEXT("disabled") : bGreen ? TEXT("secured_cycle"):TEXT("transfer_clearance"));
     Tower->SetStringField(TEXT("meaning"),TEXT("Authored cycle status only; no model quality, fault or industrial safety claim"));
+    if (ProcessStatus.bEnabled) {
+        bool Exception=ProcessStatus.Phase==EDarkFactoryProcessPhase::Returning;
+        for (const auto Gate:ProcessStatus.Gates)
+            Exception |= Gate==EDarkFactoryGateState::Rejected || Gate==EDarkFactoryGateState::Error;
+        Tower->SetBoolField(TEXT("red_exception"),bRed);
+        Tower->SetBoolField(TEXT("exception_active"),Exception);
+        Tower->SetBoolField(TEXT("paused"),ProcessStatus.bPaused);
+        Tower->SetStringField(TEXT("state"),!bEnabled ? TEXT("disabled"):ProcessStatus.bPaused ? TEXT("paused")
+            :Exception ? TEXT("exception"):bGreen ? TEXT("working"):TEXT("inspection_hold"));
+        Tower->SetStringField(TEXT("meaning"),TEXT("Process status: green active motion/work, amber inspection/cooling/pause, flashing red rejection/transport error; not a safety system"));
+    }
     O->SetObjectField(TEXT("stack_light"),Tower);
     Rows.Reset();
     for (const auto& Eye:Photoeyes) {

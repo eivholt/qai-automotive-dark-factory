@@ -69,6 +69,10 @@ public:
     bool SetImportedWeldHeat(UStaticMeshComponent* Mesh,
         const TArray<FDarkFactoryWeldHeatPatch>& Patches);
     bool SetImportedCastingTemperature(UStaticMeshComponent* Mesh,float TemperatureC);
+    // Process-only authored adhesive surfaces; no bulk heat or model decisions.
+    bool SetImportedSurfaceTemperature(UStaticMeshComponent* Mesh,float TemperatureC);
+    // Share radiometry/LUT with independent arm-mounted captures, preserving fixed sensor pose.
+    void PrepareInspectionMaterial(UMaterialInstanceDynamic* Material);
     virtual void Tick(float DeltaSeconds) override;
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;
     int32 RegisterSurface(UStaticMeshComponent* Mesh, float TemperatureC, float Emissivity);

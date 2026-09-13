@@ -8,6 +8,8 @@ class UMaterialInstanceDynamic;
 class UTexture2D;
 class ADarkFactoryThermalRig;
 class ADarkFactoryWeldingCell;
+class ADarkFactoryProcessController;
+class ADarkFactoryWorld;
 class FJsonObject;
 UCLASS()
 class DARKFACTORY_API ADarkFactoryGameMode : public AGameModeBase {
@@ -45,9 +47,12 @@ private:
     UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> SensorDisplayMaterial;
     UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> ThermalDisplayMaterial;
     UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> ThermalMonochromeDisplayMaterial;
+    UPROPERTY() TArray<TObjectPtr<UMaterialInstanceDynamic>> ProcessThermalDisplayMaterials;
     UPROPERTY() TObjectPtr<UTexture2D> ThermalScaleTexture;
     UPROPERTY() TArray<TObjectPtr<UMaterialInstanceDynamic>> ThermalScaleMaterials;
     void DrawProductionStatus(const ADarkFactoryWeldingCell* Cell,float RightPanelX);
+    void DrawProcessStatus(const ADarkFactoryProcessController* Process,float RightPanelX);
+    void DrawProcessCaptures(const ADarkFactoryProcessController* Process,const ADarkFactoryWorld* World,float RightPanelX,float PanelWidth);
     void InitializeThermalScales(UMaterialInterface* Parent);
     void DrawThermalScale(int32 Palette,float MinC,float MaxC,float X,float Y,float Width,float Scale=1.f);
     void DrawObserverThermalScale(const ADarkFactoryThermalRig* Thermal,float X,float Y,float Width,float Scale=1.f);

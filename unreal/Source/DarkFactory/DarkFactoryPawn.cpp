@@ -7,6 +7,7 @@
 #include "Components/InputComponent.h"
 #include "Components/SpotLightComponent.h"
 #include "GameFramework/PlayerController.h"
+#include "Kismet/KismetSystemLibrary.h"
 #include "EngineUtils.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "SceneView.h"
@@ -307,8 +308,12 @@ void ADarkFactoryPawn::Next() { if(auto* W=Cell(GetWorld())) W->Randomize(); }
 void ADarkFactoryPawn::Green() { if(auto* W=Cell(GetWorld())) W->bGreenDisplay=!W->bGreenDisplay; }
 void ADarkFactoryPawn::Capture() { if(auto* W=Cell(GetWorld())) W->RequestSample(); }
 void ADarkFactoryPawn::Inference() { if(auto* W=Cell(GetWorld())) W->ToggleInference(); }
+void ADarkFactoryPawn::QuitDemo() {
+    UKismetSystemLibrary::QuitGame(this,Cast<APlayerController>(GetController()),EQuitPreference::Quit,false);
+}
 void ADarkFactoryPawn::SetupPlayerInputComponent(UInputComponent* Input) {
     Super::SetupPlayerInputComponent(Input);
+    Input->BindKey(EKeys::Escape,IE_Pressed,this,&ADarkFactoryPawn::QuitDemo).bExecuteWhenPaused=true;
     Input->BindAxis("Forward",this,&ADarkFactoryPawn::MoveForward);
     Input->BindAxis("Right",this,&ADarkFactoryPawn::MoveRight);
     Input->BindAxis("Up",this,&ADarkFactoryPawn::MoveUp);

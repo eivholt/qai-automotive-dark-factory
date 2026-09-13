@@ -88,7 +88,7 @@ void ADarkFactoryWeldingSmoke::ResetParticles() {
     Random.Initialize(41873);
     Spawned=Expired=Dropped=Cleared=PeakAlive=0;
     SimulationSeconds=FixedRemainder=0;
-    LastSourceSeconds=SourceCell.IsValid() ? SourceCell->GetMotionTime():0;
+    LastSourceSeconds=SourceCell.IsValid() ? SourceCell->GetEffectTime():0;
     bLastSourceEnabled=SourceSparks.IsValid() && SourceSparks->AreEffectsEnabled();
     UpdateRendering();
 }
@@ -149,7 +149,7 @@ float ADarkFactoryWeldingSmoke::Opacity(const FPuff& Puff) const {
 void ADarkFactoryWeldingSmoke::AdvanceSimulation(float Seconds,bool Emit) {
     TRACE_CPUPROFILER_EVENT_SCOPE(DarkFactory_WeldingSmoke);
     if (!bInitialized || !FMath::IsFinite(Seconds) || Seconds<=0.f || Seconds>30.f) return;
-    if (SourceCell.IsValid()) LastSourceSeconds=SourceCell->GetMotionTime();
+    if (SourceCell.IsValid()) LastSourceSeconds=SourceCell->GetEffectTime();
     if (!AreEffectsEnabled()) { ClearParticles(); UpdateRendering(); return; }
     const auto Emitters=Emit ? SourceSparks->GetPulseEmitters():TArray<FDarkFactoryWeldPulseEmitter>();
     FixedRemainder+=Seconds;
@@ -180,10 +180,10 @@ void ADarkFactoryWeldingSmoke::Tick(float DeltaSeconds) {
         if (GetAliveCount()>0) ClearParticles();
         if (Instances) Instances->SetVisibility(false);
         bLastSourceEnabled=SourceEnabled;
-        if (Cell) LastSourceSeconds=Cell->GetMotionTime();
+        if (Cell) LastSourceSeconds=Cell->GetEffectTime();
         return;
     }
-    const double Now=Cell->GetMotionTime();
+    const double Now=Cell->GetEffectTime();
     if (!bLastSourceEnabled) { LastSourceSeconds=Now; bLastSourceEnabled=true; }
     // Offline QA explicitly advances the shared state while the cell is paused.
     // A paused pose change must not clear/age plumes or be consumed twice.
@@ -234,6 +234,8 @@ TSharedRef<FJsonObject> ADarkFactoryWeldingSmoke::BuildMetadata() const {
     Result->SetStringField(TEXT("rise_speed_cm_s"),TEXT("initial33-46; analytic buoyant acceleration4.4 cm/s2"));
     Result->SetNumberField(TEXT("simulation_seconds"),SimulationSeconds);
     Result->SetNumberField(TEXT("source_motion_seconds"),SourceCell.IsValid() ? SourceCell->GetMotionTime():0.);
+    if (SourceCell.IsValid() && SourceCell->IsProcessControlled())
+        Result->SetNumberField(TEXT("source_effect_seconds"),SourceCell->GetEffectTime());
     Result->SetNumberField(TEXT("minimum_lifetime_seconds"),MinimumLifetime);
     Result->SetNumberField(TEXT("maximum_lifetime_seconds"),MaximumLifetime);
     TArray<TSharedPtr<FJsonValue>> Rows;

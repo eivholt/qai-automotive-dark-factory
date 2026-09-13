@@ -1,6 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "DarkFactoryProcessTypes.h"
 #include "DarkFactoryControlCabinet.generated.h"
 class ADarkFactoryWeldingCell;
 class UStaticMeshComponent;
@@ -21,7 +22,9 @@ public:
     void SetPanelPower(bool Powered);
     bool IsPanelPowered() const { return bPowered; }
     void UpdateFromCell(bool Force=false);
+    void SetProcessStatus(const FDarkFactoryProcessStatus& Status);
     void GetInspectionView(FVector& Location,FRotator& Rotation) const;
+    UStaticMeshComponent* GetDisplaySurface() const;
     TSharedRef<FJsonObject> BuildMetadata() const;
 private:
     struct FButton { FString Id,Color; FVector Center=FVector::ZeroVector; float Radius=1,Level=0; };
@@ -39,4 +42,5 @@ private:
     float Progress[4]={0,0,0,0};
     bool bInitialized=false,bEnabled=false,bPowered=true,bPaused=false;
     FString ParentName,SourceManifest;
+    FDarkFactoryProcessStatus ProcessStatus;
 };

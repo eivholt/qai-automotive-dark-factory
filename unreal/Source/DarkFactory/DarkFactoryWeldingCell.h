@@ -54,7 +54,23 @@ public:
     void SetAnimationEnabled(bool Enabled) { bAnimating = Enabled; }
     bool IsAnimating() const { return bAnimating; }
     void SetMotionTime(double Seconds);
+    // Explicit model-gated process mode; legacy preview/QA retains its original cycle.
+    void SetProcessControlled(bool Enabled);
+    bool IsProcessControlled() const { return bProcessControlled; }
+    void BeginProcessBody(int32 BodyIndex,double ClockSeconds);
+    void SetProcessFrame(double PoseSeconds,double ClockSeconds,double CarriageOffsetCm,bool Visible,bool PermitWelding,double InspectionExtension=1.);
+    double GetInspectionExtension() const { return ProcessInspectionExtension; }
+    USceneComponent* GetCarriageRoot() const { return CarriageRoot; }
+    USceneComponent* GetInspectionJoint() const;
+    UStaticMeshComponent* FindSceneMesh(const FString& Name) const;
+    bool GetWeldSite(int32 Index,FVector& LocalPosition,FVector& LocalNormal) const;
+    float GetMaximumProcessWeldC() const;
+    double GetArrivalOffsetCm() const { return ArrivalOffset; }
+    double GetDepartureOffsetCm() const { return DepartureOffset; }
+
     double GetMotionTime() const { return MotionSeconds; }
+    // Effect aging continues while process gates hold the authored robot pose.
+    double GetEffectTime() const { return bProcessControlled ? ProcessClock:MotionSeconds; }
     double GetCycleSeconds() const;
     double GetCycleDurationSeconds() const { return bRandomizedRobotTiming ? CycleDurationSeconds:LegacyCycleDurationSeconds; }
     double GetCarriageDepartureStartSeconds() const { return bRandomizedRobotTiming ? 16.3:13.5; }
@@ -128,6 +144,7 @@ private:
     bool bRandomizedRobotTiming=true, bToolHeatContinuous=true;
     bool InitializeMotorHeat();
     void UpdateMotorHeat(double Seconds,double IdleSeconds=0);
+    void UpdateProcessMotorHeat();
     double EvaluateMotorTemperature(const FMotorHeatRig& Rig,double Seconds,double IdleSeconds=0) const;
     bool CheckMotorHeatModel();
     TArray<FMotorHeatRig> MotorHeatRigs;
@@ -190,5 +207,12 @@ private:
     double MotionSeconds = 0, ArrivalOffset = -1500, DepartureOffset = 1500;
     bool bLoaded = false, bAnimating = true, bCarVisible = false;
     bool bDramaticApproach = false;
+    bool bProcessControlled=false,bProcessVisible=true,bProcessPermitWelding=false,bProcessWeldStarted=false;
+    int32 ProcessBodyIndex=0;
+    double ProcessClock=0,ProcessBirthClock=0,ProcessWeldEpoch=-1,ProcessCarriageOffset=0;
+    double ProcessInspectionExtension=0;
+    TArray<float> ProcessInitialBodyC,ProcessInitialTipC;
+    TArray<double> ProcessPreviousJointAngles;
+    double ProcessMotorLastClock=-1,ProcessMotorSampleSeconds=0;
     FString ManifestPath;
 };

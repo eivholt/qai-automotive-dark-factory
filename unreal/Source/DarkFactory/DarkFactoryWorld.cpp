@@ -2,6 +2,8 @@
 #include "DarkFactoryPawn.h"
 #include "DarkFactoryThermalRig.h"
 #include "DarkFactoryWeldingCell.h"
+#include "DarkFactoryProcessController.h"
+#include "DarkFactoryProcessScene.h"
 #include "PhysicsEngine/PhysicsSettings.h"
 #include "DarkFactoryWeldingSparks.h"
 #include "DarkFactoryWeldingSmoke.h"
@@ -249,11 +251,13 @@ void ADarkFactoryWorld::BeginPlay() {
     FParse::Value(FCommandLine::Get(), TEXT("DFDataset="), DatasetCount);
     FParse::Value(FCommandLine::Get(), TEXT("DFMaxAge="), MaxResultAge);
     MaxResultAge = FMath::Clamp(MaxResultAge, 1.0, 120.0);
+    bCurtainQA=FParse::Param(FCommandLine::Get(),TEXT("DFCurtainSmoke"));
     bWeldingSmoke=FParse::Param(FCommandLine::Get(),TEXT("DFWeldingSmoke"));
     bRealismQA=FParse::Param(FCommandLine::Get(),TEXT("DFRealismSmoke"));
     bColliderQA=FParse::Param(FCommandLine::Get(),TEXT("DFColliderSmoke"));
     bCabinetQA=FParse::Param(FCommandLine::Get(),TEXT("DFCabinetSmoke"));
     bWeldingSmoke |= bRealismQA || bColliderQA || bCabinetQA;
+    bProcessEnabled=FParse::Param(FCommandLine::Get(),TEXT("DFProcess")) || FParse::Param(FCommandLine::Get(),TEXT("DFProcessCapture")) || FParse::Param(FCommandLine::Get(),TEXT("DFProcessSmoke")) || FParse::Param(FCommandLine::Get(),TEXT("DFProcessPolicySmoke"));
     bModalityScreenshots=FParse::Param(FCommandLine::Get(),TEXT("DFModalityScreenshots"));
     bThermalSmoke=FParse::Param(FCommandLine::Get(),TEXT("DFThermalSmoke"));
     bSmoke = FParse::Param(FCommandLine::Get(), TEXT("DFSmoke"));
@@ -266,8 +270,8 @@ void ADarkFactoryWorld::BeginPlay() {
     SetRoofLightIntensity(RoofLightLumens);
     FParse::Value(FCommandLine::Get(), TEXT("DFExpected="), BridgeExpected);
     BridgeExpected=BridgeExpected.ToUpper();
-    bInferenceEnabled = !FParse::Param(FCommandLine::Get(), TEXT("DFNoInference")) && DatasetCount <= 0 && !bSmoke && !bNightVisionSmoke && !bReadbackSmoke && !bThermalSmoke && !bModalityScreenshots;
-    OutputRoot = FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectSavedDir(), bWeldingSmoke ? TEXT("WeldingPreview"):bModalityScreenshots ? TEXT("Modalities"):bNightVisionSmoke ? TEXT("NightVision"):TEXT("Dataset")));
+    bInferenceEnabled = !FParse::Param(FCommandLine::Get(), TEXT("DFNoInference")) && DatasetCount <= 0 && !bSmoke && !bNightVisionSmoke && !bReadbackSmoke && !bThermalSmoke && !bModalityScreenshots && !bCurtainQA;
+    OutputRoot = FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectSavedDir(), bCurtainQA ? TEXT("CurtainPhysics"):bWeldingSmoke ? TEXT("WeldingPreview"):bModalityScreenshots ? TEXT("Modalities"):bNightVisionSmoke ? TEXT("NightVision"):TEXT("Dataset")));
     FParse::Value(FCommandLine::Get(), TEXT("DFOutput="), OutputRoot);
     FString PlanPath;
     FParse::Value(FCommandLine::Get(), TEXT("DFPlan="), PlanPath);
@@ -290,9 +294,9 @@ void ADarkFactoryWorld::BeginPlay() {
     }
     FString SceneSelection=TEXT("auto");
     FParse::Value(FCommandLine::Get(),TEXT("DFScene="),SceneSelection); SceneSelection=SceneSelection.ToLower();
-    if (bWeldingSmoke) SceneSelection=TEXT("welding");
+    if (bWeldingSmoke || bProcessEnabled || bCurtainQA) SceneSelection=TEXT("welding");
     const bool LegacyAutomation=DatasetCount>0 || !PlanPath.IsEmpty() || bSmoke || bBridgeSmoke || bNightVisionSmoke || bReadbackSmoke || bThermalSmoke || bModalityScreenshots;
-    if ((SceneSelection!=TEXT("auto") && SceneSelection!=TEXT("procedural") && SceneSelection!=TEXT("welding")) || (SceneSelection==TEXT("welding") && LegacyAutomation)) {
+    if ((bCurtainQA && (bProcessEnabled || bWeldingSmoke || LegacyAutomation)) || (bProcessEnabled && bWeldingSmoke) || (SceneSelection!=TEXT("auto") && SceneSelection!=TEXT("procedural") && SceneSelection!=TEXT("welding")) || (SceneSelection==TEXT("welding") && LegacyAutomation)) {
         UE_LOG(LogTemp,Error,TEXT("DF_SCENE_ERROR invalid scene selection or welding preview mixed with procedural training/smoke flags"));
         FPlatformMisc::RequestExitWithStatus(false,1); return;
     }
@@ -339,7 +343,8 @@ void ADarkFactoryWorld::BeginPlay() {
             const double Sign=LaneY<0 ? -1.:1.;
             auto* Portal=GetWorld()->SpawnActor<ADarkFactoryCurtainPortal>();
             Portal->SetActorTransform(FTransform(FRotator(0,Sign<0 ? 180:0,0),FVector(4.505665,LaneY,6.3477106)));
-            if (!Portal->Initialize(420,390,1100,14,3)) { UE_LOG(LogTemp,Error,TEXT("DF_PORTAL_INITIALIZE_FAILED")); FPlatformMisc::RequestExitWithStatus(false,1); return; }
+            const float TunnelCm=(bProcessEnabled || bCurtainQA) ? ADarkFactoryProcessScene::TunnelLengthCm:1100.f;
+            if (!Portal->Initialize(420,390,TunnelCm,14,3)) { UE_LOG(LogTemp,Error,TEXT("DF_PORTAL_INITIALIZE_FAILED")); FPlatformMisc::RequestExitWithStatus(false,1); return; }
             CurtainPortals.Add(Portal); Profiles.Append(Portal->GetThermalSurfaces()); AddTickPrerequisiteActor(Portal);
         }
         WeldingSparks=GetWorld()->SpawnActor<ADarkFactoryWeldingSparks>();
@@ -351,6 +356,13 @@ void ADarkFactoryWorld::BeginPlay() {
         IQ9Props=GetWorld()->SpawnActor<ADarkFactoryIQ9Props>();
         if (!IQ9Props->Initialize(WeldingCell)) { UE_LOG(LogTemp,Error,TEXT("DF_IQ9_PROPS_INITIALIZE_FAILED")); FPlatformMisc::RequestExitWithStatus(false,1); return; }
         Profiles.Append(IQ9Props->GetThermalSurfaces()); AddTickPrerequisiteActor(IQ9Props);
+        if (bProcessEnabled || bCurtainQA) {
+            ProcessScene=GetWorld()->SpawnActor<ADarkFactoryProcessScene>();
+            if (!ProcessScene || !ProcessScene->Initialize(WeldingCell,Seed)) {
+                UE_LOG(LogTemp,Error,TEXT("DF_PROCESS_SCENE_FAILED")); FPlatformMisc::RequestExitWithStatus(false,1); return;
+            }
+            Profiles.Append(ProcessScene->GetThermalSurfaces());
+        }
         ControlCabinet=GetWorld()->SpawnActor<ADarkFactoryControlCabinet>();
         if (!ControlCabinet->Initialize(WeldingCell)) {
             if (bCabinetQA) { UE_LOG(LogTemp,Error,TEXT("DF_CABINET_QA_INITIALIZE_FAILED")); FPlatformMisc::RequestExitWithStatus(false,1); return; }
@@ -368,12 +380,29 @@ void ADarkFactoryWorld::BeginPlay() {
         ThermalRig->SetTickGroup(TG_PostPhysics);
         bInferenceEnabled=false; Source=TEXT("DISABLED");
         EpisodeId=FGuid::NewGuid().ToString(EGuidFormats::Digits);
-        Hold(TEXT("VISUAL PREVIEW: new scenario adapter not configured"));
+        Hold(bProcessEnabled ? TEXT("Initializing camera inspection gates"):TEXT("VISUAL PREVIEW: new scenario adapter not configured"));
         if (!ThermalRig->InitializeImported(this,Sensor,Profiles)) {
             ThermalRig->Destroy(); ThermalRig=nullptr;
+            if (bProcessEnabled || bCurtainQA) { UE_LOG(LogTemp,Error,TEXT("DF_PROCESS_THERMAL_UNAVAILABLE")); FPlatformMisc::RequestExitWithStatus(false,1); return; }
             Status=TEXT("VISUAL PREVIEW: authored thermal profiles unavailable");
         } else {
             WeldingCell->BindThermalRig(ThermalRig);
+            if (ProcessScene) {
+                ProcessScene->BindThermalRig(ThermalRig);
+            }
+            if (ProcessScene && !bCurtainQA) {
+                ProcessController=GetWorld()->SpawnActor<ADarkFactoryProcessController>();
+                if (!ProcessController || !ProcessController->Initialize(this,WeldingCell,ProcessScene,ThermalRig)) {
+                    UE_LOG(LogTemp,Error,TEXT("DF_PROCESS_INITIALIZE_FAILED")); FPlatformMisc::RequestExitWithStatus(false,1); return;
+                }
+                AddTickPrerequisiteActor(ProcessController);
+                WeldingSparks->AddTickPrerequisiteActor(ProcessController);
+                WeldingSmoke->AddTickPrerequisiteActor(ProcessController);
+                IQ9Props->AddTickPrerequisiteActor(ProcessController);
+                CellMechanisms->AddTickPrerequisiteActor(ProcessController);
+                if (ControlCabinet) ControlCabinet->AddTickPrerequisiteActor(ProcessController);
+                ThermalRig->AddTickPrerequisiteActor(ProcessController);
+            }
             ThermalRig->AddTickPrerequisiteActor(WeldingCell); ThermalRig->AddTickPrerequisiteActor(WeldingSparks); ThermalRig->AddTickPrerequisiteActor(WeldingSmoke); ThermalRig->AddTickPrerequisiteActor(IQ9Props);
             ThermalRig->AddTickPrerequisiteActor(CellMechanisms);
             if (ControlCabinet) ThermalRig->AddTickPrerequisiteActor(ControlCabinet);
@@ -396,10 +425,21 @@ void ADarkFactoryWorld::BeginPlay() {
     }
     AddTickPrerequisiteActor(FactoryLights);
     if (ThermalRig) ThermalRig->AddTickPrerequisiteActor(FactoryLights);
+    if (bProcessEnabled) if (auto* PC=GetWorld()->GetFirstPlayerController()) if (auto* Observer=Cast<ADarkFactoryPawn>(PC->GetPawn())) {
+        int32 ReviewMode=0; FString ReviewView;
+        FParse::Value(FCommandLine::Get(),TEXT("DFProcessObserverMode="),ReviewMode);
+        FParse::Value(FCommandLine::Get(),TEXT("DFProcessView="),ReviewView);
+        Observer->SetObserverMode(FMath::Clamp(ReviewMode,0,3));
+        FVector Location=Observer->GetActorLocation(); FRotator Rotation=Observer->GetActorRotation(); bool Move=false;
+        if (ReviewView==TEXT("cabinet") && ControlCabinet) { ControlCabinet->GetInspectionView(Location,Rotation); Move=true; }
+        else if (ReviewView==TEXT("inspection") && ProcessScene) { ProcessScene->GetInspectionObserverView(Location,Rotation); Move=true; }
+        if (Move) { Observer->SetActorLocation(Location); Observer->SetActorRotation(Rotation); }
+    }
     if (DatasetCount > 0) PrepareDatasetSample();
     NextAutomation = FPlatformTime::Seconds() + (bBridgeSmoke ? 6.0:4.0);
     BridgeSmokeDeadline=FPlatformTime::Seconds()+MaxResultAge+10.0;
-    if (IsImportedScene()) { UE_LOG(LogTemp,Display,TEXT("DF_READY welding_visual_preview sensor=448x256 inference=disabled")); }
+    if (bCurtainQA && !InitializeCurtainSmoke()) { FPlatformMisc::RequestExitWithStatus(false,1); return; }
+    if (IsImportedScene()) { UE_LOG(LogTemp,Display,TEXT("DF_READY welding sensor=448x256 process_gates=%d legacy_inference=disabled"),bProcessEnabled); }
     else { UE_LOG(LogTemp, Display, TEXT("DF_READY sensor=448x256 active_nir_proxy endpoint=%s seed=%d"), *Endpoint, Seed); }
 }
 
@@ -447,6 +487,11 @@ bool ADarkFactoryWorld::GetObserverHome(FVector& Location,FRotator& Rotation) co
     Location=WeldingCell->GetObserverLocation(); Rotation=WeldingCell->GetObserverRotation(); return true;
 }
 void ADarkFactoryWorld::ToggleWeldingAnimation() {
+    if (ProcessController) {
+        ProcessController->TogglePaused();
+        for (const auto& Portal:CurtainPortals) Portal->SetSimulationEnabled(!ProcessController->GetStatus().bPaused);
+        return;
+    }
     if (!WeldingCell) return;
     WeldingCell->SetAnimationEnabled(!WeldingCell->IsAnimating());
     for (ADarkFactoryCurtainPortal* Portal:CurtainPortals) Portal->SetSimulationEnabled(WeldingCell->IsAnimating());
@@ -1331,7 +1376,7 @@ void ADarkFactoryWorld::WeldingEffectsSmokeTick(double Now) {
 }
 
 FString ADarkFactoryWorld::GetScenarioName() const {
-    if (IsImportedScene()) return TEXT("welding cell visual preview");
+    if (IsImportedScene()) return bProcessEnabled ? TEXT("automotive camera inspection gates"):TEXT("welding cell visual preview");
     static const TCHAR* Names[] = {TEXT("normal"),TEXT("missing"),TEXT("misaligned"),TEXT("occluded")};
     return Names[FMath::Clamp(Scenario,0,3)];
 }
@@ -1900,6 +1945,7 @@ void ADarkFactoryWorld::AutomationTick(double Now) {
 void ADarkFactoryWorld::Tick(float DeltaSeconds) {
     Super::Tick(DeltaSeconds);
     const double Now=FPlatformTime::Seconds();
+    if (bCurtainQA) { CurtainSmokeTick(DeltaSeconds,Now); return; }
     PollSensorReadback();
     const bool bOfflineCapture=DatasetCount>0 || bSmoke || bNightVisionSmoke;
     if (Now>=NextCapture) {
@@ -1909,6 +1955,13 @@ void ADarkFactoryWorld::Tick(float DeltaSeconds) {
     }
     if (IsImportedScene()) {
         bInferenceEnabled=false;
+        if (ProcessController) {
+            ProcessController->CaptureTick();
+            const auto& Process=ProcessController->GetStatus();
+            if (ControlCabinet) ControlCabinet->SetProcessStatus(Process);
+            if (CellMechanisms) CellMechanisms->SetProcessStatus(Process);
+            Source=Process.Backend; Decision=Process.Decision; Status=Process.Message; LatencyMs=Process.LastLatencyMs;
+        }
         if (bWeldingSmoke) WeldingSmokeTick(Now);
         return;
     }

@@ -1,10 +1,10 @@
 # Automotive dark factory
 
-An Unreal Engine preparation demo for factory inspection with **NVIDIA Cosmos-Reason2-2B on a Qualcomm IQ9 EVK**, independent Xbox-controller navigation, and separate NIR and thermal camera views.
+An Unreal Engine factory-inspection demo with **NVIDIA Cosmos-Reason2-2B**, host GPU experiments ahead of Qualcomm IQ9 EVK deployment, independent Xbox-controller navigation, and separate NIR and thermal camera views.
 
-When the locally prepared welding-cell assets are present, the interactive demo uses four articulated robots and separately addressable car-body panels. The source package, derived geometry and runtime remain local. Without those assets, the demo uses a procedural four-module battery-tray inspection cell. It includes normal, missing, misaligned and obscured NIR cases; dim roof-window light in the normal observer view; a green phosphor display; a thermal proxy with stored body/surface heat, nearby radiation and contact transfer, overheating, heater-fault and glue-gap cases; and pass/hold/reject reactions through the NIR bridge. It requires no purchased assets. The final manufacturing scenario remains open.
+When the locally prepared welding-cell assets are present, the interactive demo uses four articulated robots and separately addressable car-body panels. The source package, derived geometry and runtime remain local. Without those assets, the demo uses a procedural four-module battery-tray inspection cell. It includes normal, missing, misaligned and obscured NIR cases; dim roof-window light in the normal observer view; a green phosphor display; a thermal proxy with stored body/surface heat, nearby radiation and contact transfer, overheating, heater-fault and glue-gap cases; and pass/hold/reject reactions through the NIR bridge. It requires no purchased assets. The automotive process experiment below is opt-in; the procedural cell remains a separate reference.
 
-**The imported welding cell is a visual motion preview with inference and training disabled until its scenario contract is defined. Procedural inference is a declared mock.** A new factory adapter has not been trained or deployed. Thermal images have a separate snapshot path and are not sent to the NIR model contract; a thermal adapter is pending. Both infrared modalities are rendering approximations, not calibrated cameras.
+**Use `run.ps1 -Process` for the new camera-gated automotive experiment on the host GPU.** Two NIR cameras check doors, an inspection robot checks adhesive temperature, and three welding robots work before a final thermal cooldown gate. The default imported mode still runs its visual cycle; procedural inference remains an explicit mock. This path does not use the previous parcel/battery adapter. Both infrared modalities are rendering approximations, not calibrated cameras. See [process setup and validation](docs/process_inspection.md) and [model classification, training and evaluation](docs/model_classification.md).
 
 ![Actual Unreal render with green phosphor shading and animated grain](docs/media/night-vision-green.png)
 
@@ -41,7 +41,7 @@ Reset or change the scene to start a new inspection. Use `run.ps1 -NoInference` 
 
 In the procedural scene, two roof-window light proxies provide dim visible fill, initially **80 lumens each**. Tune the authored setting with `run.ps1 -Scene procedural -NoInference -RoofLightLumens 80`; it is not a measured factory illumination level. `-RoofLightLumens 0` removes the roof fill; also turn off the observer headlamp with L for a zero-light visible comparison. Offline dataset capture, `-Smoke` and `-NightVisionSmoke` explicitly disable both roof fill and the headlamp for calibration.
 
-Capture the visible/NIR/thermal comparison with UnrealÃ¢â‚¬â„¢s native viewport screenshot path:
+Capture the visible/NIR/thermal comparison with Unreal’s native viewport screenshot path:
 
 ```powershell
 .\unreal\Scripts\run.ps1 -ModalityScreenshots -NoInference -Output artifacts\modalities
@@ -62,7 +62,7 @@ Place the purchased FBX and JPEGs in `assets/Autodesk_FBX_2009/`. The entire `as
 
 The current preparation produces 76 mesh components, including 29 body-panel pieces and two complete moving holders, plus 24 joints across four robots. The demo repeats a 21-second arrival, approach, precision-welding, withdrawal and departure cycle, with seeded per-robot rest delays of 0.2-0.8 seconds and pre-weld dwells of 0.5-2 seconds. Arms park with their bases turned 180 degrees away and approach/withdraw in one second. Physics strip curtains align with the rail ends and conceal the entry/exit tunnels; articulated spline hoses follow the arms. Burst, fountain and falling-fragment phases share a bounded 4,096-fragment pool, with an additional 128-puff optical smoke pool. Sparks bounce against surfaces, settle and fade, with visible/NIR illumination and independent thermal cooling profiles. See [production cycle, effects and controls](docs/welding_production_cycle.md) for the authored motion and physics assumptions. Four car-weld spots heat and cool on three body panels in visible, NIR and thermal views, following the moving car and resetting for each new body. These authored surface fields are independent of the tools' retained heat; see [car-weld heat](docs/welding_body_heat.md). Twenty-eight warm robot castings also use authored mesh-local thermal gradients; [imported thermal fields](docs/imported_thermal_fields.md) explains their shape and limits. The imported bulk heat-transfer network remains disabled.
 
-Ten [researched realism additions](docs/realism_additions.md) add floor markings, overhead utilities, extraction hoods, animated body clamps, a stack light, entry/exit presence sensors, spatial machinery sound, production progress, five smooth observer viewpoints and persistent weld witness marks. **B / Xbox X** cycles viewpoints; **M** mutes sound. The existing control cabinet now has an [illuminated LCD and LED buttons](docs/control_cabinet.md), with GPU gauges driven by the simulated production cycle. These details follow the authored cycle and do not report model inspection outcomes.
+Ten [researched realism additions](docs/realism_additions.md) add floor markings, overhead utilities, extraction hoods, animated body clamps, a stack light, entry/exit presence sensors, spatial machinery sound, production progress, five smooth observer viewpoints and persistent weld witness marks. **B / Xbox X** cycles viewpoints; **M** mutes sound. The existing control cabinet now has an [illuminated LCD and LED buttons](docs/control_cabinet.md), with GPU gauges driven by the simulated production cycle. In the default visual cycle these details follow the authored schedule. In process mode the cabinet, stack lights and HUD show actual gate-controller status, with explicit labels for offline capture and policy tests.
 
 `run.ps1` defaults to `-Scene auto`: it selects the prepared local cell when available, otherwise the procedural reference. `-Scene welding` requires a valid local manifest and meshes. Use **Space / Xbox View** to pause or resume the car, robot, particle and curtain motion; observer movement and modality switching remain independent. The six visible roof-light proxies are adjustable with `-WeldingRoofLightLumens` (default 80 each). The fixed NIR camera retains its own illumination. The sensor panel shows colored thermal and monochrome thermal together, sharing one camera render. The observer defaults to the iron color palette when entering thermal; K / Xbox D-pad left retains white-hot and black-hot options.
 
@@ -85,11 +85,12 @@ Case selection, randomization, inference, NIR training saves and heat-exchange c
 | Xbox A / X | Procedural scene: reset with new seed / next case |
 | B / Xbox X | Imported scene: cycle five observer viewpoints; manual flight cancels the transition |
 | M | Imported scene: mute / unmute synthesized factory sounds |
-| F8 / Xbox left-stick click | Observer collider overlay: off â†’ physics bodies â†’ physics + query bounds â†’ off |
-| Tab / Xbox Y | Cycle observer: dim visible Ã¢â€ â€™ NIR Ã¢â€ â€™ thermal Ã¢â€ â€™ bright factory Ã¢â€ â€™ dim visible |
+| F8 / Xbox left-stick click | Observer collider overlay: off → physics bodies → physics + query bounds → off |
+| Tab / Xbox Y | Cycle observer: dim visible → NIR → thermal → bright factory → dim visible |
 | I / N / Xbox B | Toggle observer NIR / dim visible |
 | T | Toggle observer thermal / NIR |
 | Xbox Menu | Return observer home |
+| Escape | Quit the demo immediately |
 | Space / Xbox View | Pause / resume the imported production cycle and physics |
 | L | Toggle headlamp preference; it emits only in dim visible mode and resumes there when requested |
 | WASD + mouse; Q / E | Fly at 900 cm/s and look; inverted mouse pitch; down / up |
@@ -113,7 +114,7 @@ The fixed NIR sensor stays in active-IR mode during the interactive demo. The HU
 
 The default NIR display shader uses one texture sample. Launch with `run.ps1 -NightVisionQuality` for an optional five-sample halo. Palette and grain run on the GPU; the animated grain pattern changes at 24 Hz. Live inference and saves use one asynchronous GPU readback job at a time, followed by grayscale augmentation and PNG encoding on a CPU worker. Offline dataset capture remains synchronous for determinism. [The night-vision guide](docs/night_vision.md) describes the controls and capture settings.
 
-The fixed thermal sensor has a separate 10 Hz GPU preview and linear 448 Ãƒâ€” 256 grayscale output over 20Ã¢â‚¬â€œ120 Ã‚Â°C apparent temperature. CPU profile updates integrate Planck radiance over 8Ã¢â‚¬â€œ14 Ã‚Âµm, mix emissivity with reflected ambient radiance, and upload a small lookup texture. A GPU depth check rejects hidden surfaces; observer palettes do not alter saved thermal pixels. F9 saves snapshots in `unreal/Saved/Thermal/`. A small energy-conserving network adds contact conduction, distance-dependent radiation and retained surface warmth after a source moves. O toggles exchange; U advances simulated time. H cycles to a source/receiver fixture and frames it with the observer. The updated thermal GPU smoke passes 138 transfer checks plus 42 existing and 55 spatial-field checks; sustained GPU costs have not yet been measured. See [thermal rendering and controls](docs/thermal_rendering.md).
+The fixed thermal sensor has a separate 10 Hz GPU preview and linear 448 × 256 grayscale output over 20–120 °C apparent temperature. CPU profile updates integrate Planck radiance over 8–14 µm, mix emissivity with reflected ambient radiance, and upload a small lookup texture. A GPU depth check rejects hidden surfaces; observer palettes do not alter saved thermal pixels. F9 saves snapshots in `unreal/Saved/Thermal/`. A small energy-conserving network adds contact conduction, distance-dependent radiation and retained surface warmth after a source moves. O toggles exchange; U advances simulated time. H cycles to a source/receiver fixture and frames it with the observer. The updated thermal GPU smoke passes 138 transfer checks plus 42 existing and 55 spatial-field checks; sustained GPU costs have not yet been measured. See [thermal rendering and controls](docs/thermal_rendering.md).
 
 G releases the tray, A holds it, and R engages the reject gate. Invalid, expired or obsolete replies hold. These reactions currently belong to the NIR inspection loop.
 
@@ -138,11 +139,11 @@ Run a CPU-only training preparation check:
 .\.venv\Scripts\python.exe scripts\training\train_lora.py --manifest data\pilot\plan.jsonl --dataset-root data\pilot --output outputs\factory-lora --dry-run
 ```
 
-See [training and export](docs/training.md) for processor validation, optional CUDA dependencies, LoRA training and IQ9 release gates. The training script uses exactly one supervised class token and freezes the vision tower. LoRA alone does not guarantee lower inference latency.
+See [training and export](docs/training.md) for processor validation, optional CUDA dependencies, LoRA training and IQ9 release gates. That procedural training script uses exactly one supervised class token and freezes the vision tower. The separate [automotive process pipeline](docs/model_classification.md) uses new multimodal LoRA experiments and host GPU evaluation. LoRA alone does not guarantee lower inference latency.
 
 ## Connect a prepared IQ9 candidate
 
-Use the address and model ID of the **new factory candidate**. This starts only the local bridge; it does not modify the EVK service:
+This is the procedural single-camera bridge. The automotive process contract is currently host-only and must not be routed through it. Use the address and model ID of a separately prepared **new procedural factory candidate**. This starts only the local bridge; it does not modify the EVK service:
 
 ```powershell
 .\.venv\Scripts\python.exe -m dark_factory.bridge --backend evk --evk-url http://YOUR_EVK_IP:18183 --model YOUR_FACTORY_MODEL_ID

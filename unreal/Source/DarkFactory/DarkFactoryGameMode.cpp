@@ -2,6 +2,7 @@
 #include "DarkFactoryPawn.h"
 #include "DarkFactoryWorld.h"
 #include "DarkFactoryWeldingCell.h"
+#include "DarkFactoryProcessController.h"
 #include "DarkFactoryThermalRig.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
@@ -84,6 +85,39 @@ void ADarkFactoryHUD::DrawObserverThermalScale(const ADarkFactoryThermalRig* The
     DrawThermalScale(Thermal->DisplayPalette,Thermal->MinC,Thermal->MaxC,X+10*Scale,Y+29*Scale,Width-20*Scale,Scale);
 }
 namespace {
+const TCHAR* GateLabel(EDarkFactoryGateState State) {
+    switch (State) {
+        case EDarkFactoryGateState::Pending: return TEXT("Pending");
+        case EDarkFactoryGateState::Inspecting: return TEXT("Inspecting");
+        case EDarkFactoryGateState::Waiting: return TEXT("Waiting / HOLD");
+        case EDarkFactoryGateState::Passed: return TEXT("Passed");
+        case EDarkFactoryGateState::Rejected: return TEXT("Rejected");
+        case EDarkFactoryGateState::Error: return TEXT("Unavailable / HOLD");
+    }
+    return TEXT("Unknown / HOLD");
+}
+FLinearColor GateColor(EDarkFactoryGateState State) {
+    switch (State) {
+        case EDarkFactoryGateState::Inspecting:
+        case EDarkFactoryGateState::Waiting: return FLinearColor(1.f,.68f,.22f);
+        case EDarkFactoryGateState::Passed: return FLinearColor(.27f,.9f,.52f);
+        case EDarkFactoryGateState::Rejected:
+        case EDarkFactoryGateState::Error: return FLinearColor(1.f,.30f,.26f);
+        default: return FLinearColor(.52f,.63f,.71f);
+    }
+}
+const TCHAR* ProcessPhaseLabel(EDarkFactoryProcessPhase Phase) {
+    switch (Phase) {
+        case EDarkFactoryProcessPhase::Arriving: return TEXT("Body arriving");
+        case EDarkFactoryProcessPhase::Doors: return TEXT("Door inspection");
+        case EDarkFactoryProcessPhase::Adhesive: return TEXT("Adhesive inspection");
+        case EDarkFactoryProcessPhase::Welding: return TEXT("Robotic welding");
+        case EDarkFactoryProcessPhase::WeldCooling: return TEXT("Weld cooling inspection");
+        case EDarkFactoryProcessPhase::Departing: return TEXT("Passing body forward");
+        case EDarkFactoryProcessPhase::Returning: return TEXT("Returning body to entry");
+    }
+    return TEXT("Process hold");
+}
 const TCHAR* RobotPhaseLabel(const FDarkFactoryRobotTiming& Timing) {
     const double T=Timing.CycleSeconds;
     if (!Timing.Valid) return TEXT("Unavailable");
@@ -104,8 +138,30 @@ FLinearColor RobotPhaseColor(const FDarkFactoryRobotTiming& Timing) {
 TSharedRef<FJsonObject> ADarkFactoryHUD::BuildProductionStatusMetadata() const {
     auto O=MakeShared<FJsonObject>(); O->SetBoolField(TEXT("available"),false);
     const ADarkFactoryWeldingCell* Cell=nullptr;
-    for (TActorIterator<ADarkFactoryWorld> It(GetWorld());It;++It) if (It->IsImportedScene()) { Cell=It->GetWeldingCell(); break; }
+    const ADarkFactoryProcessController* Process=nullptr;
+    for (TActorIterator<ADarkFactoryWorld> It(GetWorld());It;++It) if (It->IsImportedScene()) {
+        Cell=It->GetWeldingCell(); Process=It->GetProcessController(); break;
+    }
     if (!Cell) return O;
+    if (Process && Process->GetStatus().bEnabled) {
+        const auto& State=Process->GetStatus();
+        O->SetBoolField(TEXT("available"),true); O->SetBoolField(TEXT("process_enabled"),true);
+        O->SetStringField(TEXT("scope"),TEXT("Camera-only process-controller decisions; UI presentation excluded from model inputs"));
+        O->SetStringField(TEXT("phase"),ProcessPhaseLabel(State.Phase)); O->SetStringField(TEXT("body_id"),State.BodyId);
+        O->SetNumberField(TEXT("body_sequence"),State.BodySequence); O->SetBoolField(TEXT("paused"),State.bPaused);
+        O->SetBoolField(TEXT("request_pending"),State.bRequestPending); O->SetNumberField(TEXT("active_gate"),State.ActiveGate);
+        O->SetNumberField(TEXT("consecutive_passes"),State.ConsecutivePasses); O->SetNumberField(TEXT("required_passes"),2);
+        O->SetNumberField(TEXT("passed_bodies"),State.PassedBodies); O->SetNumberField(TEXT("returned_bodies"),State.ReturnedBodies);
+        O->SetStringField(TEXT("backend"),State.Backend); O->SetStringField(TEXT("decision"),State.Decision);
+        O->SetStringField(TEXT("message"),State.Message); O->SetNumberField(TEXT("latency_ms"),State.LastLatencyMs);
+        TArray<TSharedPtr<FJsonValue>> Gates;
+        for (int32 I=0;I<3;++I) {
+            auto Gate=MakeShared<FJsonObject>(); Gate->SetNumberField(TEXT("index"),I);
+            Gate->SetStringField(TEXT("state"),GateLabel(State.Gates[I])); Gates.Add(MakeShared<FJsonValueObject>(Gate));
+        }
+        O->SetArrayField(TEXT("gates"),Gates); O->SetNumberField(TEXT("sensor_readbacks"),0);
+        return O;
+    }
     O->SetBoolField(TEXT("available"),true); O->SetStringField(TEXT("scope"),TEXT("Simulation progress, not inspection quality or live EVK status"));
     O->SetNumberField(TEXT("motion_seconds"),Cell->GetMotionTime()); O->SetNumberField(TEXT("body_sequence"),Cell->GetCycleIndex()+1);
     O->SetNumberField(TEXT("bodies_exited"),Cell->GetCycleIndex()+(Cell->GetCycleSeconds()>=Cell->GetCarriageDepartureEndSeconds() ? 1:0));
@@ -139,6 +195,93 @@ void ADarkFactoryHUD::DrawProductionStatus(const ADarkFactoryWeldingCell* Cell,f
         DrawText(FString::Printf(TEXT("R%d  %s"),I+1,RobotPhaseLabel(Timing)),RobotPhaseColor(Timing),Left,Y+46.f,GEngine->GetSmallFont(),TextScale);
     }
 }
+void ADarkFactoryHUD::DrawProcessStatus(const ADarkFactoryProcessController* Process,float RightPanelX) {
+    if (!Process || !Process->GetStatus().bEnabled) return;
+    const auto& State=Process->GetStatus();
+    float X=290.f,Y=14.f,Width=RightPanelX-X-14.f;
+    if (Width<550.f) { X=14.f; Y=106.f; Width=RightPanelX-X-14.f; }
+    if (ColliderOverlayMode) Y=FMath::Max(Y,RightPanelX-304.f<550.f ? 252.f:160.f);
+    if (Width<330.f) return;
+    Width=FMath::Min(Width,940.f);
+    const float Scale=Width<580.f ? .76f:.90f;
+    const FLinearColor Pale(.84f,.92f,.97f),Muted(.58f,.71f,.80f),Amber(1.f,.68f,.22f);
+    DrawRect(FLinearColor(.008f,.015f,.024f,.90f),X,Y,Width,190.f);
+    auto Fit=[&](const FString& Text,float MaxWidth,float TextScale) {
+        FString Result=Text.Left(192).Replace(TEXT("\n"),TEXT(" ")).Replace(TEXT("\r"),TEXT(" ")).Replace(TEXT("\t"),TEXT(" ")); float W=0,H=0; GetTextSize(Result,W,H,GEngine->GetSmallFont(),TextScale);
+        if (W>MaxWidth) {
+            while (Result.Len()>3 && W>MaxWidth) { Result.LeftChopInline(1); GetTextSize(Result+TEXT("..."),W,H,GEngine->GetSmallFont(),TextScale); }
+            Result+=TEXT("...");
+        }
+        return Result;
+    };
+    const TCHAR* RunLabel=State.Backend.Contains(TEXT("POLICY TEST")) ? TEXT("POLICY TEST")
+        :State.Backend.Contains(TEXT("OFFLINE")) ? TEXT("CAPTURE FIXTURE"):TEXT("MODEL-GATED PROCESS");
+    DrawText(Fit(FString::Printf(TEXT("%s   Body %03d   %s%s"),RunLabel,State.BodySequence,
+        State.bPaused ? TEXT("PAUSED / "):TEXT(""),ProcessPhaseLabel(State.Phase)),Width-20,Scale),State.bPaused ? Amber:Pale,X+10,Y+7,GEngine->GetSmallFont(),Scale);
+    const FString Backend=State.Backend.IsEmpty() ? TEXT("CONNECTING"):State.Backend;
+    DrawText(Fit(TEXT("Inspection backend: ")+Backend,Width-20,.82f*Scale),Muted,X+10,Y+29,GEngine->GetSmallFont(),.82f*Scale);
+    const TCHAR* Names[]={TEXT("1  Doors / NIR"),TEXT("2  Adhesive / thermal"),TEXT("3  Weld cooling / thermal")};
+    const float Column=(Width-20.f)/3.f;
+    for (int32 I=0;I<3;++I) {
+        const float Left=X+10+Column*I;
+        const auto Color=GateColor(State.Gates[I]);
+        DrawRect(FLinearColor(.025f,.052f,.071f,.94f),Left,Y+54,Column-6,69);
+        DrawRect(Color,Left,Y+54,Column-6,2);
+        DrawText(Fit(Names[I],Column-20,Scale),Pale,Left+7,Y+62,GEngine->GetSmallFont(),Scale);
+        DrawText(GateLabel(State.Gates[I]),Color,Left+7,Y+85,GEngine->GetSmallFont(),Scale);
+        if (State.ActiveGate==I)
+            DrawText(FString::Printf(TEXT("Fresh G: %d / 2%s"),State.ConsecutivePasses,State.bRequestPending ? TEXT("   analyzing"):TEXT("")),Muted,Left+7,Y+106,GEngine->GetSmallFont(),.73f*Scale);
+    }
+    bool Error=false;
+    for (const auto Gate:State.Gates) Error |= Gate==EDarkFactoryGateState::Error;
+    FString Detail=State.bPaused ? TEXT("PAUSED: motion, heating and inspections held.")
+        : Error ? TEXT("MODEL UNAVAILABLE / HOLD: ")+State.Message:State.Message;
+    DrawText(Fit(Detail,Width-20,Scale),Error ? FLinearColor(1.f,.30f,.26f):State.bPaused ? Amber:Pale,X+10,Y+132,GEngine->GetSmallFont(),Scale);
+    const FString Latency=State.LastLatencyMs>0 ? FString::Printf(TEXT("%.0f ms"),State.LastLatencyMs):TEXT("--");
+    DrawText(Fit(FString::Printf(TEXT("Last decision %s   %s   Passed %d   Returned %d   G proceed / A hold / R return or wait"),
+        *State.Decision,*Latency,State.PassedBodies,State.ReturnedBodies),Width-20,.82f*Scale),Muted,X+10,Y+156,GEngine->GetSmallFont(),.82f*Scale);
+    DrawText(TEXT("Sensor inputs exclude HUD labels and controller state."),Muted,X+10,Y+175,GEngine->GetSmallFont(),.74f*Scale);
+}
+void ADarkFactoryHUD::DrawProcessCaptures(const ADarkFactoryProcessController* Process,const ADarkFactoryWorld* World,float RightPanelX,float PanelWidth) {
+    if (!Process || !World || !Canvas) return;
+    const auto& State=Process->GetStatus();
+    const bool NIR=State.Phase==EDarkFactoryProcessPhase::Arriving || State.Phase==EDarkFactoryProcessPhase::Doors
+        || State.Phase==EDarkFactoryProcessPhase::Returning;
+    const int32 Count=NIR ? 2:3;
+    const float Margin=14.f,Header=58.f,Footer=28.f,Extra=NIR ? 36.f:62.f;
+    const float Height=FMath::Min((PanelWidth-20.f)/1.75f,FMath::Max(32.f,
+        (Canvas->ClipY-2*Margin-70.f-Header-Footer-Count*Extra)/Count));
+    const float Width=Height*1.75f,ImageX=RightPanelX+(PanelWidth-Width)*.5f;
+    const FLinearColor Pale(.82f,.92f,.97f),Muted(.55f,.70f,.79f);
+    DrawRect(FLinearColor(.008f,.015f,.024f,.88f),RightPanelX,Margin,PanelWidth,Header+Count*(Height+Extra)+Footer);
+    DrawText(TEXT("Gate camera captures"),Pale,RightPanelX+10,Margin+9,GEngine->GetSmallFont(),1.f);
+    DrawText(State.bPaused ? TEXT("Paused / latest captured frames"):TEXT("Updates on inspection"),Muted,RightPanelX+10,Margin+31,GEngine->GetSmallFont(),.85f);
+    float Y=Margin+Header;
+    for (int32 I=0;I<Count;++I) {
+        const FString Name=NIR ? (I==0 ? TEXT("Door NIR / left"):TEXT("Door NIR / right"))
+            : FString::Printf(TEXT("R4 thermal / spot %d / color"),I+1);
+        DrawText(Name,NIR ? FLinearColor(.70f,.90f,.78f):FLinearColor(.93f,.75f,.51f),RightPanelX+10,Y,GEngine->GetSmallFont(),.95f);
+        Y+=22;
+        auto* Target=Process->GetPreviewTexture(NIR ? I:I+2);
+        if (!Target) {
+            DrawRect(FLinearColor(.018f,.034f,.047f,1.f),ImageX,Y,Width,Height);
+            DrawText(TEXT("Awaiting this gate's capture"),Muted,ImageX+8,Y+Height*.5f-7,GEngine->GetSmallFont(),.82f);
+        } else if (!NIR && ProcessThermalDisplayMaterials.IsValidIndex(I)) {
+            // Each tile owns a MID: updating one texture cannot change another
+            // tile's deferred draw. All inputs remain the original GPU targets.
+            auto* Material=ProcessThermalDisplayMaterials[I].Get();
+            Material->SetTextureParameterValue(TEXT("SensorImage"),Target);
+            Material->SetScalarParameterValue(TEXT("ThermalPalette"),2);
+            DrawMaterial(Material,ImageX,Y,Width,Height,0,0,1,1);
+        } else DrawTexture(Target,ImageX,Y,Width,Height,0,0,1,1,FLinearColor::White,BLEND_Opaque);
+        if (!NIR) {
+            const auto* Thermal=World->GetThermalRig();
+            DrawThermalScale(2,Thermal ? Thermal->MinC:20.f,Thermal ? Thermal->MaxC:120.f,ImageX,Y+Height+5,Width,.9f);
+        }
+        Y+=Height+(NIR ? 14.f:40.f);
+    }
+    DrawText(NIR ? TEXT("Raw grayscale model inputs"):TEXT("Color display / model uses grayscale"),Muted,RightPanelX+10,Y+3,GEngine->GetSmallFont(),.82f);
+}
 void ADarkFactoryHUD::DrawHUD() {
     Super::DrawHUD();
     if (!Canvas) return;
@@ -158,6 +301,7 @@ void ADarkFactoryHUD::DrawHUD() {
         if (auto* Parent=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Materials/M_UI_Thermal.M_UI_Thermal"))) {
             ThermalDisplayMaterial=UMaterialInstanceDynamic::Create(Parent,this);
             ThermalMonochromeDisplayMaterial=UMaterialInstanceDynamic::Create(Parent,this);
+            for (int32 I=0;I<3;++I) ProcessThermalDisplayMaterials.Add(UMaterialInstanceDynamic::Create(Parent,this));
             InitializeThermalScales(Parent);
         }
         const TCHAR* MaterialPath=Pawn && Pawn->IsNightVisionQuality() ? TEXT("/Game/Materials/M_UI_NightVisionQuality.M_UI_NightVisionQuality") : TEXT("/Game/Materials/M_UI_NightVision.M_UI_NightVision");
@@ -174,8 +318,13 @@ void ADarkFactoryHUD::DrawHUD() {
         const float ImageWidth=ImageHeight*1.75f;
         const float RightX=Canvas->ClipX-PanelWidth-Margin;
         const float ImageX=RightX+(PanelWidth-ImageWidth)*.5f;
-        DrawProductionStatus(World->GetWeldingCell(),RightX);
+        const auto* Process=World->GetProcessController();
+        const bool ProcessEnabled=Process && Process->GetStatus().bEnabled;
+        if (ProcessEnabled) DrawProcessStatus(Process,RightX);
+        else DrawProductionStatus(World->GetWeldingCell(),RightX);
         DrawColliderLegend(RightX,true);
+        if (ProcessEnabled) DrawProcessCaptures(Process,World,RightX,PanelWidth);
+        else {
         const float PanelHeight=3.f*ImageHeight+207.f;
         DrawRect(FLinearColor(.008f,.015f,.024f,.82f),RightX,Margin,PanelWidth,PanelHeight);
         float LabelY=Margin+10.f;
@@ -205,16 +354,17 @@ void ADarkFactoryHUD::DrawHUD() {
         };
         ThermalPreview(TEXT("Thermal / color"),ThermalDisplayMaterial,2);
         ThermalPreview(TEXT("Thermal / monochrome"),ThermalMonochromeDisplayMaterial,0);
-        const FString Phase=World->GetWeldingCell()->GetCyclePhaseName();
+        const FString Phase=ProcessEnabled ? ProcessPhaseLabel(Process->GetStatus().Phase):World->GetWeldingCell()->GetCyclePhaseName();
         DrawText(Phase,FLinearColor(.93f,.78f,.51f),RightX+10.f,LabelY,GEngine->GetSmallFont(),.95f);
+        }
         DrawRect(FLinearColor(.008f,.015f,.024f,.76f),Margin,Margin,260.f,82.f);
-        DrawText(TEXT("Car-body welding cell"),FLinearColor(.87f,.94f,1.f),Margin+10.f,Margin+8.f,GEngine->GetSmallFont(),1.1f);
+        DrawText(ProcessEnabled ? TEXT("Automotive inspection cell"):TEXT("Car-body welding cell"),FLinearColor(.87f,.94f,1.f),Margin+10.f,Margin+8.f,GEngine->GetSmallFont(),1.1f);
         DrawText(ObserverView,FLinearColor(.68f,.79f,.86f),Margin+10.f,Margin+31.f,GEngine->GetSmallFont(),1.f);
         DrawText(FrameRateText,FLinearColor(.78f,.90f,.80f),Margin+10.f,Margin+54.f,GEngine->GetSmallFont(),1.f);
         if (Pawn && Pawn->IsThermalView()) DrawObserverThermalScale(World->GetThermalRig(),Margin,Canvas->ClipY-140.f,260.f);
         const float Bottom=Canvas->ClipY-58.f;
         DrawRect(FLinearColor(.008f,.015f,.024f,.75f),Margin,Bottom,Canvas->ClipX-2.f*Margin,44.f);
-        DrawText(FString::Printf(TEXT("WASD / sticks: fly & look   Q/E / triggers: height   Shift: boost   %s"),HeadlightStatus),FLinearColor(.76f,.85f,.91f),Margin+10.f,Bottom+5.f,GEngine->GetSmallFont(),.95f);
+        DrawText(FString::Printf(TEXT("WASD / sticks: fly & look   Q/E / triggers: height   Shift: boost   %s   Esc: quit"),HeadlightStatus),FLinearColor(.76f,.85f,.91f),Margin+10.f,Bottom+5.f,GEngine->GetSmallFont(),.95f);
         DrawText(TEXT("Tab / Y: dim, NIR, thermal, bright   K / D-pad left: palette   Space / View: motion   B / X: viewpoint   M: sound   Home / Menu: home   F8 / LS: colliders"),FLinearColor(.76f,.85f,.91f),Margin+10.f,Bottom+24.f,GEngine->GetSmallFont(),.95f);
         return;
     }
@@ -272,7 +422,7 @@ void ADarkFactoryHUD::DrawHUD() {
     DrawRect(FLinearColor(.008,.017,.028,.93),Margin-8*Scale,Bottom-10*Scale,Canvas->ClipX-2*Margin+16*Scale,140*Scale);
     DrawText(FString::Printf(TEXT("NIR SCENARIO: %s  /  seed %d  /  reference label %s (never sent to model)"),*World->GetScenarioName(),World->Seed,*World->GetTruthLabel()),FLinearColor::White,Margin,Bottom,GEngine->GetSmallFont(),Scale);
     DrawText(TEXT("1 normal   2 missing   3 misaligned   4 occluded   R new seed   I / N observer IR on/off   Sensor stays IR"),FLinearColor(.73,.83,.88),Margin,Bottom+25*Scale,GEngine->GetSmallFont(),Scale);
-    DrawText(TEXT("WASD + mouse / Xbox sticks: fly & look   Q/E / triggers: down/up   Shift: boost   Home / Menu: home"),FLinearColor(.73,.83,.88),Margin,Bottom+50*Scale,GEngine->GetSmallFont(),Scale);
+    DrawText(TEXT("WASD + mouse / Xbox sticks: fly & look   Q/E / triggers: down/up   Shift: boost   Home / Menu: home   Esc: quit"),FLinearColor(.73,.83,.88),Margin,Bottom+50*Scale,GEngine->GetSmallFont(),Scale);
     DrawText(TEXT("Tab / Y: 4 views   T: thermal   K / D-pad left: palette   H / D-pad right: thermal case   F9: thermal PNG   J: fields   U: +15 s   O: transfer   P: inference"),FLinearColor(.73,.83,.88),Margin,Bottom+75*Scale,GEngine->GetSmallFont(),Scale);
     DrawText(World->LastSaved.IsEmpty() ? (Pawn ? Pawn->GetNightVisionStatus()+TEXT("   |   Model input stays grayscale."):TEXT("Waiting for observer")) : TEXT("Saved: ")+World->LastSaved,FLinearColor(.5,.67,.74),Margin,Bottom+102*Scale,GEngine->GetSmallFont(),Scale);
 }

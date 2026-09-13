@@ -13,7 +13,11 @@ constexpr float BottomClearanceCm=8.f;
 constexpr float NativeFloorRecessCm=.2f; // Avoid coplanar overlap with the imported tile surface.
 constexpr float StripThicknessCm=1.6f;
 constexpr float SegmentMassKg=.65f;
-constexpr float HingeLimitDegrees=82.f;
+// A compliant strip may lean through the opening, but must not fold back
+// through itself. With three links the extreme angles are 78/90/102 degrees;
+// the bottom does not rise above its suspension point toward the ceiling.
+constexpr float SuspensionLimitDegrees=78.f;
+constexpr float BendLimitDegrees=12.f;
 // Measured source upper rails: world centres X=-49.70725/+58.71854 cm,
 // top Z=90.97492 cm; source ground-tile top Z=6.3477106 cm. World places
 // the portal on that ground datum, centered on the rail gauge at X=4.505665.
@@ -172,7 +176,7 @@ bool ADarkFactoryCurtainPortal::Initialize(float OpeningWidthCm,float OpeningHei
             Joint->SetLinearZLimit(LCM_Locked,0);
             Joint->SetAngularSwing1Limit(ACM_Locked,0);
             Joint->SetAngularSwing2Limit(ACM_Locked,0);
-            Joint->SetAngularTwistLimit(ACM_Limited,HingeLimitDegrees);
+            Joint->SetAngularTwistLimit(ACM_Limited,Segment==0 ? SuspensionLimitDegrees:BendLimitDegrees);
             Joint->SetDisableCollision(true);
             Joint->SetAngularDriveMode(EAngularDriveMode::TwistAndSwing);
             Joint->SetOrientationDriveTwistAndSwing(true,false);
@@ -201,6 +205,11 @@ bool ADarkFactoryCurtainPortal::Initialize(float OpeningWidthCm,float OpeningHei
         }
     }
     bInitialized=true; bSimulationEnabled=true;
+    // Body registration can defer the initial constraint handles during world
+    // startup. Hold the authored rest pose through the first physics step and
+    // bind all joints once afterwards, before any strip is allowed to fall.
+    SetSimulationEnabled(false);
+    bPendingInitialSimulation=true;
     UE_LOG(LogTemp,Display,TEXT("DF_CURTAIN_READY bodies=%d constraints=%d profiles=%d opening_cm=%.0fx%.0f tunnel_cm=%.0f collision=Chaos_rigid_segments"),
         GetDynamicBodyCount(),GetConstraintCount(),ThermalSurfaces.Num(),WidthCm,HeightCm,TunnelCm);
     return true;
@@ -220,24 +229,47 @@ void ADarkFactoryCurtainPortal::RestoreConstraints() {
 }
 
 void ADarkFactoryCurtainPortal::SetSimulationEnabled(bool Enabled) {
-    if (!bInitialized || bSimulationEnabled==Enabled) return;
-    if (!Enabled) for (UPhysicsConstraintComponent* Joint:Constraints) Joint->BreakConstraint();
+    if (!bInitialized) return;
+    // An explicit pause/QA request owns startup as well as ordinary live motion.
+    bPendingInitialSimulation=false;
+    if (bSimulationEnabled==Enabled) return;
+    if (!Enabled) {
+        PausedLinearVelocities.Reset(StripMeshes.Num());
+        PausedAngularVelocities.Reset(StripMeshes.Num());
+        for (const auto& Mesh:StripMeshes) {
+            PausedLinearVelocities.Add(Mesh->GetPhysicsLinearVelocity());
+            PausedAngularVelocities.Add(Mesh->GetPhysicsAngularVelocityInDegrees());
+        }
+        for (UPhysicsConstraintComponent* Joint:Constraints) Joint->BreakConstraint();
+    }
     for (UStaticMeshComponent* Mesh:StripMeshes) {
         if (!Enabled) {
             Mesh->SetPhysicsLinearVelocity(FVector::ZeroVector);
             Mesh->SetPhysicsAngularVelocityInDegrees(FVector::ZeroVector);
         }
         Mesh->SetSimulatePhysics(Enabled);
-        if (Enabled) Mesh->WakeAllRigidBodies();
     }
     bSimulationEnabled=Enabled;
-    if (Enabled) RestoreConstraints();
+    if (Enabled) {
+        RestoreConstraints();
+        // Resume the frozen swing after rebuilding the original body-local
+        // anchors. A pause must not act as an artificial damping impulse.
+        for (int32 Index=0;Index<StripMeshes.Num();++Index) {
+            auto* Mesh=StripMeshes[Index].Get();
+            if (PausedLinearVelocities.IsValidIndex(Index)) Mesh->SetPhysicsLinearVelocity(PausedLinearVelocities[Index]);
+            if (PausedAngularVelocities.IsValidIndex(Index)) Mesh->SetPhysicsAngularVelocityInDegrees(PausedAngularVelocities[Index]);
+            Mesh->WakeAllRigidBodies();
+        }
+    }
 }
 
 void ADarkFactoryCurtainPortal::ResetSimulation() {
     if (!bInitialized) return;
     const bool WasEnabled=bSimulationEnabled;
     SetSimulationEnabled(false);
+    // Explicit QA/reset starts at rest; unlike pause/resume it discards momentum.
+    PausedLinearVelocities.Init(FVector::ZeroVector,StripMeshes.Num());
+    PausedAngularVelocities.Init(FVector::ZeroVector,StripMeshes.Num());
     for (int32 Index=0;Index<StripMeshes.Num();++Index)
         StripMeshes[Index]->SetWorldTransform(RestTransforms[Index],false,nullptr,ETeleportType::TeleportPhysics);
     CarriageContactCount=0; PeakDeflectionDegrees=0; PeakAnchorErrorCm=0; PeakLinearSpeedCmS=0;
@@ -270,6 +302,10 @@ float ADarkFactoryCurtainPortal::GetMaximumAnchorErrorCm() const {
 void ADarkFactoryCurtainPortal::Tick(float DeltaSeconds) {
     Super::Tick(DeltaSeconds);
     if (!bInitialized) return;
+    if (bPendingInitialSimulation) {
+        bPendingInitialSimulation=false;
+        SetSimulationEnabled(true);
+    }
     PeakDeflectionDegrees=FMath::Max(PeakDeflectionDegrees,GetCurrentDeflectionDegrees());
     for (const auto& Frames:JointFrames) {
         if (!Frames.Parent.IsValid() || !Frames.Child.IsValid()) continue;
@@ -305,6 +341,11 @@ TSharedRef<FJsonObject> ADarkFactoryCurtainPortal::BuildPhysicsMetadata() const 
     Result->SetBoolField(TEXT("finite_physics_state"),bFinitePhysicsState);
     Result->SetNumberField(TEXT("dynamic_bodies"),GetDynamicBodyCount());
     Result->SetNumberField(TEXT("constraints"),GetConstraintCount());
+    int32 LiveConstraints=0;
+    for (const auto& Joint:Constraints)
+        LiveConstraints+=Joint->ConstraintInstance.IsValidConstraintInstance() && !Joint->ConstraintInstance.IsBroken() ? 1:0;
+    Result->SetNumberField(TEXT("live_constraints"),LiveConstraints);
+    Result->SetBoolField(TEXT("initial_binding_pending"),bPendingInitialSimulation);
     Result->SetNumberField(TEXT("thermal_profiles"),ThermalSurfaces.Num());
     Result->SetNumberField(TEXT("opening_width_cm"),WidthCm);
     Result->SetNumberField(TEXT("opening_height_cm"),HeightCm);
@@ -349,7 +390,10 @@ TSharedRef<FJsonObject> ADarkFactoryCurtainPortal::BuildPhysicsMetadata() const 
     Result->SetNumberField(TEXT("strips"),Strips);
     Result->SetNumberField(TEXT("segments_per_strip"),Segments);
     Result->SetNumberField(TEXT("mass_per_segment_kg"),SegmentMassKg);
-    Result->SetNumberField(TEXT("hinge_limit_degrees"),HingeLimitDegrees);
+    Result->SetNumberField(TEXT("hinge_limit_degrees"),SuspensionLimitDegrees);
+    Result->SetNumberField(TEXT("suspension_limit_degrees"),SuspensionLimitDegrees);
+    Result->SetNumberField(TEXT("segment_bend_limit_degrees"),BendLimitDegrees);
+    Result->SetBoolField(TEXT("pause_preserves_velocity"),true);
     Result->SetNumberField(TEXT("sliding_friction"),SlidingFriction);
     Result->SetNumberField(TEXT("static_friction"),StaticFriction);
     Result->SetNumberField(TEXT("restitution"),0);

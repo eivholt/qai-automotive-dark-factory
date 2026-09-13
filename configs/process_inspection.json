@@ -1,0 +1,68 @@
+{
+  "version": "automotive-process-v1",
+  "model_family": "nvidia/Cosmos-Reason2-2B",
+  "image": {
+    "format": "PNG",
+    "width": 448,
+    "height": 256,
+    "bit_depth": 8,
+    "channels": "grayscale",
+    "visual_tokens_per_image": 112
+  },
+  "thermal_window_c": [
+    20.0,
+    120.0
+  ],
+  "labels": {
+    "G": "proceed",
+    "A": "hold or insufficient evidence",
+    "R": "anomaly: return at doors, wait at thermal gates"
+  },
+  "generation": {
+    "method": "single_next_token_logits",
+    "temperature": 0,
+    "enable_thinking": false,
+    "image_cache_entries": 0
+  },
+  "decision_policy": {
+    "minimum_label_mass": 0.5,
+    "minimum_conditional_probability": 0.8,
+    "consecutive_green": 2,
+    "max_reply_age_seconds": 8.0
+  },
+  "stages": {
+    "doors": {
+      "modality": "nir",
+      "camera_ids": [
+        "left",
+        "right"
+      ],
+      "prompt": "Inspect two NIR camera views of the same arriving car body, left side then right side. Check the four doors: every door must be present, aligned and attached. G = all four doors are visibly present, correctly seated and no detached door is visible. R = a door is visibly missing, hanging loose, displaced from its opening, or fallen beside the body. A = visibility is insufficient or the evidence is uncertain. Output exactly one letter G, A or R. Do not explain or think.",
+      "prompt_sha256": "33e082203e303ee2aa59349e8c3b1f930001606382a1ca52c64ac7c7d566449f"
+    },
+    "adhesive": {
+      "modality": "thermal",
+      "camera_ids": [
+        "spot1",
+        "spot2",
+        "spot3"
+      ],
+      "ready_below_c": 45.0,
+      "prompt": "Inspect three monochrome thermal camera closeups of adhesive strips beside future welding spots. Sensor grayscale is linear: black is 20 C, white is 120 C. The illustrative readiness limit is 45 C with a 3 C ambiguity band. G = every strip is visible and its hottest area is below 42 C (grayscale 56 of 255). R = any strip has an area above 48 C (grayscale 71); wait for cooling. A = the hottest strip area is between 42 C and 48 C inclusive, or a strip is hidden, absent or uncertain. Ignore unrelated robot parts and background. Output exactly one letter G, A or R. Do not explain or think.",
+      "prompt_sha256": "b4b0fb09b60971e5d6fc161a5ba054b233f0dfd9d9216329140e43d74a2465fc",
+      "ambiguity_band_c": 3.0
+    },
+    "weld": {
+      "modality": "thermal",
+      "camera_ids": [
+        "spot1",
+        "spot2",
+        "spot3"
+      ],
+      "ready_below_c": 55.0,
+      "prompt": "Inspect three monochrome thermal camera closeups of completed weld spots on the same car body. Sensor grayscale is linear: black is 20 C, white is 120 C. The illustrative release limit is 55 C with a 3 C ambiguity band. G = every weld spot is visible and its hottest area is below 52 C (grayscale 82 of 255). R = any weld spot has an area above 58 C (grayscale 97); wait for cooling. A = the hottest weld area is between 52 C and 58 C inclusive, or a weld area is hidden, absent or uncertain. Ignore unrelated robot parts and background. Output exactly one letter G, A or R. Do not explain or think.",
+      "prompt_sha256": "54e331f492c6a3ff0ffae3fc9c6b2e11654c04b0faf14a2aad71928313577b21",
+      "ambiguity_band_c": 3.0
+    }
+  }
+}

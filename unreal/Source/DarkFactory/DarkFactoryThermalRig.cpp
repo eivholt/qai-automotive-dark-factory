@@ -244,6 +244,22 @@ bool ADarkFactoryThermalRig::SetImportedCastingTemperature(UStaticMeshComponent*
     UpdateProfile(Index); bLUTDirty=true; // Shared upload; no scene epoch/capture reset.
     return true;
 }
+bool ADarkFactoryThermalRig::SetImportedSurfaceTemperature(UStaticMeshComponent* Mesh,float TemperatureC) {
+    if (!IsInGameThread() || !bImportedProfiles || !IsReady() || !IsValid(Mesh) ||
+        !FMath::IsFinite(TemperatureC) || TemperatureC<AmbientC || TemperatureC>500.f) return false;
+    const int32 Index=Surfaces.IndexOfByPredicate([Mesh](const FDarkFactoryThermalSurface& S){return S.Mesh.Get()==Mesh;});
+    if (Index==INDEX_NONE) return false;
+    auto& S=Surfaces[Index];
+    if (S.CurrentC==TemperatureC) return true;
+    S.CurrentC=TemperatureC;
+    UpdateProfile(Index); bLUTDirty=true;
+    return true;
+}
+void ADarkFactoryThermalRig::PrepareInspectionMaterial(UMaterialInstanceDynamic* Material) {
+    if (!IsReady() || !IsInGameThread()) return;
+    UpdateTransforms();
+    ApplyMaterial(Material,0); // Linear grayscale temperature; observer palette is independent.
+}
 float ADarkFactoryThermalRig::ProfileApparentTemperature(const FDarkFactoryThermalSurface& Surface,float TemperatureC) {
     if (!Surface.bMotorRadiometryCached || TemperatureC<20.f || TemperatureC>100.f)
         return DarkFactoryThermal::ApparentTemperatureC(TemperatureC,Surface.Emissivity,AmbientC);

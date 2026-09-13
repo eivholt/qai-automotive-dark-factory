@@ -86,5 +86,6 @@ private:
     void MousePitch(float V);
     void Normal(); void Missing(); void Misaligned(); void Occluded();
     void ToggleWeldingMotion();
+    void QuitDemo();
     void Randomize(); void Next(); void Green(); void Capture(); void Inference(); void Home();
 };

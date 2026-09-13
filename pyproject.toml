@@ -18,4 +18,4 @@ dark-factory-bridge = "dark_factory.bridge:main"
 where = ["src"]
 
 [tool.setuptools.data-files]
-"share/qai-automotive-dark-factory" = ["configs/inspection_contract.json"]
+"share/qai-automotive-dark-factory" = ["configs/inspection_contract.json", "configs/process_inspection.json"]

@@ -75,10 +75,19 @@ void ADarkFactoryControlCabinet::SetEnabled(bool Enabled) {
     SetActorTickEnabled(Enabled); UpdateFromCell(true);
 }
 void ADarkFactoryControlCabinet::SetPanelPower(bool Powered) { bPowered=Powered; UpdateFromCell(true); }
+void ADarkFactoryControlCabinet::SetProcessStatus(const FDarkFactoryProcessStatus& Status) {
+    bool Changed=ProcessStatus.bEnabled!=Status.bEnabled || ProcessStatus.bPaused!=Status.bPaused
+        || ProcessStatus.Phase!=Status.Phase || ProcessStatus.ActiveGate!=Status.ActiveGate
+        || ProcessStatus.BodySequence!=Status.BodySequence || ProcessStatus.ConsecutivePasses!=Status.ConsecutivePasses;
+    for (int32 I=0;I<3;++I) Changed |= ProcessStatus.Gates[I]!=Status.Gates[I];
+    ProcessStatus=Status;
+    UpdateFromCell(Changed);
+}
 void ADarkFactoryControlCabinet::Tick(float DeltaSeconds) { Super::Tick(DeltaSeconds); UpdateFromCell(); }
 void ADarkFactoryControlCabinet::UpdateFromCell(bool Force) {
     if (!bInitialized || !SourceCell.IsValid() || !Glass.IsValid()) return;
-    const double Seconds=SourceCell->GetMotionTime(); const bool Paused=!SourceCell->IsAnimating();
+    const double Seconds=ProcessStatus.bEnabled ? ProcessStatus.ClockSeconds:SourceCell->GetMotionTime();
+    const bool Paused=ProcessStatus.bEnabled ? ProcessStatus.bPaused:!SourceCell->IsAnimating();
     const int64 Sample=FMath::FloorToInt64(Seconds*20.); const FTransform Transform=Glass->GetComponentTransform();
     if (!Force && Sample==LastSample && Paused==bPaused && Transform.Equals(LastTransform,1.e-6)) return;
     LastSample=Sample; LastTransform=Transform; AppliedSeconds=Seconds; bPaused=Paused;
@@ -92,7 +101,7 @@ void ADarkFactoryControlCabinet::UpdateFromCell(bool Force) {
     Vector(TEXT("ScreenRight"),Transform.TransformVectorNoScale(Right)); Vector(TEXT("ScreenUp"),Transform.TransformVectorNoScale(Up));
     int32 Active=0;
     for (int32 I=0;I<4;++I) {
-        const auto T=SourceCell->GetRobotTiming(I,Seconds); const double C=T.CycleSeconds;
+        const auto T=SourceCell->GetRobotTiming(I,SourceCell->GetMotionTime()); const double C=T.CycleSeconds;
         int32 Phase=0; double P=0;
         if (C<T.ApproachStartSeconds) { Phase=0; }
         else if (C<T.ApproachEndSeconds) { Phase=1; P=(C-T.ApproachStartSeconds)/(T.ApproachEndSeconds-T.ApproachStartSeconds); }
@@ -105,17 +114,42 @@ void ADarkFactoryControlCabinet::UpdateFromCell(bool Force) {
         DisplayMaterial->SetScalarParameterValue(*FString::Printf(TEXT("RobotProgress%d"),I),Progress[I]);
     }
     DisplayMaterial->SetScalarParameterValue(TEXT("ActiveRobotCount"),Active);
+    DisplayMaterial->SetScalarParameterValue(TEXT("ProcessMode"),ProcessStatus.bEnabled ? 1.f:0.f);
+    if (ProcessStatus.bEnabled) {
+        DisplayMaterial->SetScalarParameterValue(TEXT("ProcessBody"),ProcessStatus.BodySequence);
+        DisplayMaterial->SetScalarParameterValue(TEXT("ProcessStageSeconds"),ProcessStatus.StageSeconds);
+        DisplayMaterial->SetScalarParameterValue(TEXT("ProcessPassCount"),ProcessStatus.ConsecutivePasses);
+        DisplayMaterial->SetScalarParameterValue(TEXT("ProcessActiveGate"),ProcessStatus.ActiveGate);
+        for (int32 I=0;I<3;++I)
+            DisplayMaterial->SetScalarParameterValue(*FString::Printf(TEXT("ProcessGate%d"),I),static_cast<int32>(ProcessStatus.Gates[I]));
+    }
+    // Three nearby source-colored green/red pairs. Gate ordering is explicit,
+    // independent of imported triangle ordering; no lens color is replaced.
+    const int32 GateGreen[]={3,4,5},GateRed[]={6,8,9};
     for (int32 I=0;I<Buttons.Num();++I) {
         auto& B=Buttons[I]; const bool Green=B.Color==TEXT("green");
         // Existing red/green caps remain backlit. Extra emphasis follows machine
         // phase; it is illumination, not a model quality or fault declaration.
         B.Level=I==0 ? 1.f:Green ? .48f+(Phases[(I-1)%4]==3 ? .52f:0.f):.30f+(bPaused ? .30f:0.f);
+        if (ProcessStatus.bEnabled) {
+            B.Level=I==0 ? 1.f:.035f;
+            const bool Pulse=FMath::Fmod(FMath::Max(0.,Seconds),1.)<.5;
+            for (int32 Gate=0;Gate<3;++Gate) {
+                const auto State=ProcessStatus.Gates[Gate];
+                const bool Passed=State==EDarkFactoryGateState::Passed;
+                const bool Waiting=State==EDarkFactoryGateState::Inspecting || State==EDarkFactoryGateState::Waiting;
+                const bool Exception=State==EDarkFactoryGateState::Rejected || State==EDarkFactoryGateState::Error;
+                if (I==GateGreen[Gate]) B.Level=Passed ? 1.f:Waiting ? (Pulse ? .55f:.12f):.035f;
+                if (I==GateRed[Gate]) B.Level=Exception ? (Pulse ? 1.f:.12f):.035f;
+            }
+        }
         Vector(*FString::Printf(TEXT("ButtonCenter%d"),I),Transform.TransformPosition(B.Center));
         DisplayMaterial->SetScalarParameterValue(*FString::Printf(TEXT("ButtonRadius%d"),I),B.Radius);
         DisplayMaterial->SetScalarParameterValue(*FString::Printf(TEXT("ButtonLevel%d"),I),B.Level);
     }
     ScreenLight->SetLightColor(On ? FLinearColor(.12f,.55f,1.f):FLinearColor::Black);
 }
+UStaticMeshComponent* ADarkFactoryControlCabinet::GetDisplaySurface() const { return Glass.Get(); }
 void ADarkFactoryControlCabinet::GetInspectionView(FVector& Location,FRotator& Rotation) const {
     const FTransform T=Glass.IsValid() ? Glass->GetComponentTransform():FTransform::Identity;
     const FVector Target=T.TransformPosition(Center-Up*22.);
@@ -126,7 +160,24 @@ TSharedRef<FJsonObject> ADarkFactoryControlCabinet::BuildMetadata() const {
     R->SetBoolField(TEXT("initialized"),bInitialized); R->SetBoolField(TEXT("paused"),bPaused);
     R->SetNumberField(TEXT("clock_seconds"),AppliedSeconds); R->SetNumberField(TEXT("cycle_seconds"),CycleSeconds); R->SetNumberField(TEXT("cycle_progress"),CycleProgress);
     R->SetStringField(TEXT("parent_mesh"),ParentName); R->SetNumberField(TEXT("mesh_count_added"),0); R->SetNumberField(TEXT("light_count"),1); R->SetNumberField(TEXT("thermal_profiles_added"),0);
-    R->SetStringField(TEXT("scope"),TEXT("Authored cabinet backlight and simulation-clock HMI; no inspection result or measured electronics telemetry; thermal unchanged"));
+    R->SetStringField(TEXT("scope"),ProcessStatus.bEnabled
+        ? TEXT("Process-controller gate status and authored HMI illumination; no measured electronics telemetry; thermal unchanged")
+        : TEXT("Authored cabinet backlight and simulation-clock HMI; no inspection result or measured electronics telemetry; thermal unchanged"));
+    R->SetBoolField(TEXT("process_enabled"),ProcessStatus.bEnabled);
+    if (ProcessStatus.bEnabled) {
+        R->SetNumberField(TEXT("process_body_sequence"),ProcessStatus.BodySequence);
+        R->SetNumberField(TEXT("process_active_gate"),ProcessStatus.ActiveGate);
+        R->SetNumberField(TEXT("process_consecutive_passes"),ProcessStatus.ConsecutivePasses);
+        const int32 Green[]={3,4,5},Red[]={6,8,9};
+        TArray<TSharedPtr<FJsonValue>> Gates;
+        for (int32 I=0;I<3;++I) {
+            auto Gate=MakeShared<FJsonObject>(); Gate->SetNumberField(TEXT("index"),I);
+            Gate->SetNumberField(TEXT("state"),static_cast<int32>(ProcessStatus.Gates[I]));
+            Gate->SetNumberField(TEXT("green_button_index"),Green[I]); Gate->SetNumberField(TEXT("red_button_index"),Red[I]);
+            Gates.Add(MakeShared<FJsonValueObject>(Gate));
+        }
+        R->SetArrayField(TEXT("process_gates"),Gates);
+    }
     const FTransform T=Glass.IsValid() ? Glass->GetComponentTransform():FTransform::Identity;
     auto S=MakeShared<FJsonObject>(); S->SetArrayField(TEXT("center_world_cm"),Vec(T.TransformPosition(Center)));
     S->SetArrayField(TEXT("normal_world"),Vec(T.TransformVectorNoScale(Normal))); S->SetArrayField(TEXT("right_world"),Vec(T.TransformVectorNoScale(Right))); S->SetArrayField(TEXT("up_world"),Vec(T.TransformVectorNoScale(Up)));
