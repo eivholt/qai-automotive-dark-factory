@@ -62,33 +62,40 @@ bool ADarkFactoryIQ9Props::Initialize(ADarkFactoryWeldingCell* Cell,const FStrin
     TSharedPtr<FJsonObject> Root;
     if (!FFileHelper::LoadFileToString(Text,*SourceManifest) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text),Root)) return false;
     const TArray<TSharedPtr<FJsonValue>>* Rows=nullptr;
-    if (!Root || !Root->TryGetArrayField(TEXT("mounts"),Rows) || Rows->Num()!=4) return false;
+    FString Recipe;
+    double Version=0;
+    if (!Root || !Root->TryGetNumberField(TEXT("version"),Version) || Version!=3
+        || !Root->TryGetStringField(TEXT("mount_recipe"),Recipe) || Recipe!=TEXT("fixed-base-direct-cover-v3")
+        || !Root->TryGetArrayField(TEXT("mounts"),Rows) || Rows->Num()!=4) return false;
     auto* Cube=LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube.Cube"));
     auto* Plane=LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Plane.Plane"));
     auto* Sphere=LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Sphere.Sphere"));
     auto* Body=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/IQ9EVK/M_IQ9_Body.M_IQ9_Body"));
-    auto* Plate=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/IQ9EVK/M_IQ9_Plate.M_IQ9_Plate"));
     auto* LED=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/IQ9EVK/M_IQ9_LED.M_IQ9_LED"));
     const TCHAR* FaceNames[]={TEXT("Top"),TEXT("Front"),TEXT("Back"),TEXT("Right"),TEXT("Left")};
     UMaterialInterface* Faces[5]={};
     for (int32 F=0;F<5;++F) Faces[F]=LoadObject<UMaterialInterface>(nullptr,*FString::Printf(TEXT("/Game/IQ9EVK/M_IQ9_%s.M_IQ9_%s"),FaceNames[F],FaceNames[F]));
-    if (!Cube || !Plane || !Sphere || !Body || !Plate || !LED) {
+    if (!Cube || !Plane || !Sphere || !Body || !LED) {
         UE_LOG(LogTemp,Error,TEXT("DF_IQ9_MISSING_CONTENT run prepare_iq9_evk.py and setup_iq9_evk.py")); return false;
     }
     for (auto* Face:Faces) if (!Face) return false;
     TSet<FString> Seen;
-    struct FValidatedMount { FString Id,ParentName; UStaticMeshComponent* Parent=nullptr; FVector Contact,Normal,Right; };
+    struct FValidatedMount { FString Id,ParentName,ParentJoint; UStaticMeshComponent* Parent=nullptr; FVector Contact,Normal,Right; double ShiftUp=0,TopOverhang=0; };
     TArray<FValidatedMount> Validated;
     for (const auto& Value:*Rows) {
         const auto Row=Value->AsObject(); FValidatedMount M;
         if (!Row || !Row->TryGetStringField(TEXT("id"),M.Id) || !Row->TryGetStringField(TEXT("parent_mesh"),M.ParentName)
+            || !Row->TryGetStringField(TEXT("parent_joint"),M.ParentJoint) || !M.ParentJoint.IsEmpty()
+            || !Row->TryGetNumberField(TEXT("mount_shift_up_cm"),M.ShiftUp)
+            || !Row->TryGetNumberField(TEXT("enclosure_top_overhang_cm"),M.TopOverhang)
+            || !FMath::IsFinite(M.ShiftUp) || !FMath::IsFinite(M.TopOverhang)
             || !ReadVec(Row,TEXT("contact_local_cm"),M.Contact) || !ReadVec(Row,TEXT("normal_local"),M.Normal)
             || !ReadVec(Row,TEXT("right_local"),M.Right) || Seen.Contains(M.ParentName)
             || M.Normal.SizeSquared()<.99 || M.Normal.SizeSquared()>1.01 || M.Right.SizeSquared()<.99
             || M.Right.SizeSquared()>1.01 || FMath::Abs(FVector::DotProduct(M.Normal,M.Right))>.01) return false;
         for (const auto& Surface:Cell->GetThermalSurfaces()) if (Surface.Mesh && Surface.Mesh->GetStaticMesh()
             && Surface.Mesh->GetStaticMesh()->GetName()==M.ParentName) { M.Parent=Surface.Mesh; break; }
-        if (!M.Parent || !M.ParentName.EndsWith(TEXT("_upper_arm"))) return false;
+        if (!M.Parent || !M.ParentName.EndsWith(TEXT("_fixed_base"))) return false;
         Seen.Add(M.ParentName); Validated.Add(M);
     }
     SourceCell=Cell; AddTickPrerequisiteActor(Cell);
@@ -96,18 +103,18 @@ bool ADarkFactoryIQ9Props::Initialize(ADarkFactoryWeldingCell* Cell,const FStrin
         const auto& M=Validated[Index];
         auto* Anchor=NewObject<USceneComponent>(this,*FString::Printf(TEXT("IQ9Mount_%s"),*M.Id));
         Anchor->SetupAttachment(M.Parent); Anchor->SetMobility(EComponentMobility::Movable);
-        // Root is the enclosure centre. Bracket back is0.30cm from sampled surface.
-        Anchor->SetRelativeLocationAndRotation(M.Contact+M.Normal*(.30+.35+HalfHeight),FRotationMatrix::MakeFromZX(M.Normal,M.Right).ToQuat());
+        // The fixed-base component receives process layout offsets but never joint
+        // rotations. Enclosure back is 0.30 cm from the measured raised cover.
+        Anchor->SetRelativeLocationAndRotation(M.Contact+M.Normal*(.30+HalfHeight),FRotationMatrix::MakeFromZX(M.Normal,M.Right).ToQuat());
         AddInstanceComponent(Anchor); Anchor->RegisterComponent(); Anchors.Add(Anchor);
         FMount Mount; Mount.Id=M.Id; Mount.ParentName=M.ParentName; Mount.Parent=M.Parent;
-        Mount.Anchor=Anchor; Mount.Contact=M.Contact; Mount.Normal=M.Normal; Mount.FirstLed=LedMeshes.Num();
+        Mount.Anchor=Anchor; Mount.Contact=M.Contact; Mount.Normal=M.Normal; Mount.ShiftUp=M.ShiftUp; Mount.TopOverhang=M.TopOverhang; Mount.FirstLed=LedMeshes.Num();
         auto AddSurface=[&](UStaticMeshComponent* Mesh,float Temperature) {
             FDarkFactoryImportedThermalSurface S; S.Mesh=Mesh; S.TemperatureC=Temperature; S.Emissivity=.92f; S.CoreEdgeDropC=0;
             ThermalSurfaces.Add(S);
         };
         const FString Prefix=TEXT("IQ9_")+M.Id+TEXT("_");
         AddSurface(AddMesh(Prefix+TEXT("Enclosure"),Anchor,Cube,Body,FVector::ZeroVector,FRotator::ZeroRotator,FVector(.106,.106,.043),true),30);
-        AddSurface(AddMesh(Prefix+TEXT("MountingPlate"),Anchor,Cube,Plate,FVector(0,0,-HalfHeight-.175),FRotator::ZeroRotator,FVector(.13,.13,.0035),true),24);
         const FVector P[]={FVector(0,0,HalfHeight+FaceGap),FVector(HalfSize+FaceGap,0,0),FVector(-HalfSize-FaceGap,0,0),FVector(0,HalfSize+FaceGap,0),FVector(0,-HalfSize-FaceGap,0)};
         const FRotator R[]={FRotator::ZeroRotator,FRotator(90,0,0),FRotator(-90,0,0),FRotator(0,0,-90),FRotator(0,0,90)};
         const FVector S[]={FVector(.106,.106,1),FVector(.043,.106,1),FVector(.043,.106,1),FVector(.106,.043,1),FVector(.106,.043,1)};
@@ -163,9 +170,11 @@ void ADarkFactoryIQ9Props::UpdateLeds() {
 void ADarkFactoryIQ9Props::Tick(float DeltaSeconds) { Super::Tick(DeltaSeconds); UpdateLeds(); }
 TSharedRef<FJsonObject> ADarkFactoryIQ9Props::BuildMetadata() const {
     auto Result=MakeShared<FJsonObject>();
-    Result->SetStringField(TEXT("model"),TEXT("iq9-evk-attached-props-v1"));
-    Result->SetStringField(TEXT("scope"),TEXT("Prior local photographed five-face prop; authored LED animation and fixed illustrative30C enclosure/24C bracket; no device telemetry, model result, or measured NIR spectra"));
+    Result->SetStringField(TEXT("model"),TEXT("iq9-evk-direct-base-props-v3"));
+    Result->SetStringField(TEXT("scope"),TEXT("Prior local photographed five-face prop; authored LED animation and fixed illustrative 30C enclosure; no device telemetry, model result, or measured NIR spectra"));
+    Result->SetStringField(TEXT("mount_recipe"),TEXT("fixed-base-direct-cover-v3"));
     Result->SetBoolField(TEXT("initialized"),bInitialized); Result->SetBoolField(TEXT("enabled"),bEnabled);
+    Result->SetBoolField(TEXT("backing_plate_present"),false);
     Result->SetNumberField(TEXT("mount_count"),Mounts.Num()); Result->SetNumberField(TEXT("thermal_profile_count"),ThermalSurfaces.Num());
     Result->SetNumberField(TEXT("led_count"),LedMeshes.Num()); Result->SetNumberField(TEXT("led_light_count"),LedLights.Num());
     Result->SetNumberField(TEXT("led_time_seconds"),AppliedLedSeconds); Result->SetBoolField(TEXT("led_time_pinned"),LedTimeOverride>=0);
@@ -179,10 +188,17 @@ TSharedRef<FJsonObject> ADarkFactoryIQ9Props::BuildMetadata() const {
         const FTransform T=Valid ? Anchor->GetComponentTransform():FTransform::Identity;
         const FVector N=T.TransformVectorNoScale(FVector::UpVector),X=T.TransformVectorNoScale(FVector::ForwardVector),Y=T.TransformVectorNoScale(FVector::RightVector);
         Finite &= Valid && !T.ContainsNaN(); Attached &= Valid && Anchor->GetAttachParent()==Parent;
-        Row->SetBoolField(TEXT("attached_to_arm"),Valid && Anchor->GetAttachParent()==Parent);
+        Row->SetBoolField(TEXT("attached_to_fixed_base"),Valid && Anchor->GetAttachParent()==Parent);
         Row->SetArrayField(TEXT("world_position_cm"),Vec(T.GetLocation())); Row->SetArrayField(TEXT("world_normal"),Vec(N));
         Row->SetArrayField(TEXT("world_right"),Vec(X)); Row->SetArrayField(TEXT("world_up"),Vec(Y));
         Row->SetArrayField(TEXT("contact_local_cm"),Vec(M.Contact));
+        Row->SetArrayField(TEXT("normal_local"),Vec(M.Normal));
+        Row->SetNumberField(TEXT("mount_shift_up_cm"),M.ShiftUp);
+        Row->SetNumberField(TEXT("enclosure_top_overhang_cm"),M.TopOverhang);
+        Row->SetArrayField(TEXT("parent_world_position_cm"),Vec(Valid ? Parent->GetComponentLocation():FVector::ZeroVector));
+        const FVector ContactWorld=Valid ? Parent->GetComponentTransform().TransformPosition(M.Contact):FVector::ZeroVector;
+        Row->SetArrayField(TEXT("contact_world_cm"),Vec(ContactWorld));
+        Row->SetNumberField(TEXT("mounting_gap_cm"),FVector::Distance(T.GetLocation(),ContactWorld)-HalfHeight);
         Row->SetArrayField(TEXT("relative_position_cm"),Vec(Valid ? Anchor->GetRelativeLocation():FVector::ZeroVector));
         const FRotator R=Valid ? Anchor->GetRelativeRotation():FRotator::ZeroRotator;
         Row->SetArrayField(TEXT("relative_rotation_deg"),Vec(FVector(R.Pitch,R.Yaw,R.Roll)));
@@ -199,7 +215,7 @@ TSharedRef<FJsonObject> ADarkFactoryIQ9Props::BuildMetadata() const {
         }
         Row->SetArrayField(TEXT("leds"),Leds); Rows.Add(MakeShared<FJsonValueObject>(Row));
     }
-    Result->SetBoolField(TEXT("finite_state"),Finite); Result->SetBoolField(TEXT("attached_to_arm"),Attached);
+    Result->SetBoolField(TEXT("finite_state"),Finite); Result->SetBoolField(TEXT("attached_to_fixed_base"),Attached);
     Result->SetArrayField(TEXT("mounts"),Rows);
     Result->SetStringField(TEXT("channels"),TEXT("visible0, fixed activeNIR1 and observer activeNIR2; local12cm LEDs use stable positive-intensity proxies with black/color blinking; no GI/reflection/indirect/volumetric/translucent light; thermal uses assigned opaque profiles"));
     return Result;

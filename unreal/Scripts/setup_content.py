@@ -1,6 +1,7 @@
 """Reproducible UE5.8 content generation via UnrealEditor-Cmd -run=pythonscript.
 
-M_Factory and the empty map are created once. The four night-vision materials
+M_Factory and the legacy empty map are created once. The current editor entry
+map is updated with its panel game mode and rebuildable editor preview. Night-vision materials
 are regenerated IN PLACE on every run from the canonical unreal/Shaders files.
 Fast defaults compile one source sample; Quality variants compile five for halo.
 No Time node is used: the caller sets NVFrame for animation or fixed capture.
@@ -131,7 +132,7 @@ def thermal_fallback():
     if not target:
         raise RuntimeError('Could not create the thermal linear fallback texture')
     target.set_editor_property('size_x', 256)
-    target.set_editor_property('size_y', 22)
+    target.set_editor_property('size_y', 70)
     # UE5.8 PostEditChangeProperty sets forceLinearGamma=true for this format.
     target.set_editor_property('render_target_format', unreal.TextureRenderTargetFormat.RTF_RGBA32F)
     target.set_editor_property('target_gamma', 1.0)
@@ -213,7 +214,7 @@ def rebuild_thermal(path, source_name, is_ui, fallback):
     source_hash = hashlib.sha256(code.encode('utf-8')).hexdigest()
     assets.set_metadata_tag(material, 'DarkFactoryShaderSHA256', source_hash)
     assets.set_metadata_tag(material, 'DarkFactoryGenerator', 'setup_content.py/thermal-transfer-v3')
-    assets.set_metadata_tag(material, 'DarkFactoryThermalLUT', '256x22;row0=apparentFitMinMidMaxC,registered;rows1-3=worldToNormalizedLocal;row4=edgeFalloff,uniformC,coolingRetention,edgeRetainedFraction;rows5-10=faceCenterUV,invRadiusSquared,deltaSurfaceC;row11=edgeSurfaceC,coreSurfaceC,fitMinC,invFitSpan;row12=toolHotspotWorldXYZ,invRadiusSquared;row13=toolTipSurfaceC,importedCoreMode,dominantLocalAxis,coreOffsetNormalized;rows14-21=fourWeldPairs(worldXYZ,invRadiusSquared;surfaceC,reserved)')
+    assets.set_metadata_tag(material, 'DarkFactoryThermalLUT', '256x70;row0=apparentFitMinMidMaxC,registered;rows1-3=worldToNormalizedLocal;row4=edgeFalloff,uniformC,coolingRetention,edgeRetainedFraction(negative=importedHighFit);rows5-10=faceCenterUV,invRadiusSquared,deltaSurfaceC(row5=lowApparentFitRGB,invSpanWhenHighFit);row11=edgeSurfaceC,coreSurfaceC,fitMinC,invFitSpan;row12=toolHotspotWorldXYZ,invRadiusSquared;row13=toolTipSurfaceC,importedCoreMode,dominantLocalAxis,coreOffsetNormalized;rows14-37=twelveWeldPairs(worldXYZ,invRadiusSquared;surfaceC,reserved);row15G=activeWeldPairCount;rows38-69=contactSegments(startXYZ,radius;endXYZ,surfaceC);row15B=contactCount')
     if not assets.save_loaded_asset(material, only_if_is_dirty=False):
         raise RuntimeError(f'Failed to save generated thermal material {path}')
     unreal.log(f'DF_THERMAL_MATERIAL_READY path={path} source_sha256={source_hash}')
@@ -252,6 +253,8 @@ rebuild_thermal('/Game/Materials/M_PP_Thermal', 'ThermalPostProcess.usf', is_ui=
 rebuild_thermal('/Game/Materials/M_UI_Thermal', 'ThermalSensorUI.usf', is_ui=True, fallback=thermal_texture)
 
 # Keep effects independently reproducible without importing this entire generator.
+runpy.run_path(str(Path(__file__).with_name('setup_panel_sealant.py')), run_name='__main__')
+runpy.run_path(str(Path(__file__).with_name('setup_panel_tool_material.py')), run_name='__main__')
 runpy.run_path(str(Path(__file__).with_name('setup_welding_effects.py')), run_name='__main__')
 runpy.run_path(str(Path(__file__).with_name('setup_welding_smoke.py')), run_name='__main__')
 runpy.run_path(str(Path(__file__).with_name('setup_welding_nir.py')), run_name='__main__')
@@ -279,6 +282,6 @@ if not assets.does_asset_exist(MAP):
         raise RuntimeError('Unable to create empty DarkFactory map')
     levels.save_current_level()
 unreal.log('DF_CONTENT_READY: factory assets, night-vision and thermal materials ready')
-
+runpy.run_path(str(Path(__file__).with_name('setup_editor_map.py')), run_name='__main__')
 
 

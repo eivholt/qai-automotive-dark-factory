@@ -19,12 +19,16 @@ from dark_factory.protocol import validate_png
 from dark_factory.gates_training import BalancedBatches
 
 
-def load_rows(path, contract):
+def load_rows(path, contract, expected_split=None):
     rows = [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
     if not rows:
         raise ValueError("Training/validation manifest is empty")
     for row in rows:
         spec = contract["stages"][row["stage"]]
+        if row.get("split") not in ("train", "validation") or (expected_split and row["split"] != expected_split):
+            raise ValueError("Training only accepts the declared train/validation split; never test")
+        if row.get("camera_ids") != spec["camera_ids"] or row.get("modality") != spec["modality"]:
+            raise ValueError("Prepared training camera ordering/modality mismatch")
         if row["contract_version"] != contract["version"] or row["prompt_sha256"] != spec["prompt_sha256"] or row["prompt"] != spec["prompt"]:
             raise ValueError("Prepared training prompt/contract mismatch")
         if row["answer"] not in ("G", "A", "R") or len(row["images"]) != len(spec["camera_ids"]):
@@ -33,10 +37,17 @@ def load_rows(path, contract):
     return rows
 
 
-def initial_adapter_provenance(path, contract, base_config_sha256, rank, scope, targets):
+def initial_adapter_provenance(path, contract, base_config_sha256, rank, scope, targets, source_contract=None):
     init_dir = Path(path).resolve()
     init_report = json.loads((init_dir / "training_report.json").read_text(encoding="utf-8"))
-    validate_adapter_training(init_report, contract, base_config_sha256)
+    parent_contract = source_contract or contract
+    if any(parent_contract[k] != contract[k] for k in ("version", "image", "thermal_window_c")):
+        raise ValueError("Warm-start source contract must retain the same stage semantics and sensor encoding")
+    if set(parent_contract["stages"]) != set(contract["stages"]) or any(
+            any(parent_contract["stages"][stage][key] != contract["stages"][stage][key] for key in ("modality", "camera_ids"))
+            for stage in contract["stages"]):
+        raise ValueError("Warm-start source stage modalities/cameras differ")
+    validate_adapter_training(init_report, parent_contract, base_config_sha256)
     if init_report.get("rank") != rank or init_report.get("lora_scope") != scope or init_report.get("target_modules") != targets:
         raise ValueError("Initial adapter rank/scope/targets differ from this recorded run")
     adapter_config = json.loads((init_dir / "adapter_config.json").read_text(encoding="utf-8"))
@@ -49,6 +60,9 @@ def initial_adapter_provenance(path, contract, base_config_sha256, rank, scope, 
     if adapter_config.get("rank_pattern") or adapter_config.get("alpha_pattern") or adapter_config.get("modules_to_save"):
         raise ValueError("Initial adapter contains unsupported per-module overrides")
     return {"path": str(init_dir),
+        "source_contract_sha256": hashlib.sha256(json.dumps(parent_contract,sort_keys=True,separators=(",",":")).encode()).hexdigest(),
+        "source_prompt_hashes": {k:v["prompt_sha256"] for k,v in parent_contract["stages"].items()},
+        "changed_prompt_stages": [k for k,v in contract["stages"].items() if v["prompt_sha256"] != parent_contract["stages"][k]["prompt_sha256"]],
         "weights_sha256": hashlib.sha256((init_dir / "adapter_model.safetensors").read_bytes()).hexdigest(),
         "config_sha256": hashlib.sha256((init_dir / "adapter_config.json").read_bytes()).hexdigest(),
         "training_report_sha256": hashlib.sha256((init_dir / "training_report.json").read_bytes()).hexdigest(),
@@ -59,6 +73,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--model", required=True, help="Local unadapted base checkpoint")
     p.add_argument("--init-adapter", help="Optional compatible private adapter weights; optimizer/sampler restart is recorded")
+    p.add_argument("--init-contract", help="Explicit original contract for warm-starting from previous prompts; serving compatibility is never relaxed")
     p.add_argument("--train", required=True)
     p.add_argument("--validation", required=True)
     p.add_argument("--output", required=True, help="New private adapter directory")
@@ -75,6 +90,8 @@ def main():
     p.add_argument("--linear-patch-embedding", action="store_true", help="Opt-in tested nonoverlapping patch Conv3d-to-linear execution; parameter layout unchanged")
     p.add_argument("--validation-limit", type=int, default=0, help="Optional small diagnostic subset; full merged-runtime validation is still required")
     args = p.parse_args()
+    if args.init_contract and not args.init_adapter:
+        p.error("--init-contract requires --init-adapter")
     if not 1 <= args.max_steps <= 10000 or not 1 <= args.rank <= 64 or not 1 <= args.gradient_accumulation <= 64:
         p.error("Bounded training requires 1-10000 steps, rank1-64, accumulation1-64")
     if not 0 < args.gpu_memory_fraction <= .8:
@@ -87,8 +104,11 @@ def main():
     if output.exists() and any(output.iterdir()):
         p.error("Choose a new adapter output directory; existing weights are never overwritten")
     contract = load_gate_contract(args.contract)
-    training = load_rows(args.train, contract)
-    validation = load_rows(args.validation, contract)
+    training = load_rows(args.train, contract, "train")
+    validation = load_rows(args.validation, contract, "validation")
+    training_stages = sorted({r["stage"] for r in training})
+    if set(training_stages) != {r["stage"] for r in validation}:
+        raise ValueError("Train and validation must cover the same intended runtime stages")
     train_episodes = {r["episode_id"] for r in training}
     if train_episodes & {r["episode_id"] for r in validation}:
         raise ValueError("Whole-episode train/validation leakage")
@@ -115,7 +135,7 @@ def main():
     initial_adapter = None
     if args.init_adapter:
         init_dir = Path(args.init_adapter).resolve()
-        initial_adapter = initial_adapter_provenance(init_dir, contract, hashlib.sha256((Path(args.model)/"config.json").read_bytes()).hexdigest(), args.rank, args.lora_scope, targets)
+        initial_adapter = initial_adapter_provenance(init_dir, contract, hashlib.sha256((Path(args.model)/"config.json").read_bytes()).hexdigest(), args.rank, args.lora_scope, targets, load_gate_contract(args.init_contract) if args.init_contract else None)
         model = PeftModel.from_pretrained(base, init_dir, local_files_only=True, is_trainable=True)
     else:
         model = get_peft_model(base, config)
@@ -222,6 +242,7 @@ def main():
                     "label_mass": mass, "conditional_label_scores": scores, "raw_token": predicted, "cross_entropy": F.cross_entropy(logits, target).item()})
     model.save_pretrained(output, safe_serialization=True)
     report = {"contract_version": contract["version"], "message_layout": MESSAGE_LAYOUT,
+        "training_stages": training_stages, "training_modalities": sorted({contract["stages"][s]["modality"] for s in training_stages}),
         "decision_policy": contract["decision_policy"], "image_contract": contract["image"], "thermal_window_c": contract["thermal_window_c"], "prompt_hashes": {k:v["prompt_sha256"] for k,v in contract["stages"].items()},
         "base_model_config_sha256": hashlib.sha256((Path(args.model)/"config.json").read_bytes()).hexdigest(),
         "training_manifest_sha256": hashlib.sha256(Path(args.train).read_bytes()).hexdigest(),

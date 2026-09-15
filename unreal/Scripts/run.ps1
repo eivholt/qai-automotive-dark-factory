@@ -3,8 +3,14 @@ param(
     [string]$EngineRoot = 'C:\Program Files\Epic Games\UE_5.8',
     [string]$Endpoint = 'http://127.0.0.1:18190/inspect',
     [int]$Seed = 42,
+    [ValidateRange(640,7680)][int]$Width = 2560,
+    [ValidateRange(360,4320)][int]$Height = 1440,
     [ValidateRange(0,20000)][float]$RoofLightLumens = 80,
     [switch]$NoInference,
+    [switch]$NoDLSS,
+    [switch]$NoLumen,
+    [switch]$NoHardwareRayTracing,
+    [switch]$GraphicsSmoke,
     [ValidateSet('auto','procedural','welding')][string]$Scene = 'auto',
     [string]$SceneManifest = '',
     [ValidateRange(0,20000)][float]$WeldingRoofLightLumens = 80,
@@ -62,13 +68,13 @@ function Assert-DarkFactoryProcessReport {
     & $Require (Test-Path -LiteralPath $ReportPath -PathType Leaf) 'native report is missing'
     $ReportFile = Get-Item -LiteralPath $ReportPath -ErrorAction Stop
     & $Require ($ReportFile.Length -gt 0 -and $ReportFile.Length -le 8388608) 'native report is empty or exceeds the report size limit'
-    try { $Report = Get-Content -LiteralPath $ReportPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop }
+    try { $Report = Get-Content -LiteralPath $ReportPath -Raw -Encoding utf8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop }
     catch { throw "Process $Mode smoke report is unreadable JSON: $ReportPath. $($_.Exception.Message)" }
     & $Require ($Report -is [pscustomobject]) 'native report must be a JSON object'
     & $Require ($Report.session_id -is [string] -and $Report.session_id -ceq $SessionId) 'session_id does not match this launch (stale report or native binary needs rebuilding)'
     & $Require ($Report.passed -is [bool] -and $Report.passed) 'native checks did not pass'
     if ($Mode -eq 'policy') {
-        & $Require ($Report.source -ceq 'policy_test' -and $Report.schema -ceq 'darkfactory-process-policy-smoke-v1') 'wrong native report mode or schema'
+        & $Require ($Report.source -ceq 'policy_test' -and $Report.schema -ceq 'darkfactory-process-policy-smoke-v1' -and $Report.contract_version -ceq 'automotive-panel-process-v3') 'wrong native report mode or schema'
         & $Require ($Report.model_accuracy_evidence -is [bool] -and -not $Report.model_accuracy_evidence) 'policy checks must not claim model accuracy'
         & $Require (& $EqualNumber $Report.http_requests_submitted 0) 'policy fixture submitted model requests'
         & $Require ($Report.checks -is [array] -and $Report.checks.Count -gt 0) 'policy checks are missing'
@@ -81,8 +87,8 @@ function Assert-DarkFactoryProcessReport {
         }
         return
     }
-    & $Require ($Report.source -ceq 'host_gpu' -and $Report.contract_version -ceq 'automotive-process-v1' -and $Report.model_smoke -is [bool] -and $Report.model_smoke) 'wrong native report mode or source'
-    & $Require ((& $EqualNumber $Report.completed_bodies 3) -and (& $EqualNumber $Report.passed_bodies 2) -and (& $EqualNumber $Report.returned_bodies 1)) 'three-body fixture did not finish with two departures and one return'
+    & $Require ($Report.source -ceq 'host_gpu' -and $Report.contract_version -ceq 'automotive-panel-process-v3' -and $Report.model_smoke -is [bool] -and $Report.model_smoke) 'wrong native report mode or source'
+    & $Require ((& $EqualNumber $Report.completed_bodies 3) -and (& $EqualNumber $Report.passed_bodies 3)) 'three-body panel fixture did not finish with three departures'
     & $Require ($Report.body_outcomes_correct -is [bool] -and $Report.body_outcomes_correct -and $Report.thermal_limits_respected -is [bool] -and $Report.thermal_limits_respected) 'body destinations or thermal readiness failed'
     & $Require ((& $EqualNumber $Report.ground_truth_fields_sent_to_model 0) -and (& $EqualNumber $Report.legacy_bridge_requests 0)) 'unexpected ground-truth or legacy bridge use'
     & $Require ($Report.body_outcomes -is [array] -and $Report.body_outcomes.Count -eq 3) 'exactly three body outcomes are required'
@@ -93,15 +99,18 @@ function Assert-DarkFactoryProcessReport {
         $Sequence = [int]$Outcome.body_sequence
         & $Require (-not $Bodies.ContainsKey($Sequence)) 'duplicate body outcome'
         & $Require ($Outcome.body_id -is [string] -and -not [string]::IsNullOrWhiteSpace($Outcome.body_id) -and -not $BodyIds.ContainsKey($Outcome.body_id)) 'body identities are missing or duplicated'
-        $Expected = if ($Sequence -eq 2) { 'entry' } else { 'exit' }
-        & $Require ($Outcome.expected_destination -ceq $Expected -and $Outcome.actual_destination -ceq $Expected -and $Outcome.correct -is [bool] -and $Outcome.correct) "body $Sequence reached the wrong destination"
+        & $Require ($Outcome.expected_destination -ceq 'exit' -and $Outcome.actual_destination -ceq 'exit' -and $Outcome.correct -is [bool] -and $Outcome.correct) "body $Sequence reached the wrong destination"
+        $ExpectedBranch = if ($Sequence -eq 2) { 'preassembled' } else { 'assembly' }
+        $ExpectedAssembly = $Sequence -ne 2
+        & $Require ($Outcome.expected_branch -ceq $ExpectedBranch -and $Outcome.actual_branch -ceq $ExpectedBranch) "body $Sequence used the wrong assembly branch"
+        & $Require ($Outcome.assembly_performed -is [bool] -and $Outcome.assembly_performed -eq $ExpectedAssembly -and $Outcome.welding_authorized -is [bool] -and $Outcome.welding_authorized -eq $ExpectedAssembly) "body $Sequence skipped required assembly or welded a preassembled panel"
         $Bodies[$Sequence] = $Outcome.body_id
         $BodyIds[$Outcome.body_id] = $true
     }
-    & $Require ($Report.thermal_gate_checks -is [array] -and $Report.thermal_gate_checks.Count -eq 4) 'both healthy bodies require adhesive and weld acceptance audits'
+    & $Require ($Report.thermal_gate_checks -is [array] -and $Report.thermal_gate_checks.Count -eq 6) 'all three bodies require adhesive and weld acceptance audits'
     $ThermalKeys = @{}
     foreach ($Check in $Report.thermal_gate_checks) {
-        & $Require ((& $FiniteNumber $Check.body_sequence) -and $Check.body_sequence -in @(1,3) -and $Check.stage -cin @('adhesive','weld')) 'unexpected thermal gate audit'
+        & $Require ((& $FiniteNumber $Check.body_sequence) -and $Check.body_sequence -in @(1,2,3) -and $Check.stage -cin @('adhesive','weld')) 'unexpected thermal gate audit'
         $Sequence = [int]$Check.body_sequence
         $Key = "$Sequence/$($Check.stage)"
         & $Require (-not $ThermalKeys.ContainsKey($Key) -and $Check.body_id -ceq $Bodies[$Sequence]) 'thermal audit identity is duplicated or mismatched'
@@ -123,6 +132,9 @@ function Assert-DarkFactoryCurtainReport {
 }
 
 $ErrorActionPreference = 'Stop'
+if ($GraphicsSmoke -and ($CurtainSmoke -or $ProcessCapture -or $ProcessSmoke -or $ProcessPolicySmoke -or $WeldingSmoke -or $RealismSmoke -or $ColliderSmoke -or $CabinetSmoke -or $Smoke -or $NightVisionSmoke -or $ThermalSmoke -or $ModalityScreenshots -or $ReadbackSmoke -or $BridgeSmoke -or $Dataset -gt 0 -or $Plan)) { throw 'GraphicsSmoke is a separate frozen process rendering fixture.' }
+if ($GraphicsSmoke) { $Process = $true; $NoInference = $true; $Scene = 'welding' }
+
 if ($CurtainSmoke -and ($Process -or $ProcessCapture -or $ProcessSmoke -or $ProcessPolicySmoke -or $WeldingSmoke -or $RealismSmoke -or $ColliderSmoke -or $CabinetSmoke -or $Smoke -or $NightVisionSmoke -or $ThermalSmoke -or $ModalityScreenshots -or $ReadbackSmoke -or $BridgeSmoke -or $Dataset -gt 0 -or $Plan)) { throw 'CurtainSmoke is a separate Chaos physics fixture; do not combine it with other automation or process mode.' }
 if ($CurtainSmoke) { $NoInference = $true; $Scene = 'welding' }
 if (([int]$RealismSmoke.IsPresent + [int]$ColliderSmoke.IsPresent + [int]$CabinetSmoke.IsPresent) -gt 1) { throw 'Select one feature smoke check' }
@@ -133,13 +145,23 @@ if ($ProcessSmoke -and $NoInference) { throw 'ProcessSmoke requires actual infer
 if ($ProcessEpisodes -gt 0 -and -not $ProcessCapture) { throw 'ProcessEpisodes requires ProcessCapture.' }
 $Project = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\DarkFactory.uproject'))
 $Exe = Join-Path $EngineRoot 'Engine\Binaries\Win64\UnrealEditor.exe'
-$Arguments = @($Project, '-game', '-windowed', '-ResX=1600', '-ResY=900', '-NoSplash', "-DFEndpoint=$Endpoint", "-DFSeed=$Seed", "-DFRoofLightLumens=$RoofLightLumens")
+# Interactive windows use the project borderless style. Preserve the rendered
+# fixtures' established 1600x900 viewport unless explicitly overridden.
+$AutomatedRun = $GraphicsSmoke -or $CurtainSmoke -or $ProcessCapture -or $ProcessSmoke -or $ProcessPolicySmoke -or $WeldingSmoke -or $Smoke -or $NightVisionSmoke -or $ThermalSmoke -or $ModalityScreenshots -or $ReadbackSmoke -or $BridgeSmoke -or $Dataset -gt 0 -or $Plan
+if ($AutomatedRun) {
+    if (-not $PSBoundParameters.ContainsKey('Width')) { $Width = 1600 }
+    if (-not $PSBoundParameters.ContainsKey('Height')) { $Height = 900 }
+}
+$Arguments = @($Project, '-game', '-windowed', '-ForceRes', "-ResX=$Width", "-ResY=$Height", '-NoSplash', "-DFEndpoint=$Endpoint", "-DFSeed=$Seed", "-DFRoofLightLumens=$RoofLightLumens")
+# Override older saved preferences while keeping offline fixtures independent
+# of the desktop refresh rate.
+$Arguments += $(if ($AutomatedRun) { '-novsync' } else { '-vsync' })
 if ($WeldingSmoke -and ($Smoke -or $NightVisionSmoke -or $ThermalSmoke -or $ModalityScreenshots -or $ReadbackSmoke -or $BridgeSmoke -or $Dataset -gt 0 -or $Plan)) { throw 'WeldingSmoke cannot use procedural smoke or training flags' }
 $Arguments += "-DFScene=$Scene"
 $Arguments += "-DFWeldingRoofLightLumens=$WeldingRoofLightLumens"
 if ($SceneManifest) { $Arguments += "-DFSceneManifest=$([IO.Path]::GetFullPath($SceneManifest))" }
 if ($WeldingSmoke) { $Arguments += '-DFWeldingSmoke' }
-if ($CurtainSmoke) { $Arguments += '-DFCurtainSmoke'; $Arguments += '-ExecCmds=r.SetRes 1600x900w,t.MaxFPS 60'; $Arguments += '-ForceRes' }
+if ($CurtainSmoke) { $Arguments += '-DFCurtainSmoke'; $Arguments += ('-ExecCmds=r.SetRes {0}x{1}w,t.MaxFPS 60' -f $Width,$Height); $Arguments += '-ForceRes' }
 if ($Process -or $ProcessCapture -or $ProcessSmoke -or $ProcessPolicySmoke) { $Arguments += '-DFProcess'; $Arguments += "-DFProcessEndpoint=$ProcessEndpoint" }
 if ($ProcessCapture) { $Arguments += '-DFProcessCapture' }
 if ($ProcessSmoke) { $Arguments += '-DFProcessSmoke' }
@@ -150,6 +172,11 @@ if ($RealismSmoke) { $Arguments += '-DFRealismSmoke' }
 if ($ColliderSmoke) { $Arguments += '-DFColliderSmoke' }
 if ($CabinetSmoke) { $Arguments += '-DFCabinetSmoke' }
 if ($NoInference) { $Arguments += '-DFNoInference' }
+if ($NoDLSS) { $Arguments += '-DFNoDLSS' }
+if ($NoLumen) { $Arguments += '-DFNoLumen' }
+if ($NoHardwareRayTracing) { $Arguments += '-DFNoHardwareRayTracing' }
+if ($GraphicsSmoke) { $Arguments += '-DFGraphicsSmoke'; $Arguments += '-ForceRes' }
+
 if ($Smoke) { $Arguments += '-DFSmoke' }
 if ($ModalityScreenshots) { $Arguments += '-DFModalityScreenshots' }
 if ($ThermalSmoke) { $Arguments += '-DFThermalSmoke' }
@@ -189,6 +216,11 @@ if ($ProcessSmoke -or $ProcessPolicySmoke) {
     }
     $Arguments += "-DFCurtainRunId=$CurtainRunId"
     $Arguments += "-DFOutput=$CurtainRunOutput"
+} elseif ($GraphicsSmoke) {
+    $GraphicsRunOutput = if ($Output) { [IO.Path]::GetFullPath($Output) } else { [IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetDirectoryName($Project)) ('..\artifacts\observer-graphics\'+[Guid]::NewGuid().ToString('N')))) }
+    $GraphicsReportPath = Join-Path $GraphicsRunOutput 'observer_graphics.json'
+    if (Test-Path -LiteralPath $GraphicsReportPath) { throw 'GraphicsSmoke requires a fresh output; previous evidence is preserved.' }
+    $Arguments += "-DFOutput=$GraphicsRunOutput"
 } elseif ($Output) { $Arguments += "-DFOutput=$([IO.Path]::GetFullPath($Output))" }
 & $Exe @Arguments | Out-Host
 $SimulationExitCode = $LASTEXITCODE
@@ -206,4 +238,12 @@ if ($CurtainSmoke) {
     Assert-DarkFactoryCurtainReport -ReportPath $CurtainReportPath -SessionId $CurtainRunId
     Write-Host "Curtain native smoke passed: $CurtainReportPath"
     Write-Host "Verify physical evidence and screenshots: python scripts/verify_curtains.py --directory `"$CurtainRunOutput`""
+}
+
+if ($GraphicsSmoke) {
+    if (-not (Test-Path -LiteralPath $GraphicsReportPath -PathType Leaf)) { throw "Graphics smoke report missing: $GraphicsReportPath" }
+    $Report = Get-Content -LiteralPath $GraphicsReportPath -Raw -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop
+    if ($Report.schema -cne 'observer-graphics-smoke-v1' -or $Report.source -cne 'frozen_rendering_qa_no_inference' -or $Report.passed -isnot [bool] -or -not $Report.passed -or $Report.model_http_requests -ne 0 -or @($Report.samples).Count -ne 32) { throw "Graphics smoke failed: $GraphicsReportPath" }
+    Write-Host "Graphics native smoke passed: $GraphicsReportPath"
+    Write-Host "Verify actual images: python scripts/verify_observer_graphics.py --directory `"$GraphicsRunOutput`""
 }

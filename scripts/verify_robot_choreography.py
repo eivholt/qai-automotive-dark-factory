@@ -134,7 +134,7 @@ def verify(directory):
             and near(p.get('carriage_offset_y_cm'), 0., .01)
             and p.get('body_visible') is True and p.get('body_index') == 0
             and p.get('inference_enabled') is False and p.get('training_enabled') is False
-            and p.get('mesh_count') == 76 and p.get('body_panel_count') == 29 and p.get('carriage_holder_count') == 2
+            and p.get('mesh_count') == 91 and p.get('body_panel_count') == 29 and p.get('carriage_holder_count') == 2
             for p in poses))
         require(direction+'_actual_pose_times', bool(poses) and all(
             near(p.get('motion_seconds'), 3.5+t['progress'] if direction == 'approach' else 13.-t['progress'], 1.e-6)

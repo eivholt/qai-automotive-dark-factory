@@ -11,7 +11,7 @@ class UPointLightComponent;
 class UStaticMesh;
 class UStaticMeshComponent;
 
-/** Prior local IQ9 EVK appearance reused as four attached visual props, not live EVK telemetry. */
+/** Prior local IQ9 EVK appearance reused as four fixed-base junction-cover props, not live EVK telemetry. */
 UCLASS()
 class DARKFACTORY_API ADarkFactoryIQ9Props : public AActor {
     GENERATED_BODY()
@@ -32,6 +32,7 @@ private:
         TWeakObjectPtr<USceneComponent> Anchor;
         FVector Contact=FVector::ZeroVector,Normal=FVector::UpVector;
         int32 FirstLed=0;
+        double ShiftUp=0,TopOverhang=0;
     };
     UPROPERTY() TObjectPtr<USceneComponent> SceneRoot;
     UPROPERTY() TArray<TObjectPtr<USceneComponent>> Anchors;

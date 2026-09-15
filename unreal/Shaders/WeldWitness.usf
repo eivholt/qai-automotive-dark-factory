@@ -17,4 +17,6 @@ FWeldWitness W;
 return saturate(W.Mask(WorldPosition.xyz,WitnessCenter0,WitnessNormal0,WitnessStrength0)
     +W.Mask(WorldPosition.xyz,WitnessCenter1,WitnessNormal1,WitnessStrength1)
     +W.Mask(WorldPosition.xyz,WitnessCenter2,WitnessNormal2,WitnessStrength2)
-    +W.Mask(WorldPosition.xyz,WitnessCenter3,WitnessNormal3,WitnessStrength3));
+    +W.Mask(WorldPosition.xyz,WitnessCenter3,WitnessNormal3,WitnessStrength3)
+    +W.Mask(WorldPosition.xyz,WitnessCenter4,WitnessNormal4,WitnessStrength4)
+    +W.Mask(WorldPosition.xyz,WitnessCenter5,WitnessNormal5,WitnessStrength5));

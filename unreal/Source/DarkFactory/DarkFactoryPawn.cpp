@@ -1,4 +1,12 @@
 #include "DarkFactoryPawn.h"
+#include "DarkFactoryGraphics.h"
+#include "HAL/IConsoleManager.h"
+#include "Dom/JsonObject.h"
+#include "TemporalUpscaler.h"
+#include "Async/Async.h"
+#if WITH_DF_DLSS
+#include "DLSSLibrary.h"
+#endif
 #include "DarkFactoryWorld.h"
 #include "DarkFactoryGameMode.h"
 #include "DarkFactoryThermalRig.h"
@@ -21,21 +29,55 @@ class FDarkFactoryViewExtension : public FSceneViewExtensionBase {
 public:
     FDarkFactoryViewExtension(const FAutoRegister& AutoRegister, ADarkFactoryPawn* InPawn)
         : FSceneViewExtensionBase(AutoRegister), Pawn(InPawn) {}
+    virtual int32 GetPriority() const override { return -100; }
     virtual void SetupView(FSceneViewFamily& Family, FSceneView& View) override {
+        if (View.bIsSceneCapture) {
+            View.bAllowRayTracing=false; View.bSceneCaptureUsesRayTracing=false;
+            View.FinalPostProcessSettings.DynamicGlobalIlluminationMethod=EDynamicGlobalIlluminationMethod::None;
+            View.FinalPostProcessSettings.ReflectionMethod=EReflectionMethod::None;
+            Family.EngineShowFlags.SetGlobalIllumination(false);
+            Family.EngineShowFlags.SetLumenGlobalIllumination(false);
+            Family.EngineShowFlags.SetLumenReflections(false);
+            Family.EngineShowFlags.SetReflectionEnvironment(false);
+            Family.EngineShowFlags.SetScreenSpaceReflections(false);
+            Family.EngineShowFlags.SetScreenPercentage(false);
+        }
+        if (!View.bIsSceneCapture && Pawn.IsValid()) {
+            const bool Lumen=Pawn->IsObserverLumenEnabled(),DLSS=Pawn->IsObserverDLSSEnabled();
+            View.bAllowRayTracing=Pawn->IsObserverHardwareRayTracingEnabled();
+            View.FinalPostProcessSettings.DynamicGlobalIlluminationMethod=Lumen ? EDynamicGlobalIlluminationMethod::Lumen:EDynamicGlobalIlluminationMethod::None;
+            View.FinalPostProcessSettings.ReflectionMethod=Lumen ? EReflectionMethod::Lumen:EReflectionMethod::None;
+            Family.EngineShowFlags.SetGlobalIllumination(Lumen);
+            Family.EngineShowFlags.SetLumenGlobalIllumination(Lumen);
+            Family.EngineShowFlags.SetLumenReflections(Lumen);
+            Family.EngineShowFlags.SetReflectionEnvironment(Lumen);
+            Family.EngineShowFlags.SetScreenSpaceReflections(false);
+            // The NVIDIA plugin supplies the temporal upscaler; FXAA/native is
+            // retained when disabled, including both infrared display modes.
+            View.AntiAliasingMethod=DLSS ? AAM_TemporalAA:AAM_FXAA;
+            View.PrimaryScreenPercentageMethod=DLSS ? EPrimaryScreenPercentageMethod::TemporalUpscale:EPrimaryScreenPercentageMethod::SpatialUpscale;
+            Family.EngineShowFlags.SetTemporalAA(DLSS);
+        }
         if (View.bIsSceneCapture && Pawn.IsValid()) {
             for (TActorIterator<ADarkFactoryWorld> It(Pawn->GetWorld());It;++It) {
-                auto* Target=It->GetSensorTexture();
-                if (It->IsImportedScene() && Target && Family.RenderTarget==Target->GameThread_GetRenderTargetResource()) {
-                    // The new persistent NIR view is needed for its grayscale
-                    // blendable. Preserve the former stateless capture's fixed
-                    // shadow/quantization sequence; encoded sensor noise remains
-                    // explicitly versioned in the existing PNG path.
+                if (It->IsImportedScene()) {
+                    // All imported sensors, including physical R4 captures, use
+                    // the same fixed shadow/quantization sequence. Persistent
+                    // view state is still needed for the grayscale blendable;
+                    // GPU frame number is not a sensor augmentation parameter.
                     View.OverrideFrameIndexValue=0u;
                     View.OverrideOutputFrameIndexValue=0u;
+                    break;
                 }
             }
         }
         if (!View.bIsSceneCapture && Pawn.IsValid()) {
+            if (FParse::Param(FCommandLine::Get(),TEXT("DFGraphicsSmoke"))) {
+                // Frozen display comparison only. Interactive observer grain
+                // and ordinary temporal reconstruction continue to advance.
+                View.OverrideFrameIndexValue=0u;
+                View.OverrideOutputFrameIndexValue=0u;
+            }
             View.ViewLightingChannelMask=Pawn->GetObserverViewLightingMask();
             if (LastMask != View.ViewLightingChannelMask) {
                 LastMask = View.ViewLightingChannelMask;
@@ -43,7 +85,23 @@ public:
             }
         }
     }
+    virtual void PreRenderViewFamily_RenderThread(FRDGBuilder& GraphBuilder,FSceneViewFamily& Family) override {
+        if (Family.Views.IsEmpty() || Family.Views[0]->bIsSceneCapture || TelemetryPending->Exchange(true)) return;
+        // NVIDIA's debug name reads a render-thread-only CVar. Observe it here,
+        // then copy plain values back; never access Pawn/UObjects on this thread.
+        const auto* Upscaler=Family.GetTemporalUpscalerInterface();
+        FString Name=Upscaler ? Upscaler->GetDebugName():TEXT("none");
+        const bool RayTracingAllowed=Family.Views[0]->IsRayTracingAllowedForView();
+        const TWeakObjectPtr<ADarkFactoryPawn> WeakPawn=Pawn;
+        const auto Pending=TelemetryPending;
+        AsyncTask(ENamedThreads::GameThread,[WeakPawn,Pending,Name=MoveTemp(Name),RayTracingAllowed]() {
+            if (WeakPawn.IsValid()) WeakPawn->RecordGraphicsView(Name,RayTracingAllowed);
+            Pending->Store(false);
+        });
+    }
 private:
+    // At most one telemetry notification can wait on the game thread.
+    TSharedRef<TAtomic<bool>,ESPMode::ThreadSafe> TelemetryPending=MakeShared<TAtomic<bool>,ESPMode::ThreadSafe>(false);
     uint8 LastMask = 255;
     TWeakObjectPtr<ADarkFactoryPawn> Pawn;
 };
@@ -74,7 +132,7 @@ ADarkFactoryPawn::ADarkFactoryPawn() {
     ObserverHeadlight->ViewLightingChannels.bViewChannel1=false;
     ObserverHeadlight->ViewLightingChannels.bViewChannel2=false;
     ObserverHeadlight->SetIntensityUnits(ELightUnits::Lumens);
-    ObserverHeadlight->SetIntensity(1500);
+    ObserverHeadlight->SetIntensity(1500.f*ADarkFactoryWorld::DimVisibleLightScale);
     ObserverHeadlight->SetAttenuationRadius(2400);
     ObserverHeadlight->SetInnerConeAngle(24);
     ObserverHeadlight->SetOuterConeAngle(44);
@@ -118,6 +176,24 @@ void ADarkFactoryPawn::BeginPlay() {
         FParse::Param(FCommandLine::Get(), TEXT("DFModalityScreenshots")) ||
         FString(FCommandLine::Get()).Contains(TEXT("DFPlan=")) ||
         FString(FCommandLine::Get()).Contains(TEXT("DFDataset="));
+    bGraphicsLegacyFixture=bAutomation && !FParse::Param(FCommandLine::Get(),TEXT("DFGraphicsSmoke"));
+    bDLSSRequested=!FParse::Param(FCommandLine::Get(),TEXT("DFNoDLSS"));
+    bLumenRequested=!FParse::Param(FCommandLine::Get(),TEXT("DFNoLumen"));
+    bHardwareRayTracingRequested=!FParse::Param(FCommandLine::Get(),TEXT("DFNoHardwareRayTracing"));
+    bHardwareRayTracingAvailable=DarkFactoryGraphics::HardwareRayTracingSupported();
+#if WITH_DF_DLSS
+    bDLSSAvailable=UDLSSLibrary::IsDLSSSupported();
+    DLSSSupportStatus=StaticEnum<UDLSSSupport>()->GetNameStringByValue(static_cast<int64>(UDLSSLibrary::QueryDLSSSupport()));
+    if (bDLSSAvailable) {
+        bool Supported=false,Fixed=false; float Min=0,Max=100,Sharpness=0;
+        UDLSSLibrary::GetDLSSModeInformation(UDLSSMode::Quality,FVector2D(1600,900),Supported,DLSSScreenPercentage,Fixed,Min,Max,Sharpness);
+        bDLSSAvailable=Supported && FMath::IsFinite(DLSSScreenPercentage) && DLSSScreenPercentage>0 && DLSSScreenPercentage<100;
+    }
+#else
+    DLSSSupportStatus=TEXT("official plugin not installed at build time");
+#endif
+    bGraphicsInitialized=true;
+    UpdateObserverGraphics();
     // Calibration captures begin with no observer light; welding QA explicitly tests it.
     SetObserverHeadlightEnabled(!bAutomation || FParse::Param(FCommandLine::Get(),TEXT("DFWeldingSmoke")));
     auto ReadSetting=[&](const TCHAR* Name, float& Value, float Minimum, float Maximum) {
@@ -162,7 +238,7 @@ void ADarkFactoryPawn::Tick(float DeltaSeconds) {
         ApplyNightVision(NightVisionMaterial);
     }
     if (bThermalView && ThermalMaterial) {
-        if (auto* W=Cell(GetWorld())) if (auto* Thermal=W->GetThermalRig()) Thermal->ApplyMaterial(ThermalMaterial,Thermal->DisplayPalette);
+        if (auto* W=Cell(GetWorld())) if (auto* Thermal=W->GetThermalRig()) Thermal->ApplyObserverMaterial(ThermalMaterial,Thermal->DisplayPalette);
     }
     if (bAutomation) return;
     if (bBookmarkMoving) {
@@ -195,6 +271,7 @@ void ADarkFactoryPawn::SetObserverMode(int32 Mode) {
     if (Mode<0 || Mode>3) Mode=0;
     if (Mode==2 && W && W->IsImportedScene() && !W->GetThermalRig()) Mode=0;
     ObserverMode=Mode;
+    UpdateObserverGraphics();
     const bool ColorView=Mode==3 || (W && W->IsImportedScene() && Mode==0);
     Camera->PostProcessSettings.ColorSaturation=ColorView ? FVector4(1,1,1,1):FVector4(0,0,0,1);
     bThermalView=Mode==2; bAssistedView=Mode==1;
@@ -202,7 +279,7 @@ void ADarkFactoryPawn::SetObserverMode(int32 Mode) {
     if (W) W->SetFactoryLightsEnabled(Mode==3);
     if (NightVisionMaterial) Camera->AddOrUpdateBlendable(NightVisionMaterial.Get(),bAssistedView ? 1.f:0.f);
     if (ThermalMaterial) {
-        if (W) if (auto* Thermal=W->GetThermalRig()) Thermal->ApplyMaterial(ThermalMaterial,Thermal->DisplayPalette);
+        if (W) if (auto* Thermal=W->GetThermalRig()) Thermal->ApplyObserverMaterial(ThermalMaterial,Thermal->DisplayPalette);
         Camera->AddOrUpdateBlendable(ThermalMaterial.Get(),bThermalView ? 1.f:0.f);
     }
 }
@@ -233,7 +310,7 @@ void ADarkFactoryPawn::ToggleThermal() { SetObserverMode(bThermalView ? 1:2); }
 void ADarkFactoryPawn::SetThermalPalette(int32 Palette) {
     if (auto* W=Cell(GetWorld())) if (auto* Thermal=W->GetThermalRig()) {
         Thermal->DisplayPalette=FMath::Clamp(Palette,0,2);
-        Thermal->ApplyMaterial(ThermalMaterial,Thermal->DisplayPalette);
+        Thermal->ApplyObserverMaterial(ThermalMaterial,Thermal->DisplayPalette);
     }
 }
 void ADarkFactoryPawn::CycleThermalPalette() {
@@ -334,6 +411,7 @@ void ADarkFactoryPawn::SetupPlayerInputComponent(UInputComponent* Input) {
     Input->BindKey(EKeys::H,IE_Pressed,this,&ADarkFactoryPawn::NextThermalCase);
     Input->BindKey(EKeys::J,IE_Pressed,this,&ADarkFactoryPawn::ToggleThermalFields);
     Input->BindKey(EKeys::O,IE_Pressed,this,&ADarkFactoryPawn::ToggleHeatTransfer);
+    // SetHeatTransferEnabled explicitly returns in imported mode.
     Input->BindKey(EKeys::Gamepad_RightThumbstick,IE_Pressed,this,&ADarkFactoryPawn::ToggleHeatTransfer);
     Input->BindKey(EKeys::U,IE_Pressed,this,&ADarkFactoryPawn::CoolThermal);
     Input->BindKey(EKeys::Gamepad_DPad_Up,IE_Pressed,this,&ADarkFactoryPawn::ToggleThermalFields);
@@ -352,6 +430,9 @@ void ADarkFactoryPawn::SetupPlayerInputComponent(UInputComponent* Input) {
     Input->BindKey(EKeys::P,IE_Pressed,this,&ADarkFactoryPawn::Inference);
     Input->BindKey(EKeys::B,IE_Pressed,this,&ADarkFactoryPawn::CycleObserverBookmark);
     Input->BindKey(EKeys::M,IE_Pressed,this,&ADarkFactoryPawn::ToggleFactorySound);
+    Input->BindKey(EKeys::F6,IE_Pressed,this,&ADarkFactoryPawn::ToggleDLSS);
+    Input->BindKey(EKeys::F7,IE_Pressed,this,&ADarkFactoryPawn::ToggleLumen);
+    Input->BindKey(EKeys::F11,IE_Pressed,this,&ADarkFactoryPawn::ToggleHardwareRayTracing);
     Input->BindKey(EKeys::F8,IE_Pressed,this,&ADarkFactoryPawn::ToggleColliderOverlay);
     Input->BindKey(EKeys::Gamepad_LeftThumbstick,IE_Pressed,this,&ADarkFactoryPawn::ToggleColliderOverlay);
     Input->BindKey(EKeys::SpaceBar,IE_Pressed,this,&ADarkFactoryPawn::ToggleWeldingMotion);
@@ -363,4 +444,77 @@ void ADarkFactoryPawn::SetupPlayerInputComponent(UInputComponent* Input) {
     Input->BindKey(EKeys::Gamepad_FaceButton_Top,IE_Pressed,this,&ADarkFactoryPawn::CycleView);
     Input->BindKey(EKeys::Gamepad_FaceButton_Right,IE_Pressed,this,&ADarkFactoryPawn::ToggleView);
     Input->BindKey(EKeys::Gamepad_Special_Right,IE_Pressed,this,&ADarkFactoryPawn::Home);
+}
+
+bool ADarkFactoryPawn::IsObserverDLSSEnabled() const {
+    return bGraphicsInitialized && !bGraphicsLegacyFixture && (ObserverMode==0 || ObserverMode==3) && bDLSSRequested && bDLSSAvailable;
+}
+bool ADarkFactoryPawn::IsObserverLumenEnabled() const {
+    return bGraphicsInitialized && !bGraphicsLegacyFixture && (ObserverMode==0 || ObserverMode==3) && bLumenRequested
+        && (IsObserverHardwareRayTracingEnabled() || DarkFactoryGraphics::SoftwareLumenSupported());
+}
+bool ADarkFactoryPawn::IsObserverHardwareRayTracingEnabled() const {
+    return bGraphicsInitialized && !bGraphicsLegacyFixture && (ObserverMode==0 || ObserverMode==3)
+        && bLumenRequested && bHardwareRayTracingRequested && bHardwareRayTracingAvailable;
+}
+void ADarkFactoryPawn::SetGraphicsOptions(bool DLSS,bool Lumen,bool HardwareRayTracing) {
+    bDLSSRequested=DLSS; bLumenRequested=Lumen; bHardwareRayTracingRequested=HardwareRayTracing; UpdateObserverGraphics();
+}
+void ADarkFactoryPawn::ToggleDLSS() { bDLSSRequested=!bDLSSRequested; UpdateObserverGraphics(); }
+void ADarkFactoryPawn::ToggleLumen() { bLumenRequested=!bLumenRequested; UpdateObserverGraphics(); }
+void ADarkFactoryPawn::ToggleHardwareRayTracing() { bHardwareRayTracingRequested=!bHardwareRayTracingRequested; UpdateObserverGraphics(); }
+void ADarkFactoryPawn::UpdateObserverGraphics() {
+    if (!bGraphicsInitialized) return;
+    // Recheck after asynchronous engine/plugin startup, before a QA or user
+    // requests the feature; unsupported builds retain the explicit fallback.
+    bHardwareRayTracingAvailable=DarkFactoryGraphics::HardwareRayTracingSupported();
+#if WITH_DF_DLSS
+    if (!bDLSSAvailable && UDLSSLibrary::IsDLSSSupported()) {
+        bool Supported=false,Fixed=false; float Min=0,Max=100,Sharpness=0;
+        UDLSSLibrary::GetDLSSModeInformation(UDLSSMode::Quality,FVector2D(1600,900),Supported,DLSSScreenPercentage,Fixed,Min,Max,Sharpness);
+        bDLSSAvailable=Supported && FMath::IsFinite(DLSSScreenPercentage) && DLSSScreenPercentage>0 && DLSSScreenPercentage<100;
+        DLSSSupportStatus=StaticEnum<UDLSSSupport>()->GetNameStringByValue(static_cast<int64>(UDLSSLibrary::QueryDLSSSupport()));
+    }
+#endif
+    const bool DLSS=IsObserverDLSSEnabled(),Lumen=IsObserverLumenEnabled();
+    // Existing bright-floor exposure was authored for direct light only. Keep
+    // the added indirect illumination from clipping white panels; sensor and
+    // legacy exposure settings are independent and remain unchanged.
+    Camera->PostProcessSettings.AutoExposureBias=ObserverMode==3 && Lumen && !bGraphicsLegacyFixture ? -.7f:0.f;
+
+#if WITH_DF_DLSS
+    if (bDLSSAvailable) UDLSSLibrary::EnableDLSS(DLSS);
+#endif
+    if (auto* C=IConsoleManager::Get().FindConsoleVariable(TEXT("r.ScreenPercentage"))) C->Set(DLSS ? DLSSScreenPercentage:100.f,ECVF_SetByCode);
+    Camera->PostProcessSettings.bOverride_DynamicGlobalIlluminationMethod=true;
+    Camera->PostProcessSettings.DynamicGlobalIlluminationMethod=Lumen ? EDynamicGlobalIlluminationMethod::Lumen:EDynamicGlobalIlluminationMethod::None;
+    Camera->PostProcessSettings.bOverride_ReflectionMethod=true;
+    Camera->PostProcessSettings.ReflectionMethod=Lumen ? EReflectionMethod::Lumen:EReflectionMethod::None;
+    Camera->PostProcessSettings.bOverride_RayTracingAO=true; Camera->PostProcessSettings.RayTracingAO=false;
+    ObserverHeadlight->SetIndirectLightingIntensity(Lumen ? 1.f:0.f);
+    ObserverHeadlight->SetAffectGlobalIllumination(Lumen); ObserverHeadlight->SetAffectReflection(Lumen);
+    if (auto* W=Cell(GetWorld())) W->SetObserverIndirectLightingEnabled(Lumen);
+    UE_LOG(LogTemp,Display,TEXT("DF_GRAPHICS dlss=%d lumen=%d hwrt=%d dlss_support=%s screen_percentage=%.3f mode=%d legacy_fixture=%d"),
+        DLSS,Lumen,IsObserverHardwareRayTracingEnabled(),*DLSSSupportStatus,DLSS ? DLSSScreenPercentage:100.f,ObserverMode,bGraphicsLegacyFixture);
+}
+void ADarkFactoryPawn::RecordGraphicsView(const FString& Upscaler,bool RayTracingAllowed) {
+    LastObserverUpscaler=Upscaler; bLastViewRayTracing=RayTracingAllowed; ++ObserverGraphicsViews;
+}
+FString ADarkFactoryPawn::GetGraphicsStatus() const {
+    if (ObserverMode==1 || ObserverMode==2) return TEXT("Infrared raster | Visible preferences retained | F6 DLSS / F7 Lumen / F11 RT");
+    const TCHAR* DLSS=IsObserverDLSSEnabled() ? (LastObserverUpscaler.Contains(TEXT("DLSS")) ? TEXT("DLSS Quality"):TEXT("DLSS initializing")):bDLSSRequested && !bDLSSAvailable ? TEXT("DLSS unavailable"):TEXT("native");
+    const TCHAR* Lumen=IsObserverLumenEnabled() ? (IsObserverHardwareRayTracingEnabled() ? TEXT("Lumen hardware RT"):TEXT("Lumen software RT")):TEXT("Lumen off");
+    return FString::Printf(TEXT("%s | %s | F6 DLSS / F7 Lumen / F11 RT"),DLSS,Lumen);
+}
+TSharedRef<FJsonObject> ADarkFactoryPawn::BuildGraphicsMetadata() const {
+    auto O=MakeShared<FJsonObject>(); O->SetStringField(TEXT("schema"),TEXT("observer-graphics-v1"));
+    O->SetBoolField(TEXT("dlss_requested"),bDLSSRequested); O->SetBoolField(TEXT("dlss_supported"),bDLSSAvailable);
+    O->SetBoolField(TEXT("dlss_enabled"),IsObserverDLSSEnabled()); O->SetStringField(TEXT("dlss_support"),DLSSSupportStatus);
+    O->SetStringField(TEXT("actual_temporal_upscaler"),LastObserverUpscaler); O->SetNumberField(TEXT("rendered_view_count"),ObserverGraphicsViews);
+    O->SetNumberField(TEXT("screen_percentage"),IsObserverDLSSEnabled() ? DLSSScreenPercentage:100.f);
+    O->SetBoolField(TEXT("lumen_requested"),bLumenRequested); O->SetBoolField(TEXT("lumen_enabled"),IsObserverLumenEnabled());
+    O->SetBoolField(TEXT("hardware_rt_requested"),bHardwareRayTracingRequested); O->SetBoolField(TEXT("hardware_rt_supported"),bHardwareRayTracingAvailable);
+    O->SetBoolField(TEXT("hardware_rt_enabled"),IsObserverHardwareRayTracingEnabled()); O->SetBoolField(TEXT("actual_view_ray_tracing_allowed"),bLastViewRayTracing);
+    O->SetNumberField(TEXT("observer_exposure_ev"),Camera->PostProcessSettings.AutoExposureBias);
+    O->SetNumberField(TEXT("observer_mode"),ObserverMode); O->SetBoolField(TEXT("legacy_fixture"),bGraphicsLegacyFixture); return O;
 }

@@ -62,8 +62,8 @@ bool ADarkFactoryWorld::InitializeCurtainSmoke() {
     SetRealismDetailsEnabled(false);
     WeldingSparks->SetEffectsEnabled(false); WeldingSparks->ResetParticles(); WeldingSmoke->ResetParticles();
     WeldingCell->SetAnimationEnabled(false);
-    ProcessScene->BeginBody(1,0.,1,0); // Explicit loose front door: geometry fixture, never a prediction.
-    ProcessScene->ApplyFrame(3.4,0.,-TravelCm,true,false,0.);
+    ProcessScene->BeginBody(1,0.,0); // Explicit missing panel: geometry fixture, never a prediction.
+    ProcessScene->ApplyAssemblyFrame(EDarkFactoryProcessPhase::Arriving,0.,0.,-TravelCm,true);
     // Match legacy fixture startup: do not rebuild constraints in BeginPlay,
     // before Chaos has completed its first scene registration/physics step.
     for (ADarkFactoryCurtainPortal* Portal:CurtainPortals) Portal->SetSimulationEnabled(false);
@@ -75,7 +75,7 @@ bool ADarkFactoryWorld::InitializeCurtainSmoke() {
     CurtainReport->SetStringField(TEXT("schema"),TEXT("darkfactory-curtain-smoke-v1"));
     CurtainReport->SetStringField(TEXT("source"),TEXT("chaos_physics_fixture"));
     CurtainReport->SetStringField(TEXT("session_id"),RunId);
-    CurtainReport->SetStringField(TEXT("scope"),TEXT("Real Chaos strips and authored carriage/door colliders at process speed; no model inference or accuracy evidence"));
+    CurtainReport->SetStringField(TEXT("scope"),TEXT("Real Chaos strips and authored carriage colliders at process speed; no model inference or accuracy evidence"));
     CurtainReport->SetStringField(TEXT("sample_order"),TEXT("Previous completed Chaos step sampled before next pre-physics carriage pose"));
     CurtainReport->SetNumberField(TEXT("model_http_requests"),NIRInferenceRequests);
     CurtainReport->SetNumberField(TEXT("initial_resets_per_portal"),1);
@@ -85,8 +85,8 @@ bool ADarkFactoryWorld::InitializeCurtainSmoke() {
     CurtainReport->SetNumberField(TEXT("travel_seconds"),TravelSeconds);
     CurtainReport->SetNumberField(TEXT("settle_seconds"),SettleSeconds);
     CurtainReport->SetStringField(TEXT("travel_curve"),TEXT("smoothstep; identical to live process transport"));
-    CurtainReport->SetStringField(TEXT("first_body_geometry"),TEXT("loose door 0, returned through entry"));
-    CurtainReport->SetStringField(TEXT("second_body_geometry"),TEXT("all doors seated, forward exit"));
+    CurtainReport->SetStringField(TEXT("first_body_geometry"),TEXT("missing trunk panel, reverse transport physics fixture"));
+    CurtainReport->SetStringField(TEXT("second_body_geometry"),TEXT("preassembled trunk panel, forward exit"));
     CurtainReport->SetStringField(TEXT("screenshot_directory"),FPaths::Combine(TEXT("screenshots"),RunId));
     IFileManager::Get().MakeDirectory(*FPaths::Combine(OutputRoot,TEXT("screenshots"),RunId),true);
     CurtainPause->SetBoolField(TEXT("tested"),false);
@@ -119,8 +119,8 @@ void ADarkFactoryWorld::CurtainSmokeTick(float DeltaSeconds,double Now) {
         // The prior return-settled screenshot must render before the next body
         // appears. BeginPass is entered on the following game frame.
         if (CurtainPassIndex==2) {
-            ProcessScene->BeginBody(2,CurtainClock,0);
-            ProcessScene->ApplyFrame(3.4,CurtainClock,-TravelCm,true,false,0.);
+            ProcessScene->BeginBody(2,CurtainClock,1);
+            ProcessScene->ApplyAssemblyFrame(EDarkFactoryProcessPhase::Arriving,0.,CurtainClock,-TravelCm,true);
         }
         CurtainPassTime=0; CurtainClearClock=-1; CurtainMovingSamples=0;
         CurtainCarriageOffset=Starts[CurtainPassIndex];
@@ -233,7 +233,7 @@ void ADarkFactoryWorld::CurtainSmokeTick(float DeltaSeconds,double Now) {
             const bool RemoveBody=CurtainPassIndex==1 || CurtainPassIndex==3;
             if (RemoveBody) {
                 ProcessScene->EndBody();
-                ProcessScene->ApplyFrame(3.4,CurtainClock,CurtainCarriageOffset,false,false,0.);
+                ProcessScene->ApplyAssemblyFrame(EDarkFactoryProcessPhase::Arriving,0.,CurtainClock,CurtainCarriageOffset,false);
             }
             CurtainPass->SetBoolField(TEXT("body_removed_before_settling"),RemoveBody);
             int32 ActiveColliders=0;
@@ -263,7 +263,7 @@ void ADarkFactoryWorld::CurtainSmokeTick(float DeltaSeconds,double Now) {
     const double Alpha=FMath::SmoothStep(0.f,1.f,float(CurtainPassTime/TravelSeconds));
     CurtainCarriageOffset=FMath::Lerp(Starts[CurtainPassIndex],Ends[CurtainPassIndex],Alpha);
     const bool BodyVisible=CurtainClearClock<0 || (CurtainPassIndex!=1 && CurtainPassIndex!=3);
-    ProcessScene->ApplyFrame(3.4,CurtainClock,CurtainCarriageOffset,BodyVisible,false,0.);
+    ProcessScene->ApplyAssemblyFrame(EDarkFactoryProcessPhase::Arriving,0.,CurtainClock,CurtainCarriageOffset,BodyVisible);
 }
 
 void ADarkFactoryWorld::FinishCurtainSmoke(bool Completed,const FString& Error) {

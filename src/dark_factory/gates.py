@@ -15,6 +15,8 @@ MAX_GATE_REQUEST_BYTES = 5 * 1024 * 1024
 IDENTITY_FIELDS = ("contract_version", "request_id", "body_id", "stage", "captured_at_ms")
 LABELS = ("G", "A", "R")
 MESSAGE_LAYOUT = "independent-camera-images-newline-v1"
+CONTRACT_VERSION = "automotive-panel-process-v3"
+STAGE_MODALITIES = {"panel_presence": "nir", "adhesive": "thermal", "panel_seated": "nir", "weld": "thermal"}
 
 def camera_content(images: list[dict], prompt: str) -> list[dict]:
     """Prevent Qwen-VL temporal merging of adjacent camera image markers."""
@@ -34,7 +36,7 @@ def load_gate_contract(path: str | Path | None = None) -> dict:
         path = next((candidate for candidate in candidates if candidate.is_file()), candidates[0])
     path = Path(path)
     c = json.loads(path.read_text(encoding="utf-8"))
-    if c.get("version") != "automotive-process-v1" or set(c.get("stages", {})) != {"doors", "adhesive", "weld"}:
+    if c.get("version") != CONTRACT_VERSION or set(c.get("stages", {})) != set(STAGE_MODALITIES):
         raise ProtocolError("Unsupported process contract")
     if c.get("image") != {"format": "PNG", "width": 448, "height": 256, "bit_depth": 8, "channels": "grayscale", "visual_tokens_per_image": 112}:
         raise ProtocolError("Unsupported process image contract")
@@ -50,14 +52,14 @@ def load_gate_contract(path: str | Path | None = None) -> dict:
     for name, stage in c["stages"].items():
         if stage.get("prompt_sha256") != hashlib.sha256(stage["prompt"].encode()).hexdigest():
             raise ProtocolError("Process prompt hash mismatch")
-        ids = ["left", "right"] if name == "doors" else ["spot1", "spot2", "spot3"]
-        if stage.get("camera_ids") != ids or stage.get("modality") != ("nir" if name == "doors" else "thermal"):
+        ids = ["spot1", "spot2", "spot3"]
+        if stage.get("camera_ids") != ids or stage.get("modality") != STAGE_MODALITIES[name]:
             raise ProtocolError("Process camera ordering mismatch")
-        if name != "doors" and (stage.get("ambiguity_band_c") != 3.0 or "3 C ambiguity band" not in stage["prompt"]):
-            raise ProtocolError("Process v1 thermal gates require the explicit 3 C ambiguity band")
-        if name != "doors" and stage.get("ready_below_c") != {"adhesive": 45.0, "weld": 55.0}[name]:
-            raise ProtocolError("Process v1 thermal readiness thresholds are frozen at 45/55 C")
-        if name != "doors" and f'{stage["ready_below_c"]:g} C' not in stage["prompt"]:
+        if STAGE_MODALITIES[name] == "thermal" and (stage.get("ambiguity_band_c") != 3.0 or "3 C ambiguity band" not in stage["prompt"]):
+            raise ProtocolError("Process v3 thermal gates require the explicit 3 C ambiguity band")
+        if STAGE_MODALITIES[name] == "thermal" and stage.get("ready_below_c") != {"adhesive": 45.0, "weld": 55.0}[name]:
+            raise ProtocolError("Process v3 thermal readiness thresholds are frozen at 45/55 C")
+        if STAGE_MODALITIES[name] == "thermal" and f'{stage["ready_below_c"]:g} C' not in stage["prompt"]:
             raise ProtocolError("Thermal threshold and prompt differ")
     policy = c.get("decision_policy", {})
     if set(policy) != {"minimum_label_mass", "minimum_conditional_probability", "consecutive_green", "max_reply_age_seconds"}:
@@ -67,7 +69,7 @@ def load_gate_contract(path: str | Path | None = None) -> dict:
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not .5 <= value <= 1:
             raise ProtocolError("Invalid classifier abstention setting")
     if type(policy["consecutive_green"]) is not int or policy["consecutive_green"] != 2:
-        raise ProtocolError("Process v1 requires two fresh green observations")
+        raise ProtocolError("Process v3 requires two fresh green observations")
     age = policy["max_reply_age_seconds"]
     if isinstance(age, bool) or not isinstance(age, (int, float)) or not math.isfinite(age) or not 1 <= age <= 60:
         raise ProtocolError("Process reply age must be finite and between 1 and 60 seconds")
@@ -83,7 +85,7 @@ def model_export_alias(provenance: dict) -> str:
     return prefix + "-" + "-".join(h[:16] for h in hashes)
 
 
-def validate_adapter_training(report: dict, contract: dict, base_config_sha256: str | None = None):
+def validate_adapter_training(report: dict, contract: dict, base_config_sha256: str | None = None, required_stages=None):
     """Reject legacy adapters before loading their tensors into a process gate."""
     expected = {"contract_version": contract["version"], "message_layout": MESSAGE_LAYOUT,
         "prompt_hashes": {k: v["prompt_sha256"] for k, v in contract["stages"].items()},
@@ -92,6 +94,10 @@ def validate_adapter_training(report: dict, contract: dict, base_config_sha256: 
         raise ProtocolError("Automotive adapter training contract does not match the runtime")
     if base_config_sha256 is not None and report.get("base_model_config_sha256") != base_config_sha256:
         raise ProtocolError("Adapter base model configuration does not match")
+    if required_stages is not None:
+        trained = report.get("training_stages")
+        if not isinstance(trained, list) or not set(required_stages) <= set(trained) or not set(trained) <= set(contract["stages"]):
+            raise ProtocolError("Adapter was not trained for all requested runtime stages")
     return report
 
 
@@ -166,13 +172,14 @@ class GateLatch:
         self.contract = contract
         self.key = None
         self.green_count = 0
+        self.red_count = 0
         self.last_request = None
         self.last_capture = -1.0
 
     def observe(self, reply: dict, expected: dict, now_ms: float) -> str:
         key = (expected.get("body_id"), expected.get("stage"))
         if key != self.key:
-            self.key, self.green_count, self.last_request, self.last_capture = key, 0, None, -1.0
+            self.key, self.green_count, self.red_count, self.last_request, self.last_capture = key, 0, 0, None, -1.0
         valid = isinstance(reply, dict) and all(reply.get(k) == expected.get(k) for k in IDENTITY_FIELDS)
         stage = self.contract["stages"].get(expected.get("stage"), {})
         valid = valid and reply.get("valid") is True and reply.get("decision") in LABELS
@@ -185,11 +192,16 @@ class GateLatch:
         valid = valid and 0 <= now_ms - captured <= self.contract["decision_policy"]["max_reply_age_seconds"] * 1000
         valid = valid and expected.get("request_id") != self.last_request and captured > self.last_capture
         if not valid:
-            self.green_count = 0
+            self.green_count = self.red_count = 0
             return "A"
         self.last_request, self.last_capture = expected["request_id"], captured
         if reply["decision"] != "G":
             self.green_count = 0
+            if expected.get("stage") == "panel_presence" and reply["decision"] == "R":
+                self.red_count += 1
+                return "R" if self.red_count >= self.contract["decision_policy"]["consecutive_green"] else "A"
+            self.red_count = 0
             return reply["decision"]
+        self.red_count = 0
         self.green_count += 1
         return "G" if self.green_count >= self.contract["decision_policy"]["consecutive_green"] else "A"

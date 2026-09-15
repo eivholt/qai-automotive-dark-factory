@@ -103,7 +103,7 @@ def verify(directory):
     require('thermal_encoding_unchanged', encodings[0] == encodings[1])
     require('thermal_encoding_expected', all(e['width'] == 448 and e['height'] == 256 and e['min_temperature_c'] == 20
             and e['max_temperature_c'] == 120 and e['quantity'] == 'apparent_temperature' and e['linear_u8'] is True
-            and e['band_um'] == [8, 14] and e['lut_rows'] == 22 and finite(e['ambient_temperature_c']) for e in encodings))
+            and e['band_um'] == [8, 14] and e['lut_rows'] == 70 and finite(e['ambient_temperature_c']) for e in encodings))
     require('spatial_toggle_recorded', snapshots[0].get('spatial_fields_enabled') is True and snapshots[1].get('spatial_fields_enabled') is False)
     require('no_imported_heat_exchange_or_training', all(s.get('heat_transfer_enabled') is False and s.get('adapter_ready') is False and s.get('training_manifest') is False for s in snapshots))
     require('camera_transform_fixed', transform(snapshots[0].get('camera_world_transform')) and snapshots[0].get('camera_world_transform') == snapshots[1].get('camera_world_transform'))

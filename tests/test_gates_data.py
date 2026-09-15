@@ -43,6 +43,41 @@ class GateDataTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_adapter_training(broken, c, "base")
 
+    def test_adapter_stage_scope_rejects_modality_misrouting(self):
+        c = load_gate_contract()
+        report = {"contract_version": c["version"], "message_layout": MESSAGE_LAYOUT,
+            "prompt_hashes": {k:v["prompt_sha256"] for k,v in c["stages"].items()},
+            "image_contract": c["image"], "thermal_window_c": c["thermal_window_c"],
+            "training_stages": ["panel_presence", "panel_seated"]}
+        validate_adapter_training(report,c,required_stages=["panel_presence","panel_seated"])
+        for stages in (["adhesive"], list(c["stages"])):
+            with self.assertRaises(ValueError):
+                validate_adapter_training(report,c,required_stages=stages)
+
+    def test_presence_and_seating_have_distinct_action_semantics(self):
+        self.assertEqual(EVALUATE.gate_action("panel_presence","G"),"preassembled")
+        self.assertEqual(EVALUATE.gate_action("panel_presence","R"),"assemble")
+        self.assertEqual(EVALUATE.gate_action("panel_presence","A"),"hold")
+        self.assertEqual(EVALUATE.gate_action("panel_seated","R"),"exception_hold")
+        self.assertEqual(EVALUATE.gate_action("weld","R"),"hold")
+        row = {"reply":{"valid":True}, "identity_valid":True, "stage":"panel_presence", "decision":"R",
+            "expected_decision":"G", "episode_id":"one", "end_to_end_ms":1}
+        summary = EVALUATE.summarize([row])
+        self.assertEqual(summary["wrong_presence_branches"],1)
+        self.assertEqual(summary["false_proceed"],0)
+        self.assertEqual(summary["action_accuracy"],0)
+
+    def test_preparation_rejects_old_contract_even_with_new_prompt(self):
+        c = load_gate_contract()
+        spec = c["stages"]["panel_presence"]
+        sample = {"sample_id":"one", "body_id":"body", "stage":"panel_presence", "expected_decision":"G",
+            "prompt_sha256":spec["prompt_sha256"], "images":[]}
+        with tempfile.TemporaryDirectory() as d:
+            for version in (None,"automotive-process-v1","automotive-panel-process-v2"):
+                sample["contract_version"] = version
+                with self.assertRaisesRegex(ValueError,"contract version"):
+                    PREPARE.prepare([sample],Path(d),Path(d)/"out",c,"shared","panel")
+
     def test_continuation_checks_actual_adapter_configuration(self):
         c = load_gate_contract()
         targets = ["q_proj", "qkv"]
@@ -65,6 +100,28 @@ class GateDataTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     TRAIN.initial_adapter_provenance(root,c,"base",8,"multimodal",targets)
 
+    def test_new_prompts_require_explicit_validated_warm_start_contract(self):
+        import copy, hashlib
+        parent=load_gate_contract(); current=copy.deepcopy(parent)
+        current['stages']['adhesive']['prompt'] += ' Inspect side contacts.'
+        current['stages']['adhesive']['prompt_sha256']=hashlib.sha256(current['stages']['adhesive']['prompt'].encode()).hexdigest()
+        targets=['q_proj','qkv']
+        report={'contract_version':parent['version'],'message_layout':MESSAGE_LAYOUT,
+            'prompt_hashes':{k:v['prompt_sha256'] for k,v in parent['stages'].items()},
+            'image_contract':parent['image'],'thermal_window_c':parent['thermal_window_c'],
+            'base_model_config_sha256':'base','rank':8,'lora_scope':'multimodal','target_modules':targets,'steps':8}
+        config={'target_modules':targets,'r':8,'lora_alpha':32,'lora_dropout':.05,'bias':'none','peft_type':'LORA','use_dora':False,'use_rslora':False}
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            (root/'training_report.json').write_text(json.dumps(report))
+            (root/'adapter_config.json').write_text(json.dumps(config))
+            (root/'adapter_model.safetensors').write_bytes(b'fixture')
+            with self.assertRaises(ValueError): TRAIN.initial_adapter_provenance(root,current,'base',8,'multimodal',targets)
+            result=TRAIN.initial_adapter_provenance(root,current,'base',8,'multimodal',targets,parent)
+            self.assertEqual(result['changed_prompt_stages'],['adhesive'])
+            bad=copy.deepcopy(parent);bad['thermal_window_c']=[0,120]
+            with self.assertRaises(ValueError): TRAIN.initial_adapter_provenance(root,current,'base',8,'multimodal',targets,bad)
+
     def test_resident_route_is_fixed_by_stage_and_preserves_model_identity(self):
         from types import SimpleNamespace
         class Model:
@@ -79,13 +136,13 @@ class GateDataTests(unittest.TestCase):
         with patch("dark_factory.gates_host.Reason2Classifier",side_effect=[nir,thermal]) as factory:
             router=ModalityClassifier("base",load_gate_contract(),"nir","thermal",linear_patch_embedding=True)
         self.assertEqual(factory.call_count,2)
-        self.assertEqual(router.stage_backend_aliases,{"doors":"nir-hash","adhesive":"thermal-hash","weld":"thermal-hash"})
-        for stage in ("weld","doors","adhesive"):
+        self.assertEqual(router.stage_backend_aliases,{"panel_presence":"nir-hash","adhesive":"thermal-hash","panel_seated":"nir-hash","weld":"thermal-hash"})
+        for stage in ("weld","panel_presence","adhesive","panel_seated"):
             reply=router.inspect(SimpleNamespace(identity={"stage":stage}))
             self.assertEqual(reply["backend_alias"],router.model_alias)
             self.assertEqual(reply["stage_backend_alias"],router.stage_backend_aliases[stage])
             self.assertEqual(reply["decision"],"A")
-        self.assertEqual(nir.calls,["doors"])
+        self.assertEqual(nir.calls,["panel_presence","panel_seated"])
         self.assertEqual(thermal.calls,["weld","adhesive"])
 
     def test_proxy_readiness_tracks_backend_health(self):
@@ -131,10 +188,13 @@ class GateDataTests(unittest.TestCase):
 
     def test_stricter_validation_calibration_never_selects_on_test(self):
         c = load_gate_contract()
+        # Exercise the full prespecified calibration grid from its baseline,
+        # independently of the confidence threshold selected for the demo.
+        c["decision_policy"]["minimum_conditional_probability"] = .8
         rows = []
         for stage in c["stages"]:
-            labels = ["G", "R"] if stage == "doors" else ["G", "A", "R"]
-            for i in range(12 if stage != "doors" else 6):
+            labels = ["G", "R"] if stage.startswith("panel_") else ["G", "A", "R"]
+            for i in range(12 if not stage.startswith("panel_") else 6):
                 for label in labels:
                     scores = {k: .99 if k == label else .005 for k in "GAR"}
                     if stage == "weld" and label == "A":
@@ -161,21 +221,21 @@ class GateDataTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             (root / "camera.png").write_bytes(b"local fixture")
-            rows = [{"sample_id": stage, "body_id": "body-1", "stage": stage, "expected_decision": "G",
+            rows = [{"sample_id": stage, "body_id": "body-1", "stage": stage, "expected_decision": "G", "contract_version":c["version"], "prompt_sha256":spec["prompt_sha256"],
                      "images": [{"camera_id": camera, "path": "camera.png"} for camera in spec["camera_ids"]]} for stage,spec in c["stages"].items()]
             a = PREPARE.prepare(rows, root, root / "a", c, "shared", "v1")
             b = PREPARE.prepare(rows, root, root / "b", c, "modality", "v1")
             self.assertEqual(a["whole_episode_splits"], b["whole_episode_splits"])
             self.assertEqual(len(a["whole_episode_splits"]), 1)
-            self.assertEqual(sum(x["batches"] for x in a["counts"].values()), 3)
+            self.assertEqual(sum(x["batches"] for x in a["counts"].values()), 4)
 
     def test_episode_leakage_rejected(self):
         c = load_gate_contract()
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             (root / "camera.png").write_bytes(b"local fixture")
-            row = {"sample_id": "one", "body_id": "same", "stage": "doors", "expected_decision": "R", "split": "train",
-                   "images": [{"camera_id": k, "path": "camera.png"} for k in ["left", "right"]]}
+            row = {"sample_id": "one", "body_id": "same", "stage": "panel_presence", "expected_decision": "R", "split": "train", "contract_version":c["version"], "prompt_sha256":c["stages"]["panel_presence"]["prompt_sha256"],
+                   "images": [{"camera_id": k, "path": "camera.png"} for k in ["spot1", "spot2", "spot3"]]}
             with self.assertRaisesRegex(ValueError, "multiple dataset splits"):
                 PREPARE.prepare([row, {**row, "split": "test"}], root, root / "output", c, "shared", "v1")
 
@@ -205,7 +265,7 @@ class GateDataTests(unittest.TestCase):
         report = EVALUATE.summarize([row])
         self.assertEqual(report["accuracy"], 0)
         self.assertEqual(report["action_accuracy"], 1)
-        row["stage"] = "doors"
+        row["stage"] = "panel_presence"
         self.assertEqual(EVALUATE.summarize([row])["action_accuracy"], 0)
 
     def test_unlabelled_transport_probe_has_no_accuracy(self):
@@ -215,14 +275,21 @@ class GateDataTests(unittest.TestCase):
 
     def test_train_prompt_replay_must_match(self):
         c = load_gate_contract()
-        spec = c["stages"]["doors"]
-        row = {"sample_id": "one", "episode_id": "body", "stage": "doors", "images": ["left", "right"], "answer": "G",
+        spec = c["stages"]["panel_presence"]
+        row = {"sample_id": "one", "episode_id": "body", "stage": "panel_presence", "images": ["spot1", "spot2", "spot3"], "answer": "G", "split":"train", "camera_ids":spec["camera_ids"], "modality":"nir",
                "contract_version": c["version"], "prompt": spec["prompt"], "prompt_sha256": spec["prompt_sha256"]}
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "train.jsonl"
             path.write_text(json.dumps(row) + "\n")
             self.assertEqual(len(TRAIN.load_rows(path, c)), 1)
-            self.assertEqual(TRAIN.load_rows(path, c)[0]["images"][0], str((Path(d) / "left").resolve()))
+            self.assertEqual(TRAIN.load_rows(path, c)[0]["images"][0], str((Path(d) / "spot1").resolve()))
+            for mutation in ({"split":"test"},{"camera_ids":["spot3","spot2","spot1"]},{"modality":"thermal"}):
+                path.write_text(json.dumps({**row, **mutation}) + "\n", encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    TRAIN.load_rows(path,c,"train")
+            path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                TRAIN.load_rows(path,c,"validation")
             row["prompt"] = "Use the ground truth"
             path.write_text(json.dumps(row) + "\n")
             with self.assertRaises(ValueError):

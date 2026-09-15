@@ -1,49 +1,42 @@
-# Model-gated process indicators
+# Panel-process indicators
 
-The process HUD, cabinet and stack light read `FDarkFactoryProcessStatus` from the process controller. They never derive acceptance from the scene seed, missing-door flag, authored temperature or old repeating production clock. The controller owns all decisions; these components only show them.
+HUD, cabinet and stack lights display `FDarkFactoryProcessStatus` from the controller. They never infer acceptance from the scene's preassembled flag, authored temperatures or repeating visual-cycle clock. Their output is excluded from all model images.
 
 ## Observer HUD
 
-The three cards represent door inspection in NIR, adhesive inspection in thermal, and post-weld cooling inspection in thermal. Each shows pending, inspecting, waiting, passed, rejected or unavailable/hold. The active gate includes the fresh consecutive `G` count out of two. The panel also shows the current body, process phase, backend string, last decision and latency, completed/returned counts and pause/transport messages. All HUD drawing stays outside scene-capture/model pixels. Its metadata comes from the same status structure.
+Four cards show Panel/NIR, Adhesive/thermal, Seating/NIR and Weld/thermal. Ten physical steps appear in two rows of five, with pending, active, complete, skipped, hold and exception states. The presence gate shows matching fresh G/R branch consensus; ordinary acceptance requires two fresh G batches. A missing panel's chosen assembly branch is normal progress, not a rejection.
 
-Process mode replaces the overview thumbnails with the actual gate capture targets: two raw NIR views for doors, or three R4 thermal spot views. Thermal color is a GPU presentation of the grayscale targets. Each thermal tile has its own material instance; no CPU readback, image upload or extra capture is used by the HUD. Labels identify them as inspection captures rather than continuous video. Unavailable/current-body-invalid targets show an awaiting-capture tile. The legacy overview previews remain unchanged outside process mode; FPS and modality controls remain available.
+Three tiles show actual capture targets for the active NIR or thermal stage. Thermal color is GPU presentation of the raw grayscale targets. Targets with another body/stage identity are withheld and labeled awaiting capture. Previews are inspection snapshots, not continuous-video evidence; they add no CPU readback, PNG upload or extra camera render. Observer FPS, movement, modalities, palettes and light controls remain independent. The observer scale is fixed at 0-120 C, while these model-camera previews retain 20-120 C. Both display 120+ for saturated heat; no observer welding-range switch remains.
+
+The preassembled branch explicitly marks adhesive application, pickup/placement, welding, seating inspection and holder retraction as skipped. It still runs both thermal gates. A seating exception keeps the holding arm engaged and displays the hold; a timer does not turn an exception into a pass.
 
 ## Physical cabinet
 
-The existing 13-island glass mesh, source texture, source lens colors, one screen spill light and thermal profiles are preserved. `ProcessMode` selects a GPU LCD with three gate rows, body number, phase elapsed time and pass streak. Mode zero retains the original robot/cycle gauges for legacy fixtures. Material updates remain limited to 20 simulation-clock samples per second, with immediate updates for state transitions.
+The existing 13-island glass mesh, source texture/lens colors, one bounded spill light and thermal profiles are retained. Process LCD rows are `PANL`, `SEAL`, `SEAT` and `COOL`; a selected missing-panel branch uses an assembly state, rather than red fault styling. Legacy mode retains its original cycle gauges.
 
-Three existing green/red lens pairs show the gates:
-
-| Gate | Green button index | Red button index |
+| Process row | Green source-lens index | Red source-lens index |
 | --- | --- | --- |
-| Door NIR | 3 | 6 |
-| Adhesive thermal | 4 | 8 |
-| Weld cooling thermal | 5 | 9 |
+| Panel presence | 2 | 7 |
+| Adhesive readiness | 3 | 6 |
+| Panel seating | 4 | 8 |
+| Weld cooldown | 5 | 9 |
 
-Indices refer to `control_cabinets.json`, including its rectangular status LED at index zero. Green is steady after acceptance and pulses while inspecting/waiting. Red pulses on rejection or an unavailable model. Pending lenses retain only a faint backlight. Pause freezes blinking. These are display outputs, not instrumented electronics or safety controls.
+Indices reference the private cabinet placement metadata. The assembly branch uses green readiness and a blue LCD `ASMB` indication. Pausing freezes simulation-clock animation. These are display outputs, not live electronics or industrial safety controls. Regenerate `setup_control_cabinet.py` after shader edits, preserve legacy CabinetSmoke behavior, and inspect actual process text/lens exposure after rendering.
 
-Regenerate the private material with `unreal/Scripts/setup_control_cabinet.py` after editing `unreal/Shaders/ControlCabinet.usf`. Run CabinetSmoke and `scripts/verify_control_cabinet.py` to protect the legacy graphics, then inspect the process-specific gate states in a rendered process run. No new texture, render target, thermal surface or capture is added by the cabinet.
+## Stack lights and clamps
 
-## Stack light and fixtures
+Green shows mechanical work, amber shows inspection/cooling/pause, and flashing red shows a seating exception or transport failure. Presence R chooses assembly and does not trigger a rejection alarm. Clamps and the holding tool remain governed by the process state through extended inspections. Fixture movement is authored and does not establish clamp force or certified clearance.
 
-Process mode adds one red tower segment and its cap lazily: two bounded meshes, zero lights and zero thermal profiles. The legacy green/amber tower is unchanged when process mode has never been enabled.
+Hide cabinet displays and stack-light surfaces from each NIR/thermal model capture, including lazily created components. Leave panel geometry, clamps, grippers and other real occluders visible. Display hiding prevents later images from feeding earlier model decisions back to the classifier.
 
-- Green: body transfer or active welding.
-- Amber: inspection, cooling hold, or pause.
-- Flashing red: rejected body or model/transport error; it uses the simulation clock.
+## Verification
 
-Fixtures close over the first 0.35 seconds of the door-inspection phase, then stay closed through adhesive inspection, welding and weld cooling. They open for arrival, departure or return. This overrides the old fixed-cycle release time so an extended model or cooling hold cannot release the fixture prematurely. Fixture motion remains authored and does not certify industrial clearance or clamp force.
+The current two-bead `two-bead-live-v1` rendered model run completed assembly/preassembled/assembly with three departures and all six thermal acceptance audits; the final policy fixture passed 91 checks without model calls. These reports verify the exercised branches and controller behavior. They do not exhaust every possible HUD, LCD or lamp appearance: inspect branch, waiting, exception and skipped states after UI changes. The launcher validates a fresh session and explicit JSON verdict, not Windows exit code alone. See [current validation](validation.md).
 
-Hide the cabinet glass and the three stack-lamp surfaces from every model camera using `GetDisplaySurface()` and `HideProcessIndicatorsFrom()`. Keep clamps, supports and other physical occluders visible; reapply lamp hiding after the lazy red segment is created. This prevents a feedback path in which a later model invocation reads previous gate results from illuminated physical displays. Their world-space placement alone is not an evidence-isolation guarantee.
-
-## Launcher regression check
-
-The launcher validates the native smoke report as well as the Windows process exit code. Each launch has a new session ID; missing, stale or failed reports cannot pass. Model smoke requires the expected three body destinations and four successful thermal acceptance audits. Policy smoke requires every reported check to pass with no model requests.
-
-Run the CPU-only launcher regression suite with:
+The panel model smoke requires three departures with assembly/preassembled/assembly branches and six independent thermal acceptance audits. The CPU launcher regression checks synthetic reports without starting Unreal or loading model weights:
 
 ```powershell
 pwsh -NoProfile -File tests/test_process_launcher.ps1
 ```
 
-The script extracts the production validator from `run.ps1` and checks synthetic reports, including a simulated exit code zero paired with a failed report. It does not start Unreal or load assets/models. Results and synthetic fixtures are retained under ignored `artifacts/process-launcher-tests`; `-OutputDirectory` selects another output root.
+Old three-card/door-return reports are historical and do not validate these four-row indicators.

@@ -148,7 +148,7 @@ void ADarkFactoryWorld::CabinetSmokeTick(double Now) {
             Pause &= UI(11)==UI(12); Restored &= UI(8)==UI(10);
             for (const auto& Value:Views) {
                 const auto R=Value->AsObject(),P=R->GetObjectField(TEXT("panel"));
-                Counts &= R->GetNumberField(TEXT("thermal_profile_count"))==244 && P->GetNumberField(TEXT("mesh_count_added"))==0 && P->GetNumberField(TEXT("thermal_profiles_added"))==0 && P->GetNumberField(TEXT("light_count"))<=1;
+                Counts &= R->GetNumberField(TEXT("thermal_profile_count"))==240 && P->GetNumberField(TEXT("mesh_count_added"))==0 && P->GetNumberField(TEXT("thermal_profiles_added"))==0 && P->GetNumberField(TEXT("light_count"))<=1;
             }
         }
         CabinetReport->SetBoolField(TEXT("fixed_sensor_observer_parity"),Parity); CabinetReport->SetBoolField(TEXT("power_thermal_unchanged"),Thermal);

@@ -29,12 +29,15 @@ class ADarkFactoryCurtainPortal;
 class ADarkFactoryFactoryLights;
 class ADarkFactoryProcessController;
 class ADarkFactoryProcessScene;
+struct FDarkFactoryGraphicsQA;
 
 UCLASS()
 class DARKFACTORY_API ADarkFactoryWorld : public AActor {
     GENERATED_BODY()
 public:
     ADarkFactoryWorld();
+    // Set by the current map's game mode before BeginPlay; launcher flags win.
+    bool bPanelMapDefaults=false;
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;
@@ -67,8 +70,11 @@ public:
     bool AreRealismDetailsEnabled() const { return bRealismDetailsEnabled; }
     void SetRealismDetailsEnabled(bool Enabled);
     void SetFactoryLightsEnabled(bool Enabled);
+    static constexpr float DimVisibleLightScale=.7f;
     void SetRoofLightIntensity(float Lumens);
+    void SetObserverIndirectLightingEnabled(bool Enabled);
     float GetRoofLightIntensity() const { return RoofLightLumens; }
+    float GetActiveRoofLightIntensity() const { return RoofLightLumens*RoofLightOutputScale; }
     FString GetScenarioName() const;
     FString GetTruthLabel() const;
 private:
@@ -85,6 +91,7 @@ private:
     UPROPERTY() TObjectPtr<UPointLightComponent> IRLight;
     UPROPERTY() TArray<TObjectPtr<URectLightComponent>> RoofWindowLights;
     float RoofLightLumens = 80;
+    float RoofLightOutputScale = DimVisibleLightScale;
     UPROPERTY() TObjectPtr<ADarkFactoryFactoryLights> FactoryLights;
     UPROPERTY() TObjectPtr<ADarkFactoryThermalRig> ThermalRig;
     UPROPERTY() TObjectPtr<ADarkFactoryWeldingCell> WeldingCell;
@@ -98,6 +105,9 @@ private:
     UPROPERTY() TObjectPtr<ADarkFactoryProcessScene> ProcessScene;
     UPROPERTY() TObjectPtr<ADarkFactoryProcessController> ProcessController;
     bool bProcessEnabled=false;
+    bool bGraphicsQA=false;
+    TSharedPtr<FDarkFactoryGraphicsQA> GraphicsQA;
+    void GraphicsSmokeTick(double Now);
     // Dedicated native Chaos fixture. No controller, inference or training path.
     bool bCurtainQA=false,bCurtainStarted=false,bCurtainFinished=false;
     bool bCurtainPaused=false,bCurtainPauseDone=false;
@@ -273,5 +283,3 @@ private:
     void ApplyPlanRow();
     void AutomationTick(double Now);
 };
-
-

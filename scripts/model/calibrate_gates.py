@@ -40,17 +40,21 @@ def calibrate(report, contract):
             rows.append({**row, "decision": decision, "calibration_reason": reason})
         stages = {stage: summarize([r for r in rows if r["stage"] == stage]) for stage in contract["stages"]}
         overall = summarize(rows)
-        door_ok = stages["doors"].get("labelled_batches") == 12 and stages["doors"].get("correct") == 12
+        nir_stages = ("panel_presence", "panel_seated")
+        nir_ok = all(stages[name].get("labelled_batches", 0) >= 12
+            and stages[name].get("correct") == stages[name].get("labelled_batches")
+            and all(stages[name].get("per_class", {}).get(label, {}).get("support", 0) >= 3 for label in ("G", "R"))
+            for name in nir_stages)
         cool_recalls = {s: stages[s]["per_class"]["G"]["recall"] for s in ("adhesive", "weld")}
         high_cool_recall = all(value is not None and value >= .9 for value in cool_recalls.values())
-        qualified = door_ok and overall["false_proceed"] == 0 and high_cool_recall
+        qualified = nir_ok and overall["false_proceed"] == 0 and high_cool_recall
         outcomes.append({"threshold": threshold, "decision_policy": policy, "qualified": qualified,
-            "summary": overall, "per_stage": stages, "cool_recalls": cool_recalls,
+            "summary": overall, "per_stage": stages, "cool_recalls": cool_recalls, "nir_qualified": nir_ok,
             "decisions": [{"sample_id":r["sample_id"], "stage":r["stage"], "expected":r["expected_decision"], "decision":r["decision"]} for r in rows]})
     candidates = [o for o in outcomes if o["qualified"]]
     selected = max(candidates, key=lambda o: (sum(o["cool_recalls"].values()), o["threshold"])) if candidates else None
     return {"scope": "Offline validation-only policy calibration; no new model inference or test selection.",
-        "prespecified_grid": list(GRID), "criteria": "12/12 doors correct, zero false G, >=90% clear-cool G recall per thermal stage",
+        "prespecified_grid": list(GRID), "criteria": "Every NIR validation batch correct, at least 12 batches and 3 G/3 R per NIR stage; zero false G; >=90% clear-cool G recall per thermal stage",
         "tie_break": "Maximize combined clear-cool recall, then stricter threshold", "recommended_threshold": selected["threshold"] if selected else None,
         "outcomes": outcomes}
 

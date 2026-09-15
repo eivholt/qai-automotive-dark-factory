@@ -227,7 +227,7 @@ def verify(directory):
                 and near(pose.get('cycle_seconds'), cycle_time) and pose.get('cycle_index') == cycle_index
                 and near(pose.get('cycle_duration_seconds'), 21.) and pose.get('animation_enabled') is False
                 and pose.get('inference_enabled') is False and pose.get('training_enabled') is False)
-        require(prefix+'_source_geometry_counts', pose.get('mesh_count') == 76 and pose.get('joint_count') == 24
+        require(prefix+'_source_geometry_counts', pose.get('mesh_count') == 91 and pose.get('joint_count') == 24
                 and pose.get('body_panel_count') == 29 and pose.get('carriage_holder_count') == 2)
         load(prefix, stage.get('image'))
 

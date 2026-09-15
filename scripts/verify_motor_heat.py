@@ -129,7 +129,7 @@ def verify(directory):
     metrics['thermal_encoding'] = encodings[0]
     require('thermal_encoding_fixed', all(e == encodings[0] for e in encodings))
     require('linear_apparent_20_to_120C_encoding', all(e['width'] == 448 and e['height'] == 256 and e['min_temperature_c'] == 20 and e['max_temperature_c'] == 120
-            and e['ambient_temperature_c'] == 20 and e['band_um'] == [8, 14] and e['quantity'] == 'apparent_temperature' and e['linear_u8'] is True and e['lut_rows'] == 22 for e in encodings))
+            and e['ambient_temperature_c'] == 20 and e['band_um'] == [8, 14] and e['quantity'] == 'apparent_temperature' and e['linear_u8'] is True and e['lut_rows'] == 70 for e in encodings))
     thermal_profiles = []
     metrics['motor_model_self_checks'] = {}
     metrics['radiometry_caches'] = {}

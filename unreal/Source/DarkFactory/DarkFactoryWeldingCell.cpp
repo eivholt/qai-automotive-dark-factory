@@ -1,5 +1,6 @@
 #include "DarkFactoryWeldingCell.h"
 #include "DarkFactoryThermalRig.h"
+#include "DarkFactoryProcessTypes.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/BoxComponent.h"
@@ -21,6 +22,21 @@ namespace {
 constexpr double ApproachTimes[] = {0.,.20,.56,.80,1.};
 constexpr double MotorDutyStep=1./120.;
 constexpr double MotorAmbientC=20.;
+// The rear roof crossmember obstructs the authored panel-welding sweep.
+// Keep its source asset and legacy preview intact; process bodies omit it.
+const TCHAR* ProcessRemovedRoof=TEXT("SM_BodyPanel_0385");
+// Complete source decks and scaffolds move together: support the retained
+// forward clamps, with their rear ends ahead of the relocated robot plinths.
+const FVector ProcessFloorOffsets[]={FVector(70.,600.,0.),FVector(-80.,600.,0.)};
+// CPU FK/IK-authored camera poses for the imported robot_nx_ny chain, ordered
+// base/shoulder/elbow/forearm_roll/wrist/tool_roll. These visual trajectories
+// have a separate process envelope; the source welding limits stay unchanged.
+constexpr double InspectionPoseAngles[3][6]={
+    {.20291161690341683,19.41616904474995,8.970136629778356,.02810221653294898,-.936262352041913,.04559720616352198},
+    {18.12272923363434,20.011840168672226,12.366808389843781,-10.55376311394919,-9.17458595045043,-8.187771298205302},
+    {-1.1845869586489253,34.2108279877618,4.266951720556133,-27.485913451300778,-44.16891319732776,-51.2120748647157}
+};
+const TCHAR* InspectionJointRoles[]={TEXT("base"),TEXT("shoulder"),TEXT("elbow"),TEXT("forearm_roll"),TEXT("wrist"),TEXT("tool_roll")};
 bool Scalar(const TSharedPtr<FJsonObject>& O,const TCHAR* Key,double& V) {
     return O && O->TryGetNumberField(Key,V) && FMath::IsFinite(V);
 }
@@ -68,6 +84,7 @@ ADarkFactoryWeldingCell::ADarkFactoryWeldingCell() {
     PrimaryActorTick.TickGroup=TG_PrePhysics;
     SceneRoot=CreateDefaultSubobject<USceneComponent>(TEXT("WeldingCellRoot"));
     SetRootComponent(SceneRoot);
+    PanelPhase=EDarkFactoryProcessPhase::Arriving;
     CarriageRoot=CreateDefaultSubobject<USceneComponent>(TEXT("CarriageRoot"));
     CarriageRoot->SetupAttachment(SceneRoot);
     CarriageRoot->SetMobility(EComponentMobility::Movable);
@@ -264,7 +281,7 @@ FDarkFactoryRobotTiming ADarkFactoryWeldingCell::GetRobotTiming(int32 RobotIndex
         Timing.PreWeldDelaySeconds=.5+1.5*double(Second&0x00ffffffu)/16777215.;
     }
     Timing.ApproachStartSeconds=3.5+Timing.RestDelaySeconds;
-    Timing.ApproachEndSeconds=Timing.ApproachStartSeconds+1.;
+    Timing.ApproachEndSeconds=Timing.ApproachStartSeconds+GetRobotApproachDurationSeconds();
     Timing.WeldStartSeconds=Timing.ApproachEndSeconds+Timing.PreWeldDelaySeconds;
     Timing.WeldEndSeconds=Timing.WeldStartSeconds+7.5;
     Timing.WithdrawEndSeconds=Timing.WeldEndSeconds+1.;
@@ -282,9 +299,9 @@ double ADarkFactoryWeldingCell::RobotCanonicalPhase(int32 RobotIndex,double Seco
     const auto Timing=GetRobotTiming(RobotIndex,Seconds);
     if (!Timing.Valid) return 0.;
     const double T=Timing.CycleSeconds;
-    if (!bRandomizedRobotTiming) return T;
+    if (!bRandomizedRobotTiming && !bProcessControlled) return T;
     if (T<Timing.ApproachStartSeconds) return 0.;
-    if (T<Timing.ApproachEndSeconds) return 3.5+T-Timing.ApproachStartSeconds;
+    if (T<Timing.ApproachEndSeconds) return 3.5+(T-Timing.ApproachStartSeconds)/GetRobotApproachDurationSeconds();
     if (T<Timing.WeldStartSeconds) return 4.5; // Hold the first solved contact pose, with heat/emission off.
     if (T<Timing.WeldEndSeconds) return 4.5+T-Timing.WeldStartSeconds;
     if (T<Timing.WithdrawEndSeconds) return 12.+T-Timing.WeldEndSeconds;
@@ -311,6 +328,7 @@ FString ADarkFactoryWeldingCell::GetCyclePhaseName() const {
 }
 bool ADarkFactoryWeldingCell::IsWelding() const {
     if (!bLoaded || BodyComponents.IsEmpty() || (bProcessControlled && !bProcessPermitWelding)) return false;
+    if (bPanelAssembly) return !GetWeldEmitters().IsEmpty();
     for (int32 I=0;I<EmitterRigs.Num();++I) {
         if (bProcessControlled && I==3) continue;
         const auto R=GetRobotTiming(I,MotionSeconds);
@@ -321,6 +339,23 @@ bool ADarkFactoryWeldingCell::IsWelding() const {
 TArray<FDarkFactoryWeldEmitter> ADarkFactoryWeldingCell::GetWeldEmitters() const {
     TArray<FDarkFactoryWeldEmitter> Result;
     if (!bLoaded || BodyComponents.IsEmpty() || (bProcessControlled && !bProcessPermitWelding)) return Result;
+    if (bPanelAssembly) {
+        if (PanelPhase!=EDarkFactoryProcessPhase::Welding) return Result;
+        for (int32 Spot=0;Spot<PanelWeldCount;++Spot) {
+            const double Age=PanelPhaseSeconds-PanelWeldStartSeconds(Spot);
+            if (Age<0 || Age>=.5) continue;
+            const auto& Rig=EmitterRigs[PanelWelderRobot]; const auto* Joint=Rig.Joint.Get();
+            if (!Joint) return Result;
+            FDarkFactoryWeldEmitter E; E.Id=Rig.Id; E.EmitterIndex=PanelWelderRobot; E.SourceTool=Rig.SourceTool.Get();
+            E.Position=Joint->GetComponentTransform().TransformPosition(Rig.Position);
+            E.Direction=Joint->GetComponentTransform().TransformVectorNoScale(Rig.Direction).GetSafeNormal();
+            E.SurfacePosition=CarriageRoot->GetComponentTransform().TransformPosition(PanelContacts[Spot]);
+            E.SurfaceNormal=CarriageRoot->GetComponentTransform().TransformVectorNoScale(PanelContactNormals[Spot]).GetSafeNormal();
+            E.WeldAgeSeconds=Age; E.WeldDurationSeconds=.5;
+            E.Intensity=static_cast<float>(Smooth(Age/.04)*Smooth((.5-Age)/.04)); Result.Add(E);
+        }
+        return Result;
+    }
     for (int32 I=0;I<EmitterRigs.Num();++I) if (auto* Joint=EmitterRigs[I].Joint.Get()) {
         if (bProcessControlled && I==3) continue;
         const auto Timing=GetRobotTiming(I,MotionSeconds);
@@ -410,6 +445,7 @@ void ADarkFactoryWeldingCell::BuildHoses(const TMap<FName,USceneComponent*>& Par
         }
     }
     UpdateHoses();
+    UpdatePinchGun();
     UpdateToolHeat(MotionSeconds);
     UpdateBodyWeldHeat(MotionSeconds);
 }
@@ -449,13 +485,21 @@ void ADarkFactoryWeldingCell::SetMotionTime(double Seconds) {
     MotionSeconds=FMath::Min(Seconds,1.e9);
     const double T=GetCycleSeconds();
     for (auto& J:JointMotion) if (auto* Component=J.Component.Get()) {
-        J.Angle=EvaluateJointAngle(J,MotionSeconds);
+        J.Angle=bPanelAssembly && J.RobotIndex!=3 ? PanelJointAngle(J):EvaluateJointAngle(J,MotionSeconds);
         if (bProcessControlled && J.RobotIndex==3) {
-            // Only thermal gates deploy R4 to the existing elevated .80 pose.
-            // The controller advances extension on the pausable process clock.
             const double Blend=Smooth(ProcessInspectionExtension);
-            const double Raised=J.ApproachAngles.Num()==3 ? J.ApproachAngles[2]:J.RestAngle;
-            J.Angle=FMath::Lerp(J.RestAngle,Raised,Blend);
+            const int32 ScanJoint=InspectionJointIndices.IndexOfByKey(static_cast<int32>(&J-JointMotion.GetData()));
+            const double Active=bInspectionScanConfigured && ScanJoint!=INDEX_NONE
+                ? InspectionScanAngle(ScanJoint,ProcessClock):J.RestAngle;
+            if (bPanelAssembly && bPanelInspectionNIR && InspectionRequestedSpot==2 && ScanJoint!=INDEX_NONE && ProcessInspectionExtension<1.) {
+                // Retract the final NIR pose via spot0: the direct diagonal
+                // sweep crosses the adjacent parked welder. Endpoints, total
+                // withdrawal time and settled capture poses stay unchanged.
+                const double Via=PanelNIRInspectionPoses[0][ScanJoint];
+                J.Angle=ProcessInspectionExtension>.5
+                    ? FMath::Lerp(Via,Active,Smooth(2.*ProcessInspectionExtension-1.))
+                    : FMath::Lerp(J.RestAngle,Via,Smooth(2.*ProcessInspectionExtension));
+            } else J.Angle=FMath::Lerp(J.RestAngle,Active,Blend);
         }
         Component->SetRelativeRotation(J.RestRotation*FQuat(J.Axis,FMath::DegreesToRadians(J.Angle)));
     }
@@ -469,11 +513,15 @@ void ADarkFactoryWeldingCell::SetMotionTime(double Seconds) {
     CarriageRoot->SetRelativeLocation(FVector(0,Offset,0),false,nullptr,Jump ? ETeleportType::TeleportPhysics : ETeleportType::None);
     if (Visible!=bCarVisible) {
         bCarVisible=Visible;
-        for (const auto& Panel:BodyComponents) if (Panel) { Panel->SetVisibility(Visible); Panel->SetCollisionEnabled(Visible ? ECollisionEnabled::QueryOnly : ECollisionEnabled::NoCollision); }
+        for (const auto& Panel:BodyComponents) if (Panel) {
+            const bool Show=Visible && !(bPanelAssembly && Panel->GetFName()==FName(ProcessRemovedRoof));
+            Panel->SetVisibility(Show); Panel->SetCollisionEnabled(Show ? ECollisionEnabled::QueryOnly : ECollisionEnabled::NoCollision);
+        }
         for (const auto& Holder:HolderComponents) if (Holder) { Holder->SetVisibility(Visible); Holder->SetCollisionEnabled(Visible ? ECollisionEnabled::QueryOnly : ECollisionEnabled::NoCollision); }
         for (const auto& Box:CarriageColliders) if (Box) Box->SetCollisionEnabled(Visible ? ECollisionEnabled::QueryAndPhysics : ECollisionEnabled::NoCollision);
     }
     UpdateHoses();
+    UpdatePinchGun();
     UpdateToolHeat(MotionSeconds);
     UpdateBodyWeldHeat(MotionSeconds);
     UpdateMotorHeat(MotionSeconds);
@@ -488,9 +536,13 @@ TSharedRef<FJsonObject> ADarkFactoryWeldingCell::BuildRobotTimingMetadata(double
     Result->SetBoolField(TEXT("randomized"),bRandomizedRobotTiming); Result->SetNumberField(TEXT("seed"),RobotTimingSeed);
     Result->SetNumberField(TEXT("schedule_bank_cycles"),bRandomizedRobotTiming ? RobotTimingBankCycles:1);
     Result->SetNumberField(TEXT("cycle_duration_seconds"),GetCycleDurationSeconds());
+    Result->SetNumberField(TEXT("approach_duration_seconds"),GetRobotApproachDurationSeconds());
+    Result->SetNumberField(TEXT("approach_speed_scale"),bProcessControlled ? ProcessApproachSpeedScale:1.);
     Result->SetNumberField(TEXT("carriage_departure_start_seconds"),GetCarriageDepartureStartSeconds());
     Result->SetNumberField(TEXT("carriage_departure_end_seconds"),GetCarriageDepartureEndSeconds());
-    Result->SetStringField(TEXT("scope"),bRandomizedRobotTiming
+    Result->SetStringField(TEXT("scope"),bProcessControlled
+        ? TEXT("Process-only 1.25s approach / 7.5s welding / 1s withdrawal; unchanged seeded delays; carriage held until all robots park")
+        : bRandomizedRobotTiming
         ? TEXT("Per-robot seeded rest departure and pre-weld dwell; full1s approach/7.5s welding/1s withdrawal;16-cycle schedule repeats; carriage held until all robots park")
         : TEXT("Explicit QA-only18s synchronized fixture; does not validate default randomized timing"));
     TArray<TSharedPtr<FJsonValue>> Robots;
@@ -528,10 +580,12 @@ TSharedRef<FJsonObject> ADarkFactoryWeldingCell::BuildPreviewMetadata() const {
     O->SetNumberField(TEXT("cycle_seconds"),GetCycleSeconds()); O->SetStringField(TEXT("cycle_phase"),GetCyclePhaseName());
     O->SetBoolField(TEXT("welding_active"),IsWelding()); O->SetBoolField(TEXT("body_visible"),bCarVisible);
     O->SetNumberField(TEXT("carriage_holder_count"),HolderComponents.Num());
-    O->SetNumberField(TEXT("robot_approach_seconds"),1.); O->SetNumberField(TEXT("robot_withdraw_seconds"),1.);
+    O->SetNumberField(TEXT("robot_approach_seconds"),GetRobotApproachDurationSeconds()); O->SetNumberField(TEXT("robot_withdraw_seconds"),1.);
     O->SetObjectField(TEXT("robot_timing"),BuildRobotTimingMetadata(MotionSeconds));
     O->SetStringField(TEXT("motion_profile"),bDramaticApproach ? TEXT("dramatic-approach-v1"):TEXT("staged-fold-yaw-v1"));
-    O->SetStringField(TEXT("parking_sequence"),bDramaticApproach
+    O->SetStringField(TEXT("parking_sequence"),bProcessControlled
+        ? TEXT("Three authored approach poses over 1.25 seconds; reverse over one second, with unchanged rest and weld endpoints")
+        : bDramaticApproach
         ? TEXT("Three authored approach poses over one second; reverse poses on withdrawal, with unchanged rest and weld endpoints")
         : TEXT("Fold arm, then rotate base 180 degrees; reverse for approach"));
     TArray<TSharedPtr<FJsonValue>> ApproachTimeline;
@@ -660,17 +714,26 @@ bool ADarkFactoryWeldingCell::InitializeToolHeat() {
     return true;
 }
 void ADarkFactoryWeldingCell::BindThermalRig(ADarkFactoryThermalRig* Rig) {
-    ToolThermalRig=Rig; UpdateToolHeat(ToolHeatSeconds); UpdateBodyWeldHeat(BodyWeldHeatSeconds); UpdateMotorHeat(MotorHeatSeconds,MotorIdleSeconds);
+    ToolThermalRig=Rig; BindPanelSharedProfiles(); UpdateToolHeat(ToolHeatSeconds); UpdateBodyWeldHeat(BodyWeldHeatSeconds); UpdateMotorHeat(MotorHeatSeconds,MotorIdleSeconds);
 }
 void ADarkFactoryWeldingCell::SetToolHeatTimeForQA(double Seconds) {
     if (FMath::IsFinite(Seconds) && Seconds>=0) UpdateToolHeat(FMath::Min(Seconds,1.e9));
 }
 void ADarkFactoryWeldingCell::UpdateToolHeat(double Seconds) {
     ToolHeatSeconds=Seconds;
+    const double PanelDelta=bPanelAssembly && PanelToolHeatClock>=0 ? FMath::Max(0.,ProcessClock-PanelToolHeatClock):0.;
+    if (bPanelAssembly && PanelToolHeatClock>ProcessClock) for (auto& Rig:EmitterRigs) { Rig.BodyC=Rig.TipC=20; }
     for (int32 I=0;I<EmitterRigs.Num();++I) {
         auto& Rig=EmitterRigs[I]; auto* Tool=Rig.SourceTool.Get(); if (!Tool) continue;
-        Rig.BodyC=static_cast<float>(EvaluateToolTemperature(I,Rig.BodyCurve,Seconds));
-        Rig.TipC=FMath::Max(Rig.BodyC,static_cast<float>(EvaluateToolTemperature(I,Rig.TipCurve,Seconds)));
+        if (bPanelAssembly) {
+            const bool Active=I==PanelWelderRobot && IsWelding();
+            const double TargetBody=Active ? Rig.BodyCurve.Target:20.,TargetTip=Active ? Rig.TipCurve.Target:20.;
+            Rig.BodyC=TargetBody+(Rig.BodyC-TargetBody)*FMath::Exp(-PanelDelta/(Active ? Rig.BodyCurve.HeatingTau:Rig.BodyCurve.CoolingTau));
+            Rig.TipC=FMath::Max(Rig.BodyC,float(TargetTip+(Rig.TipC-TargetTip)*FMath::Exp(-PanelDelta/(Active ? Rig.TipCurve.HeatingTau:Rig.TipCurve.CoolingTau))));
+        } else {
+            Rig.BodyC=static_cast<float>(EvaluateToolTemperature(I,Rig.BodyCurve,Seconds));
+            Rig.TipC=FMath::Max(Rig.BodyC,static_cast<float>(EvaluateToolTemperature(I,Rig.TipCurve,Seconds)));
+        }
         const float Heat=FMath::Clamp((Rig.TipC-20.f)/480.f,0.f,1.f);
         Rig.Glow=150.f*Heat*Heat;
         const FVector Point=Tool->GetComponentTransform().TransformPosition(Rig.HeatTipLocal);
@@ -682,6 +745,7 @@ void ADarkFactoryWeldingCell::UpdateToolHeat(double Seconds) {
         }
         if (auto* Thermal=ToolThermalRig.Get()) Thermal->SetImportedToolHeat(Tool,Rig.BodyC,Rig.TipC,Rig.HeatTipLocal,ToolHeatRadiusCm);
     }
+    if (bPanelAssembly) PanelToolHeatClock=ProcessClock;
 }
 TSharedRef<FJsonObject> ADarkFactoryWeldingCell::BuildToolHeatMetadata() const {
     auto Result=MakeShared<FJsonObject>();
@@ -703,14 +767,16 @@ TSharedRef<FJsonObject> ADarkFactoryWeldingCell::BuildToolHeatMetadata() const {
     Result->SetArrayField(TEXT("tools"),Values); return Result;
 }
 
-double ADarkFactoryWeldingCell::EvaluateBodyWeldTemperature(int32 RobotIndex,double Seconds) const {
+double ADarkFactoryWeldingCell::EvaluateBodyWeldTemperature(int32 RobotIndex,double Seconds,bool Halo) const {
     // Each replacement body starts cold; only this robot's active weld heats its patch.
     if (bProcessControlled) {
         if (RobotIndex==3 || !bProcessWeldStarted) return 20.;
         const auto Timing=GetRobotTiming(RobotIndex,MotionSeconds);
         const double Age=ProcessClock-ProcessWeldEpoch-Timing.WeldStartSeconds;
         if (Age<=0) return 20.;
-        return 20.+400.*(1.-FMath::Exp(-FMath::Min(Age,7.5)/.65))*FMath::Exp(-FMath::Max(0.,Age-7.5)/2.5);
+        const double Peak=Halo ? ProcessWeldHaloPeakC:ProcessWeldCorePeakC;
+        const double CoolingTau=Halo ? 2.5:ProcessWeldCoreCoolingTauSeconds;
+        return 20.+(Peak-20.)*(1.-FMath::Exp(-FMath::Min(Age,7.5)/.65))*FMath::Exp(-FMath::Max(0.,Age-7.5)/CoolingTau);
     }
     const auto Timing=GetRobotTiming(RobotIndex,Seconds);
     if (!Timing.Valid || Timing.CycleSeconds<=Timing.WeldStartSeconds) return 20.;
@@ -783,13 +849,19 @@ void ADarkFactoryWeldingCell::SetWeldWitnessEnabled(bool Enabled) {
 }
 void ADarkFactoryWeldingCell::UpdateBodyWeldHeat(double Seconds) {
     BodyWeldHeatSeconds=Seconds;
+    // New assembly heat belongs to ProcessScene's current replacement panel.
+    // Never stamp the previous four unrelated body sites or the shared cold rack profile.
+    if (bPanelAssembly) return;
     for (auto& Spot:BodyWeldSpots) {
         const int32 RobotIndex=EmitterRigs.IndexOfByPredicate([&](const FEmitterRig& E){return E.Id==Spot.Id;});
         Spot.TemperatureC=static_cast<float>(EvaluateBodyWeldTemperature(RobotIndex,Seconds));
+        Spot.HaloTemperatureC=bProcessControlled ? static_cast<float>(EvaluateBodyWeldTemperature(RobotIndex,Seconds,true)):Spot.TemperatureC;
         const auto Timing=GetRobotTiming(RobotIndex,Seconds);
         const double WitnessAge=bProcessControlled ? (!bProcessWeldStarted || RobotIndex==3 ? -1.:ProcessClock-ProcessWeldEpoch-Timing.WeldStartSeconds):Timing.CycleSeconds-Timing.WeldStartSeconds;
         Spot.WitnessStrength=bWeldWitnessEnabled ? FMath::Clamp(static_cast<float>((WitnessAge-.2)/.8),0.f,1.f):0.f;
-        const float Incandescence=FMath::Clamp((Spot.TemperatureC-70.f)/350.f,0.f,1.f);
+        // Preserve the broad visible/NIR HAZ glow. The hotter exposed-metal
+        // core is a separate compact thermal proxy, never a 12 cm molten patch.
+        const float Incandescence=FMath::Clamp((Spot.HaloTemperatureC-70.f)/350.f,0.f,1.f);
         Spot.Glow=180.f*Incandescence*Incandescence;
     }
     for (const auto& Binding:BodyWeldMaterials) if (auto* Mesh=Binding.Mesh.Get()) {
@@ -797,8 +869,16 @@ void ADarkFactoryWeldingCell::UpdateBodyWeldHeat(double Seconds) {
         for (int32 Slot=0;Slot<Binding.SpotIndices.Num();++Slot) {
             const auto& Spot=BodyWeldSpots[Binding.SpotIndices[Slot]];
             const FVector Point=Mesh->GetComponentTransform().TransformPosition(Spot.LocalPosition);
-            FDarkFactoryWeldHeatPatch Patch; Patch.LocalPositionCm=Spot.LocalPosition; Patch.RadiusCm=Spot.RadiusCm; Patch.SurfaceC=Spot.TemperatureC;
-            Patches.Add(Patch);
+            const int32 RobotIndex=EmitterRigs.IndexOfByPredicate([&](const FEmitterRig& E){return E.Id==Spot.Id;});
+            if (!bProcessControlled || RobotIndex!=3) {
+                FDarkFactoryWeldHeatPatch Patch; Patch.LocalPositionCm=Spot.LocalPosition; Patch.RadiusCm=Spot.RadiusCm; Patch.SurfaceC=Spot.HaloTemperatureC;
+                Patches.Add(Patch);
+                if (bProcessControlled) {
+                    // The shader max-composes the compact hot core and cooler
+                    // halo; it does not sum their temperatures or see through metal.
+                    Patch.RadiusCm=ProcessWeldCoreRadiusCm; Patch.SurfaceC=Spot.TemperatureC; Patches.Add(Patch);
+                }
+            }
             for (const auto& Entry:Binding.Materials) if (auto* Material=Entry.Get()) {
                 Material->SetScalarParameterValue(TEXT("WeldWitnessEnabled"),bWeldWitnessEnabled ? 1.f:0.f);
                 Material->SetVectorParameterValue(FName(*FString::Printf(TEXT("WitnessCenter%d"),Slot)),FLinearColor(Point.X,Point.Y,Point.Z,1));
@@ -816,14 +896,22 @@ void ADarkFactoryWeldingCell::UpdateBodyWeldHeat(double Seconds) {
 }
 TSharedRef<FJsonObject> ADarkFactoryWeldingCell::BuildBodyWeldHeatMetadata() const {
     auto Result=MakeShared<FJsonObject>();
-    Result->SetStringField(TEXT("model"),TEXT("authored-local-body-weld-cooling-v1"));
-    Result->SetStringField(TEXT("scope"),TEXT("Four surface-bound heat fields over the authored short seams; no bulk sheet-metal conduction or calibrated spectral emission"));
+    Result->SetStringField(TEXT("model"),bProcessControlled ? TEXT("authored-exposed-weld-core-halo-v2"):TEXT("authored-local-body-weld-cooling-v1"));
+    Result->SetStringField(TEXT("scope"),bProcessControlled
+        ? TEXT("Three illustrative exposed-hot-metal cores, exaggerated 2 cm radius, within cooler 12 cm halos; maximum composition, not subsurface thermography or calibrated conduction")
+        : TEXT("Four surface-bound heat fields over the authored short seams; no bulk sheet-metal conduction or calibrated spectral emission"));
     Result->SetNumberField(TEXT("heat_time_seconds"),BodyWeldHeatSeconds);
     Result->SetBoolField(TEXT("witness_enabled"),bWeldWitnessEnabled);
     Result->SetObjectField(TEXT("robot_timing"),BuildRobotTimingMetadata(BodyWeldHeatSeconds));
     Result->SetNumberField(TEXT("body_index"),FMath::FloorToDouble(BodyWeldHeatSeconds/GetCycleDurationSeconds()));
     Result->SetNumberField(TEXT("heating_tau_seconds"),.65); Result->SetNumberField(TEXT("cooling_tau_seconds"),2.5);
-    Result->SetNumberField(TEXT("maximum_temperature_c"),420); Result->SetNumberField(TEXT("unique_heated_panels"),BodyWeldMaterials.Num());
+    Result->SetNumberField(TEXT("maximum_temperature_c"),bProcessControlled ? ProcessWeldCorePeakC:420.); Result->SetNumberField(TEXT("unique_heated_panels"),BodyWeldMaterials.Num());
+    if (bProcessControlled) {
+        Result->SetNumberField(TEXT("core_radius_cm"),ProcessWeldCoreRadiusCm);
+        Result->SetNumberField(TEXT("halo_peak_temperature_c"),ProcessWeldHaloPeakC);
+        Result->SetNumberField(TEXT("core_cooling_tau_seconds"),ProcessWeldCoreCoolingTauSeconds);
+        Result->SetStringField(TEXT("composition"),TEXT("maximum, not sum"));
+    }
     TArray<TSharedPtr<FJsonValue>> Values;
     for (const auto& Spot:BodyWeldSpots) if (const auto* Mesh=Spot.Mesh.Get()) {
         auto Value=MakeShared<FJsonObject>(); Value->SetStringField(TEXT("id"),Spot.Id); Value->SetStringField(TEXT("surface"),Mesh->GetName());
@@ -831,6 +919,7 @@ TSharedRef<FJsonObject> ADarkFactoryWeldingCell::BuildBodyWeldHeatMetadata() con
         Value->SetArrayField(TEXT("local_position_cm"),Vec(Spot.LocalPosition));
         Value->SetArrayField(TEXT("world_position_cm"),Vec(Mesh->GetComponentTransform().TransformPosition(Spot.LocalPosition)));
         Value->SetNumberField(TEXT("radius_cm"),Spot.RadiusCm); Value->SetNumberField(TEXT("temperature_c"),Spot.TemperatureC);
+        if (bProcessControlled) { Value->SetNumberField(TEXT("halo_temperature_c"),Spot.HaloTemperatureC); Value->SetNumberField(TEXT("core_radius_cm"),ProcessWeldCoreRadiusCm); }
         Value->SetArrayField(TEXT("world_normal"),Vec(Mesh->GetComponentTransform().TransformVectorNoScale(Spot.LocalNormal).GetSafeNormal()));
         Value->SetNumberField(TEXT("witness_strength"),Spot.WitnessStrength);
         Value->SetNumberField(TEXT("glow_strength"),Spot.Glow); Value->SetNumberField(TEXT("contact_error_cm"),Spot.ContactErrorCm);
@@ -977,6 +1066,11 @@ void ADarkFactoryWeldingCell::UpdateMotorHeat(double Seconds,double IdleSeconds)
         if (auto* Thermal=ToolThermalRig.Get()) Thermal->SetImportedCastingTemperature(Mesh,Rig.TemperatureC);
     }
 }
+void ADarkFactoryWeldingCell::SetProcessMotorCaptureVariation(int32 Seed) {
+    // Only offline episode capture calls this. Casting heat is independent of
+    // the target label and frozen across every view/case in the same episode.
+    bProcessMotorCaptureVariation=true; ProcessMotorCaptureSeed=Seed;
+}
 void ADarkFactoryWeldingCell::UpdateProcessMotorHeat() {
     // Unlike the repeating preview, a model gate can reject a body before any
     // welding movement. Integrate only the joint travel that actually occurred.
@@ -997,7 +1091,8 @@ void ADarkFactoryWeldingCell::UpdateProcessMotorHeat() {
             double Activity=0;
             for (int32 D=0;D<Rig.Drivers.Num();++D) {
                 const int32 Joint=Rig.Drivers[D];
-                const double Travel=FMath::Abs(JointMotion[Joint].Angle-ProcessPreviousJointAngles[Joint]);
+                const double Difference=JointMotion[Joint].Angle-ProcessPreviousJointAngles[Joint];
+                const double Travel=FMath::Abs(bPanelAssembly ? FMath::UnwindDegrees(Difference):Difference);
                 Activity+=Rig.DriverWeights[D]*FMath::Clamp(Travel/(Delta*Rig.ReferenceSpeed),0.,1.);
             }
             Rig.Activity=static_cast<float>(FMath::Clamp(Activity,0.,1.));
@@ -1011,6 +1106,13 @@ void ADarkFactoryWeldingCell::UpdateProcessMotorHeat() {
     // Sampling an equal-clock pose change is a QA seek, not infinite motor power.
     for (int32 J=0;J<JointMotion.Num();++J) ProcessPreviousJointAngles[J]=JointMotion[J].Angle;
     ProcessMotorLastClock=ProcessClock;
+    if (bProcessMotorCaptureVariation) {
+        FRandomStream Random(ProcessMotorCaptureSeed);
+        for (auto& Rig:MotorHeatRigs) {
+            Rig.TemperatureC=Random.FRandRange(MotorAmbientC,Rig.MaximumC);
+            Rig.Activity=0;
+        }
+    }
     for (const auto& Rig:MotorHeatRigs) if (auto* Mesh=Rig.Mesh.Get())
         if (auto* Thermal=ToolThermalRig.Get()) Thermal->SetImportedCastingTemperature(Mesh,Rig.TemperatureC);
 }
@@ -1018,6 +1120,7 @@ TSharedRef<FJsonObject> ADarkFactoryWeldingCell::BuildMotorHeatMetadata() const 
     auto Result=MakeShared<FJsonObject>();
     Result->SetStringField(TEXT("model"),bProcessControlled ? TEXT("actual-process-joint-duty-thermal-v1"):TEXT("authored-joint-duty-thermal-v1"));
     Result->SetStringField(TEXT("scope"),TEXT("Casting-wide illustrative drive activity from angular travel; static holding torque, motor efficiency and physical heat transport are not modeled. No visible/NIR emission."));
+    Result->SetBoolField(TEXT("offline_casting_heat_variation"),bProcessMotorCaptureVariation);
     Result->SetNumberField(TEXT("duty_time_seconds"),MotorHeatSeconds); Result->SetNumberField(TEXT("idle_seconds"),MotorIdleSeconds);
     Result->SetNumberField(TEXT("ambient_temperature_c"),MotorAmbientC); Result->SetNumberField(TEXT("cycle_duration_seconds"),GetCycleDurationSeconds());
     Result->SetObjectField(TEXT("robot_timing"),BuildRobotTimingMetadata(MotorHeatSeconds));
@@ -1055,6 +1158,7 @@ void ADarkFactoryWeldingCell::SetProcessControlled(bool Enabled) {
     if (Enabled) {
         ProcessInitialBodyC.Init(20.f,EmitterRigs.Num()); ProcessInitialTipC.Init(20.f,EmitterRigs.Num());
         ProcessWeldEpoch=0; bProcessWeldStarted=false; ProcessClock=ProcessBirthClock=0; ProcessInspectionExtension=0;
+        InitializeInspectionScan();
         ProcessMotorLastClock=0; ProcessMotorSampleSeconds=0; ProcessPreviousJointAngles.Reset(JointMotion.Num());
         for (const auto& Joint:JointMotion) ProcessPreviousJointAngles.Add(Joint.Angle);
     }
@@ -1068,6 +1172,7 @@ void ADarkFactoryWeldingCell::BeginProcessBody(int32 BodyIndex,double ClockSecon
         ProcessInitialBodyC[I]=EmitterRigs[I].BodyC; ProcessInitialTipC[I]=EmitterRigs[I].TipC;
     }
     ProcessBodyIndex=FMath::Max(0,BodyIndex); ProcessClock=ProcessBirthClock=ClockSeconds;
+    if (bPanelAssembly) bPanelHolderEngaged=false;
     ProcessWeldEpoch=0; bProcessWeldStarted=false; bProcessPermitWelding=false;
 }
 void ADarkFactoryWeldingCell::SetProcessFrame(double PoseSeconds,double ClockSeconds,double CarriageOffsetCm,bool Visible,bool PermitWelding,double InspectionExtension) {
@@ -1081,6 +1186,105 @@ void ADarkFactoryWeldingCell::SetProcessFrame(double PoseSeconds,double ClockSec
 USceneComponent* ADarkFactoryWeldingCell::GetInspectionJoint() const {
     return EmitterRigs.IsValidIndex(3) ? EmitterRigs[3].Joint.Get():nullptr;
 }
+void ADarkFactoryWeldingCell::InitializeInspectionScan() {
+    InspectionJointIndices.Reset(); InspectionScanFromAngles.Reset();
+    InspectionRequestedSpot=0; InspectionScanStartClock=-InspectionScanDurationSeconds;
+    bInspectionScanConfigured=false;
+    for (int32 ScanRole=0;ScanRole<6;++ScanRole) {
+        const FString Id=FString(TEXT("robot_nx_ny_"))+InspectionJointRoles[ScanRole];
+        const int32 Index=JointMotion.IndexOfByPredicate([&](const FJointMotion& J){ return J.Id==Id; });
+        if (Index==INDEX_NONE || !JointMotion[Index].Component.IsValid() || JointMotion[Index].ApproachAngles.Num()!=3
+            || FMath::Abs(JointMotion[Index].ApproachAngles[2]-InspectionPoseAngles[0][ScanRole])>.001) {
+            UE_LOG(LogTemp,Error,TEXT("R4 inspection scan requires its authored imported joint profile: %s"),*Id);
+            InspectionJointIndices.Reset(); InspectionScanFromAngles.Reset(); return;
+        }
+        InspectionJointIndices.Add(Index); InspectionScanFromAngles.Add(InspectionPoseAngles[0][ScanRole]);
+    }
+    bInspectionScanConfigured=true;
+}
+double ADarkFactoryWeldingCell::InspectionScanAngle(int32 JointIndex,double ClockSeconds) const {
+    const double Progress=FMath::Clamp((ClockSeconds-InspectionScanStartClock)/InspectionScanDurationSeconds,0.,1.);
+    return FMath::Lerp(InspectionScanFromAngles[JointIndex],InspectionTargetAngle(InspectionRequestedSpot,JointIndex),Smooth(Progress));
+}
+void ADarkFactoryWeldingCell::RequestInspectionSpot(int32 Spot,double ClockSeconds,bool Snap,bool NIR,bool Adhesive) {
+    if (!bProcessControlled || !bInspectionScanConfigured || Spot<0 || Spot>=3 || !FMath::IsFinite(ClockSeconds)) return;
+    if (Spot!=InspectionRequestedSpot || Snap || (bPanelAssembly && (NIR!=bPanelInspectionNIR || (Adhesive && !NIR)!=bPanelInspectionAdhesive))) {
+        // Latch the current scan pose before retargeting. Reading a camera pose
+        // never changes the robot, mount, simulation clock or motor heat.
+        for (int32 J=0;J<6;++J) InspectionScanFromAngles[J]=InspectionScanAngle(J,ProcessClock);
+        bPanelInspectionNIR=bPanelAssembly && NIR;
+        bPanelInspectionAdhesive=bPanelAssembly && Adhesive && !NIR;
+        InspectionRequestedSpot=Spot;
+        InspectionScanStartClock=Snap ? ClockSeconds-InspectionScanDurationSeconds:ClockSeconds;
+        if (Snap) for (int32 J=0;J<6;++J) InspectionScanFromAngles[J]=InspectionTargetAngle(Spot,J);
+    }
+}
+bool ADarkFactoryWeldingCell::IsInspectionSpotSettled(int32 Spot) const {
+    if (!bProcessControlled || !bInspectionScanConfigured || Spot!=InspectionRequestedSpot
+        || ProcessInspectionExtension<1.-1.e-6 || ProcessClock-InspectionScanStartClock<InspectionScanDurationSeconds-1.e-6) return false;
+    for (int32 J=0;J<6;++J)
+        if (FMath::Abs(JointMotion[InspectionJointIndices[J]].Angle-InspectionTargetAngle(Spot,J))>1.e-4) return false;
+    return true;
+}
+FTransform ADarkFactoryWeldingCell::GetInspectionCameraMountTransform() const {
+    return bPanelAssembly ? PanelInspectionMount:FTransform(FQuat(.010681581977827105,.33021788281088893,.6191164447113378,.7124162277533669).GetNormalized(),FVector(0,0,-24));
+}
+FTransform ADarkFactoryWeldingCell::InspectionEndpointTransform(int32 Spot) const {
+    FTransform World=SceneRoot->GetComponentTransform();
+    if (!bInspectionScanConfigured || Spot<0 || Spot>=3) return World;
+    for (int32 J=0;J<6;++J) {
+        const auto& Motion=JointMotion[InspectionJointIndices[J]];
+        const auto* Component=Motion.Component.Get();
+        const FTransform Local(Motion.RestRotation*FQuat(Motion.Axis,FMath::DegreesToRadians(InspectionTargetAngle(Spot,J))),
+            Component->GetRelativeLocation(),Component->GetRelativeScale3D());
+        World=Local*World;
+    }
+    const FTransform Mount=GetInspectionCameraMountTransform()*World;
+    return FTransform(Mount.GetRotation(),Mount.TransformPosition(FVector(21,0,0)));
+}
+TSharedRef<FJsonObject> ADarkFactoryWeldingCell::GetInspectionScanMetadata() const {
+    auto O=MakeShared<FJsonObject>();
+    O->SetStringField(TEXT("schema"),TEXT("authored-r4-inspection-scan-v1"));
+    O->SetStringField(TEXT("scope"),TEXT("Authored rigid camera mount and six-joint visual poses; not industrial collision certification"));
+    O->SetBoolField(TEXT("configured"),bInspectionScanConfigured);
+    O->SetStringField(TEXT("modality"),bPanelAssembly && bPanelInspectionNIR ? TEXT("nir"):TEXT("thermal"));
+    O->SetStringField(TEXT("scan_modality"),bPanelAssembly && bPanelInspectionNIR ? TEXT("nir"):TEXT("thermal"));
+    O->SetStringField(TEXT("scan_family"),bPanelAssembly && bPanelInspectionNIR ? TEXT("nir"):bPanelAssembly && bPanelInspectionAdhesive ? TEXT("adhesive"):TEXT("weld"));
+    O->SetNumberField(TEXT("requested_spot"),InspectionRequestedSpot);
+    O->SetBoolField(TEXT("settled"),IsInspectionSpotSettled(InspectionRequestedSpot));
+    O->SetNumberField(TEXT("transition_seconds"),InspectionScanDurationSeconds);
+    O->SetNumberField(TEXT("elapsed_seconds"),FMath::Clamp(ProcessClock-InspectionScanStartClock,0.,InspectionScanDurationSeconds));
+    O->SetNumberField(TEXT("progress"),FMath::Clamp((ProcessClock-InspectionScanStartClock)/InspectionScanDurationSeconds,0.,1.));
+    O->SetNumberField(TEXT("inspection_extension"),ProcessInspectionExtension);
+    const FTransform Mount=GetInspectionCameraMountTransform(); const FQuat Q=Mount.GetRotation();
+    O->SetArrayField(TEXT("fixed_mount_location_cm"),Vec(Mount.GetLocation()));
+    O->SetArrayField(TEXT("fixed_mount_quaternion_xyzw"),{MakeShared<FJsonValueNumber>(Q.X),MakeShared<FJsonValueNumber>(Q.Y),MakeShared<FJsonValueNumber>(Q.Z),MakeShared<FJsonValueNumber>(Q.W)});
+    O->SetArrayField(TEXT("optical_offset_cm"),Vec(FVector(21,0,0)));
+    TArray<TSharedPtr<FJsonValue>> Ids,Current,Target,Poses;
+    if (bInspectionScanConfigured) {
+        for (int32 J=0;J<6;++J) {
+            const auto& Motion=JointMotion[InspectionJointIndices[J]];
+            Ids.Add(MakeShared<FJsonValueString>(Motion.Id)); Current.Add(MakeShared<FJsonValueNumber>(Motion.Angle));
+            Target.Add(MakeShared<FJsonValueNumber>(InspectionTargetAngle(InspectionRequestedSpot,J)));
+        }
+        for (int32 Spot=0;Spot<3;++Spot) {
+            auto P=MakeShared<FJsonObject>(); P->SetNumberField(TEXT("spot_index"),Spot);
+            TArray<TSharedPtr<FJsonValue>> Angles; for (int32 J=0;J<6;++J) Angles.Add(MakeShared<FJsonValueNumber>(InspectionTargetAngle(Spot,J)));
+            P->SetArrayField(TEXT("joint_angles_deg"),Angles);
+            const FTransform Lens=InspectionEndpointTransform(Spot); const FRotator R=Lens.Rotator();
+            P->SetArrayField(TEXT("lens_location_cm"),Vec(Lens.GetLocation()));
+            P->SetArrayField(TEXT("lens_rotation_deg"),Vec(FVector(R.Pitch,R.Yaw,R.Roll))); Poses.Add(MakeShared<FJsonValueObject>(P));
+        }
+    }
+    O->SetArrayField(TEXT("joint_ids"),Ids); O->SetArrayField(TEXT("current_joint_angles_deg"),Current);
+    O->SetArrayField(TEXT("target_joint_angles_deg"),Target); O->SetArrayField(TEXT("poses"),Poses);
+    if (const auto* Joint=GetInspectionJoint()) {
+        const FTransform Actual=Mount*Joint->GetComponentTransform(); const FRotator R=Actual.Rotator();
+        O->SetArrayField(TEXT("lens_location_cm"),Vec(Actual.TransformPosition(FVector(21,0,0))));
+        O->SetArrayField(TEXT("lens_rotation_deg"),Vec(FVector(R.Pitch,R.Yaw,R.Roll)));
+    }
+    return O;
+}
 UStaticMeshComponent* ADarkFactoryWeldingCell::FindSceneMesh(const FString& Name) const {
     for (const auto& Mesh:MeshComponents) if (Mesh && Mesh->GetName()==Name) return Mesh;
     return nullptr;
@@ -1090,5 +1294,627 @@ bool ADarkFactoryWeldingCell::GetWeldSite(int32 Index,FVector& LocalPosition,FVe
     LocalPosition=EmitterRigs[Index].SurfacePositions[2]; LocalNormal=EmitterRigs[Index].SurfaceNormals[2]; return true;
 }
 float ADarkFactoryWeldingCell::GetMaximumProcessWeldC() const {
-    float Maximum=23; for (const auto& Spot:BodyWeldSpots) Maximum=FMath::Max(Maximum,Spot.TemperatureC); return Maximum;
+    float Maximum=23; for (const auto& Spot:BodyWeldSpots) Maximum=FMath::Max3(Maximum,Spot.TemperatureC,Spot.HaloTemperatureC); return Maximum;
+}
+
+
+double ADarkFactoryWeldingCell::InspectionTargetAngle(int32 Spot,int32 Joint) const {
+    return bPanelAssembly && PanelInspectionPoses.IsValidIndex(Spot)
+        ? (bPanelInspectionNIR ? PanelNIRInspectionPoses[Spot][Joint]:bPanelInspectionAdhesive ? PanelAdhesiveInspectionPoses[Spot][Joint]:PanelInspectionPoses[Spot][Joint]):InspectionPoseAngles[Spot][Joint];
+}
+
+FString ADarkFactoryWeldingCell::GetPanelFramePath() const {
+    return FPaths::Combine(FPaths::GetPath(ManifestPath),TEXT("panel_frame.meshbin"));
+}
+bool ADarkFactoryWeldingCell::InitializePanelAssembly() {
+    if (bPanelAssembly) return true;
+    if (!bLoaded || !bProcessControlled || !bInspectionScanConfigured) return false;
+    const FString Path=FPaths::Combine(FPaths::GetPath(ManifestPath),TEXT("panel_assembly.json"));
+    FString Text; TSharedPtr<FJsonObject> Layout;
+    if (IFileManager::Get().FileSize(*Path)>256*1024 || !FFileHelper::LoadFileToString(Text,*Path)
+        || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text),Layout) || !Layout
+        || Layout->GetStringField(TEXT("schema"))!=TEXT("panel-assembly-authored-poses-v1")) return false;
+    auto Rows=[&](const TCHAR* Key,int32 Count,TArray<TArray<double>>& Output) {
+        const TArray<TSharedPtr<FJsonValue>>* Values=nullptr;
+        if (!Layout->TryGetArrayField(Key,Values) || Values->Num()!=Count) return false;
+        Output.Reset();
+        for (const auto& Value:*Values) {
+            const TArray<TSharedPtr<FJsonValue>>* Angles=nullptr;
+            if (!Value->TryGetArray(Angles) || Angles->Num()!=6) return false;
+            TArray<double> Row;
+            for (const auto& A:*Angles) { double D=0; if (!A->TryGetNumber(D) || !FMath::IsFinite(D) || FMath::Abs(D)>270) return false; Row.Add(D); }
+            Output.Add(Row);
+        }
+        return true;
+    };
+    if (!Rows(TEXT("poses"),18,PanelAssemblyPoses) || !Rows(TEXT("welder_waypoints"),3,PanelWelderWaypoints)
+        || !Rows(TEXT("weld_cross_poses"),51,PanelWeldCrossPoses)
+        || !Rows(TEXT("weld_poses"),PanelWeldCount,PanelWeldPoses)
+        || !Rows(TEXT("adhesive_waypoints"),7,PanelAdhesiveWaypoints) || !Rows(TEXT("holder_waypoints"),10,PanelHolderWaypoints)
+        || !Rows(TEXT("camera_poses"),3,PanelInspectionPoses)
+        || !Rows(TEXT("nir_camera_poses"),3,PanelNIRInspectionPoses)
+        || !Rows(TEXT("adhesive_inspection_poses"),3,PanelAdhesiveInspectionPoses)
+        || !Rows(TEXT("adhesive_stroke_poses"),82,PanelAdhesiveStrokePoses)) return false;
+    if (!Layout->TryGetStringField(TEXT("authoring_sha256"),PanelAuthoringSHA256) || PanelAuthoringSHA256.Len()!=64
+        || !Layout->TryGetStringField(TEXT("motion_recipe"),PanelMotionRecipe) || PanelMotionRecipe.Len()>128
+        || !Layout->TryGetStringField(TEXT("layout_recipe"),PanelLayoutRecipe) || PanelLayoutRecipe!=TEXT("left-stations-swapped-v1")) return false;
+    double HolderOffset=0,HolderStem=0;
+    const TArray<TSharedPtr<FJsonValue>>* AdhesiveRest=nullptr;
+    if (!Scalar(Layout,TEXT("holder_offset_cm"),HolderOffset) || HolderOffset<80 || HolderOffset>200
+        || !Scalar(Layout,TEXT("holder_stem_length_cm"),HolderStem) || HolderStem<50 || HolderStem>170
+        || FMath::Abs(HolderOffset-HolderStem-28.)>.001
+        || !Layout->TryGetArrayField(TEXT("adhesive_rest_pose"),AdhesiveRest) || AdhesiveRest->Num()!=6) return false;
+    double SeatingLift=0;
+    if (!Scalar(Layout,TEXT("panel_seating_lift_cm"),SeatingLift)
+        || FMath::Abs(SeatingLift-PanelSeatingLiftCm)>.00001) return false;
+    FVector HolderPanelOffset;
+    if (!Vector(Layout,TEXT("holder_panel_offset_cm"),HolderPanelOffset)
+        || FMath::Abs(HolderPanelOffset.Z+HolderOffset)>.001
+        || FVector2D(HolderPanelOffset.X,HolderPanelOffset.Y).Size()>75.) return false;
+    const TArray<TSharedPtr<FJsonValue>>* HolderQValues=nullptr;
+    if (!Layout->TryGetArrayField(TEXT("holder_panel_quaternion_xyzw"),HolderQValues) || HolderQValues->Num()!=4) return false;
+    double HQ[4]; for (int32 I=0;I<4;++I) if (!(*HolderQValues)[I]->TryGetNumber(HQ[I]) || !FMath::IsFinite(HQ[I])) return false;
+    FQuat HolderPanelRotation(HQ[0],HQ[1],HQ[2],HQ[3]);
+    if (FMath::Abs(HolderPanelRotation.SizeSquared()-1.)>.00001) return false;
+    HolderPanelRotation.Normalize();
+    struct FGripPadMount { FVector Anchor,Contact,Normal; double Diameter=0; };
+    TArray<FGripPadMount> GripPads;
+    const TArray<TSharedPtr<FJsonValue>>* GripPadValues=nullptr;
+    if (!Layout->TryGetArrayField(TEXT("gripper_pad_mounts"),GripPadValues) || GripPadValues->Num()!=4) return false;
+    for (const auto& Value:*GripPadValues) {
+        const auto Pad=Value->AsObject(); FGripPadMount Mount;
+        if (!Pad || !Vector(Pad,TEXT("anchor_cm"),Mount.Anchor) || !Vector(Pad,TEXT("contact_cm"),Mount.Contact)
+            || !Vector(Pad,TEXT("normal"),Mount.Normal) || FMath::Abs(Mount.Normal.SizeSquared()-1.)>.001
+            || !Scalar(Pad,TEXT("diameter_cm"),Mount.Diameter) || Mount.Diameter<6. || Mount.Diameter>13.
+            || Mount.Anchor.Size()>300. || Mount.Contact.Size()>300.) return false;
+        const double RodLength=(Mount.Anchor-(Mount.Contact+Mount.Normal*3.)).Size();
+        if (RodLength<1. || RodLength>80.) return false;
+        GripPads.Add(Mount);
+    }
+    TArray<double> AdhesiveRestAngles;
+    for (const auto& A:*AdhesiveRest) { double V=0; if (!A->TryGetNumber(V) || !FMath::IsFinite(V) || FMath::Abs(V)>270) return false; AdhesiveRestAngles.Add(V); }
+
+    TArray<double> WelderRestAngles,InspectionRestAngles;
+    const TArray<TSharedPtr<FJsonValue>> *WelderRest=nullptr,*InspectionRest=nullptr,*GunQValues=nullptr;
+    FVector GunTranslation; double GunScale=0; FString GunMountRecipe;
+    if (!Layout->TryGetArrayField(TEXT("welder_rest_pose"),WelderRest) || WelderRest->Num()!=6
+        || !Layout->TryGetArrayField(TEXT("inspection_rest_pose"),InspectionRest) || InspectionRest->Num()!=6
+        || !Layout->TryGetStringField(TEXT("source_welder_mount_recipe"),GunMountRecipe) || GunMountRecipe!=TEXT("native-cap-direct-v1")
+        || !Layout->TryGetArrayField(TEXT("source_welder_mount_quaternion_xyzw"),GunQValues) || GunQValues->Num()!=4
+        || !Vector(Layout,TEXT("source_welder_mount_translation_cm"),GunTranslation)
+        || !Scalar(Layout,TEXT("source_welder_scale"),GunScale) || FMath::Abs(GunScale-.7)>.00001) return false;
+    for (const auto& A:*WelderRest) { double V=0; if (!A->TryGetNumber(V) || !FMath::IsFinite(V) || FMath::Abs(V)>270) return false; WelderRestAngles.Add(V); }
+    for (const auto& A:*InspectionRest) { double V=0; if (!A->TryGetNumber(V) || !FMath::IsFinite(V) || FMath::Abs(V)>270) return false; InspectionRestAngles.Add(V); }
+    double GQ[4];
+    for (int32 I=0;I<4;++I) if (!(*GunQValues)[I]->TryGetNumber(GQ[I]) || !FMath::IsFinite(GQ[I])) return false;
+    FQuat GunRotation(GQ[0],GQ[1],GQ[2],GQ[3]);
+    if (FMath::Abs(GunRotation.SizeSquared()-1.)>.00001) return false;
+    GunRotation.Normalize();
+    const FTransform DirectGunMount(GunRotation,GunTranslation,FVector(GunScale));
+    // The actual source mating cap stays on the native wrist flange. A long
+    // translation or tilted attachment must not silently reintroduce a spacer.
+    const FVector CapCenter(.05189510,.03320415,-6.88595441),CapNormal(-.00753607,-.00482182,.999959978);
+    if (!DirectGunMount.TransformPosition(CapCenter).Equals(CapCenter,.001)
+        || FVector::DotProduct(GunRotation.RotateVector(CapNormal),CapNormal)<.999999) return false;
+
+    const TArray<TSharedPtr<FJsonValue>>* CameraQValues=nullptr; FVector CameraTranslation;
+    if (!Layout->TryGetArrayField(TEXT("inspection_mount_quaternion_xyzw"),CameraQValues) || CameraQValues->Num()!=4
+        || !Vector(Layout,TEXT("inspection_mount_translation_cm"),CameraTranslation)
+        || !CameraTranslation.Equals(FVector(0,0,-24),.00001)) return false;
+    double CQ[4]; for (int32 I=0;I<4;++I) if (!(*CameraQValues)[I]->TryGetNumber(CQ[I]) || !FMath::IsFinite(CQ[I])) return false;
+    FQuat CameraRotation(CQ[0],CQ[1],CQ[2],CQ[3]);
+    if (FMath::Abs(CameraRotation.SizeSquared()-1.)>.00001) return false;
+    CameraRotation.Normalize();
+    const FTransform InspectionMount(CameraRotation,CameraTranslation);
+
+    const TArray<TSharedPtr<FJsonValue>>* Paths=nullptr;
+    if (!Layout->TryGetArrayField(TEXT("adhesive_paths"),Paths) || Paths->Num()!=2) return false;
+    PanelAdhesivePathPoints.Reset(); PanelAdhesivePathNormals.Reset(); PanelAdhesivePathProgress.Reset();
+    for (const auto& Value:*Paths) {
+        const auto Object=Value->AsObject();
+        const TArray<TSharedPtr<FJsonValue>> *Points=nullptr,*Normals=nullptr,*Progress=nullptr;
+        if (!Object || !Object->TryGetArrayField(TEXT("points_cm"),Points) || Points->Num()!=41
+            || !Object->TryGetArrayField(TEXT("normals"),Normals) || Normals->Num()!=41
+            || !Object->TryGetArrayField(TEXT("progress"),Progress) || Progress->Num()!=41) return false;
+        TArray<FVector> P,N; TArray<double> U;
+        for (int32 I=0;I<41;++I) {
+            const auto& PA=(*Points)[I]->AsArray(); const auto& NA=(*Normals)[I]->AsArray();
+            if (PA.Num()!=3 || NA.Num()!=3) return false;
+            const FVector PP(PA[0]->AsNumber(),PA[1]->AsNumber(),PA[2]->AsNumber()),NN(NA[0]->AsNumber(),NA[1]->AsNumber(),NA[2]->AsNumber());
+            double UU=0; if (PP.ContainsNaN() || NN.ContainsNaN() || PP.Size()>5000 || FMath::Abs(NN.SizeSquared()-1.)>.001
+                || !(*Progress)[I]->TryGetNumber(UU) || !FMath::IsFinite(UU) || UU<0 || UU>1 || (I>0 && UU<=U.Last())) return false;
+            P.Add(PP); N.Add(NN); U.Add(UU);
+        }
+        if (FMath::Abs(U[0])>1.e-8 || FMath::Abs(U.Last()-1.)>1.e-8) return false;
+        PanelAdhesivePathPoints.Add(P); PanelAdhesivePathNormals.Add(N); PanelAdhesivePathProgress.Add(U);
+    }
+    const TArray<TSharedPtr<FJsonValue>> *Offsets=nullptr,*PedestalOffsetsJSON=nullptr,*Contacts=nullptr,*RotationValues=nullptr;
+    FVector SupplyDelta;
+    if (!Layout->TryGetArrayField(TEXT("base_offsets_cm"),Offsets) || Offsets->Num()!=4
+        || !Layout->TryGetArrayField(TEXT("pedestal_offsets_cm"),PedestalOffsetsJSON) || PedestalOffsetsJSON->Num()!=3
+        || !Layout->TryGetArrayField(TEXT("contacts"),Contacts) || Contacts->Num()!=PanelWeldCount
+        || !Layout->TryGetArrayField(TEXT("supply_panel_quaternion_xyzw"),RotationValues) || RotationValues->Num()!=4
+        || !Vector(Layout,TEXT("supply_delta_cm"),SupplyDelta)) return false;
+    TArray<FVector> BaseOffsets;
+    for (const auto& Value:*Offsets) {
+        const auto& A=Value->AsArray(); if (A.Num()!=3) return false;
+        FVector V(A[0]->AsNumber(),A[1]->AsNumber(),A[2]->AsNumber()); if (V.ContainsNaN() || V.Size()>1000) return false;
+        BaseOffsets.Add(V);
+    }
+    TArray<FVector> PedestalOffsets;
+    for (const auto& Value:*PedestalOffsetsJSON) {
+        const TArray<TSharedPtr<FJsonValue>>* A=nullptr;
+        if (!Value->TryGetArray(A) || A->Num()!=3) return false;
+        double V[3]; for (int32 I=0;I<3;++I) if (!(*A)[I]->TryGetNumber(V[I]) || !FMath::IsFinite(V[I])) return false;
+        const FVector Offset(V[0],V[1],V[2]); if (Offset.Size()>1000) return false; PedestalOffsets.Add(Offset);
+    }
+    PanelContacts.Reset(); PanelContactNormals.Reset();
+    for (const auto& Value:*Contacts) {
+        FVector P,N; if (!Vector(Value->AsObject(),TEXT("position_cm"),P) || !Vector(Value->AsObject(),TEXT("normal"),N) || N.IsNearlyZero()) return false;
+        PanelContacts.Add(P); PanelContactNormals.Add(N.GetSafeNormal());
+    }
+    PanelSupplyRotation=FQuat((*RotationValues)[0]->AsNumber(),(*RotationValues)[1]->AsNumber(),(*RotationValues)[2]->AsNumber(),(*RotationValues)[3]->AsNumber());
+    if (PanelSupplyRotation.ContainsNaN() || FMath::Abs(PanelSupplyRotation.SizeSquared()-1.)>.001) return false;
+    PanelSupplyRotation.Normalize();
+    const TCHAR* Required[]={TEXT("SM_AssemblyFence_Black"),TEXT("SM_AssemblyFence_Yellow"),TEXT("SM_AssemblyPedestal_R1"),TEXT("SM_AssemblyPedestal_R2"),TEXT("SM_AssemblyPedestal_R4"),TEXT("SM_AssemblyFloorFixture_R1"),TEXT("SM_AssemblyFloorFixture_R2"),TEXT("SM_AssemblyFloorDeck_R1"),TEXT("SM_AssemblyFloorDeck_R2"),TEXT("SM_PanelSupply_Rack"),TEXT("SM_BodyPanel_0386")};
+    for (const TCHAR* Name:Required) if (!FindSceneMesh(Name)) return false;
+    auto* RearRoof=FindSceneMesh(ProcessRemovedRoof);
+    UBoxComponent* RoofCollider=nullptr;
+    for (const auto& Shape:CarriageColliders) if (Shape && Shape->GetFName()==FName(TEXT("CarriageRoof"))) RoofCollider=Shape;
+    FBox RetainedRoof(ForceInit);
+    for (const auto& Panel:BodyComponents) if (Panel && Panel!=RearRoof && Panel->GetStaticMesh()) {
+        // Carriage-local bounds remain valid even if initialization follows a seek.
+        const FBox Bounds=Panel->GetStaticMesh()->GetBoundingBox().TransformBy(Panel->GetRelativeTransform());
+        if (Bounds.Min.Z>WorkingBodyBounds.Max.Z-40.) RetainedRoof+=Bounds;
+    }
+    if (!RearRoof || !RoofCollider || !RetainedRoof.IsValid) return false;
+    PanelSupplyMeshes.Reset();
+    for (int32 I=0;I<5;++I) { auto* M=FindSceneMesh(FString::Printf(TEXT("SM_PanelSupply_%d"),I)); if (!M) return false; PanelSupplyMeshes.Add(M); }
+    auto* Cube=LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube.Cube"));
+    auto* Cylinder=LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+    auto* Cone=LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cone.Cone"));
+    auto* ToolMaterial=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Materials/M_PanelTool.M_PanelTool"));
+    auto* RackBar=LoadObject<UStaticMesh>(nullptr,TEXT("/Game/WeldingCell/Meshes/SM_PanelGripperRackBar.SM_PanelGripperRackBar"));
+    auto* RackMaterial=FindSceneMesh(TEXT("SM_PanelSupply_Rack"))->GetMaterial(0);
+    if (!Cube || !Cylinder || !Cone || !ToolMaterial || !RackBar || !RackMaterial || RackBar->GetBoundingBox().GetSize().GetMin()<.1) return false;
+    for (int32 I=0;I<4;++I) if (!FindSceneMesh(TEXT("SM_")+EmitterRigs[I].Id+TEXT("_fixed_base"))) return false;
+    const TSharedPtr<FJsonObject>* Pinch=nullptr;
+    FVector PinchTCP=FVector::ZeroVector,PinchDirection=FVector::UpVector; FString PinchRecipe;
+    if (!Layout->TryGetObjectField(TEXT("pinch_gun"),Pinch) || !Pinch || !Pinch->IsValid()
+        || !(*Pinch)->TryGetStringField(TEXT("recipe"),PinchRecipe) || PinchRecipe!=TEXT("source-two-hinge-pinch-v1")
+        || !Vector(*Pinch,TEXT("hinge_axis"),PinchAxis) || FMath::Abs(PinchAxis.SizeSquared()-1.)>.001
+        || !Vector(*Pinch,TEXT("tcp_cm"),PinchTCP) || PinchTCP.Size()>150. || !Vector(*Pinch,TEXT("pinch_axis"),PinchDirection) || FMath::Abs(PinchDirection.SizeSquared()-1.)>.001
+        || !Scalar(*Pinch,TEXT("clamp_angle_deg"),PinchClampAngle) || PinchClampAngle<0 || PinchClampAngle>5
+        || !Scalar(*Pinch,TEXT("open_angle_deg"),PinchOpenAngle) || PinchOpenAngle<5 || PinchOpenAngle>20) return false;
+    const TArray<TSharedPtr<FJsonValue>> *Pivots=nullptr,*Tips=nullptr;
+    if (!(*Pinch)->TryGetArrayField(TEXT("hinge_pivots_cm"),Pivots) || Pivots->Num()!=2
+        || !(*Pinch)->TryGetArrayField(TEXT("source_tip_centers_cm"),Tips) || Tips->Num()!=2) return false;
+    for (int32 I=0;I<2;++I) {
+        const TArray<TSharedPtr<FJsonValue>> *P=nullptr,*T=nullptr;
+        if (!(*Pivots)[I]->TryGetArray(P) || P->Num()!=3 || !(*Tips)[I]->TryGetArray(T) || T->Num()!=3) return false;
+        double PV[3],TV[3];
+        for (int32 K=0;K<3;++K) if (!(*P)[K]->TryGetNumber(PV[K]) || !(*T)[K]->TryGetNumber(TV[K]) || !FMath::IsFinite(PV[K]) || !FMath::IsFinite(TV[K])) return false;
+        PinchPivots[I]=FVector(PV[0],PV[1],PV[2]); PinchTips[I]=FVector(TV[0],TV[1],TV[2]);
+        if (PinchPivots[I].Size()>150 || PinchTips[I].Size()>150) return false;
+    }
+    const TCHAR* PinchNames[]={TEXT("SM_ProcessPinchChassis"),TEXT("SM_ProcessPinchJawA"),TEXT("SM_ProcessPinchJawB")};
+    TArray<UStaticMesh*> PinchAssets;
+    for (const TCHAR* Name:PinchNames) {
+        auto* Asset=LoadObject<UStaticMesh>(nullptr,*FString::Printf(TEXT("/Game/WeldingCell/Meshes/%s.%s"),Name,Name));
+        if (!Asset) return false; PinchAssets.Add(Asset);
+    }
+    // All validation precedes mutation. The original FBX and source grouping stay intact.
+    RearRoof->SetVisibility(false); RearRoof->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    // Trim the curtain collider too, so no invisible roof remains in the opening.
+    RoofCollider->SetRelativeLocation(RetainedRoof.GetCenter());
+    RoofCollider->SetBoxExtent(FVector(RetainedRoof.GetExtent().X,RetainedRoof.GetExtent().Y,7.));
+    PanelInspectionMount=InspectionMount;
+    for (auto& J:JointMotion) if (BaseOffsets.IsValidIndex(J.RobotIndex) && J.Id.EndsWith(TEXT("_base")))
+        if (auto* C=J.Component.Get()) C->SetRelativeLocation(C->GetRelativeLocation()+BaseOffsets[J.RobotIndex]);
+    for (int32 I=0;I<4;++I) {
+        auto* Base=FindSceneMesh(TEXT("SM_")+EmitterRigs[I].Id+TEXT("_fixed_base"));
+        Base->SetRelativeLocation(Base->GetRelativeLocation()+BaseOffsets[I]);
+    }
+    // Pedestals belong to physical stations, independently of logical tool roles.
+    const TCHAR* PedestalNames[]={TEXT("SM_AssemblyPedestal_R1"),TEXT("SM_AssemblyPedestal_R2"),TEXT("SM_AssemblyPedestal_R4")};
+    for (int32 I=0;I<3;++I) {
+        auto* Pedestal=FindSceneMesh(PedestalNames[I]);
+        Pedestal->SetRelativeLocation(Pedestal->GetRelativeLocation()+PedestalOffsets[I]);
+    }
+    for (const TCHAR* Name:{TEXT("SM_AssemblyFence_Black"),TEXT("SM_AssemblyFence_Yellow")}) {
+        auto* M=FindSceneMesh(Name); M->SetVisibility(false); M->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    }
+    // Bring the complete source platforms inward and forward beneath the two
+    // retained clamps. Keep deck heights and scaffold/deck registration intact.
+    for (int32 I=0;I<2;++I) for (const TCHAR* Kind:{TEXT("FloorFixture"),TEXT("FloorDeck")})
+        FindSceneMesh(FString::Printf(TEXT("SM_Assembly%s_R%d"),Kind,I+1))->AddLocalOffset(ProcessFloorOffsets[I]);
+    for (auto& M:PanelSupplyMeshes) if (auto* Mesh=M.Get()) Mesh->AddLocalOffset(SupplyDelta);
+    FindSceneMesh(TEXT("SM_PanelSupply_Rack"))->AddLocalOffset(SupplyDelta);
+    // Process-only parked posture clears the relocated stock with the long
+    // rigid gripper; legacy actors retain every source rest angle.
+    for (auto& Joint:JointMotion) if (Joint.RobotIndex==PanelHolderRobot) {
+        const FString JointRole=Joint.Id.Mid(EmitterRigs[PanelHolderRobot].Id.Len()+1);
+        for (int32 I=0;I<6;++I) if (JointRole==InspectionJointRoles[I]) Joint.RestAngle=PanelHolderWaypoints[9][I];
+    }
+    // Rotate the dispenser's outer wrist at rest so its reservoir clears the
+    // fixed-base housing. Work strokes retain their fitted nozzle endpoints.
+    for (auto& Joint:JointMotion) if (Joint.RobotIndex==PanelAdhesiveRobot) {
+        const FString JointRole=Joint.Id.Mid(EmitterRigs[PanelAdhesiveRobot].Id.Len()+1);
+        for (int32 I=0;I<6;++I) if (JointRole==InspectionJointRoles[I]) Joint.RestAngle=AdhesiveRestAngles[I];
+    }
+    for (auto& Joint:JointMotion) if (Joint.RobotIndex==PanelWelderRobot) {
+        const FString JointRole=Joint.Id.Mid(EmitterRigs[PanelWelderRobot].Id.Len()+1);
+        for (int32 I=0;I<6;++I) if (JointRole==InspectionJointRoles[I]) Joint.RestAngle=WelderRestAngles[I];
+    }
+    // Use the equivalent negative rest yaw to avoid a full extra revolution
+    // when the rear-facing camera deploys from its new front-left station.
+    for (auto& Joint:JointMotion) if (Joint.RobotIndex==3) {
+        const FString JointRole=Joint.Id.Mid(EmitterRigs[3].Id.Len()+1);
+        for (int32 I=0;I<6;++I) if (JointRole==InspectionJointRoles[I]) Joint.RestAngle=InspectionRestAngles[I];
+    }
+    PanelHeldOffset=FTransform(HolderPanelRotation,HolderPanelOffset);
+    auto& Welder=EmitterRigs[PanelWelderRobot];
+    if (auto* Tool=Welder.SourceTool.Get()) {
+        // Preserve the purchased mesh, normals, UVs and all heat-enabled MIDs.
+        // A positive uniform scale and proper rotation align its actual electrode.
+        const FVector SourceTip=PinchTCP;
+        const FVector SourceDirection=PinchDirection;
+        Tool->SetRelativeTransform(DirectGunMount);
+        Welder.HeatTipLocal=SourceTip; Welder.Position=Tool->GetRelativeTransform().TransformPosition(SourceTip);
+        Welder.Direction=Tool->GetRelativeTransform().TransformVectorNoScale(SourceDirection).GetSafeNormal();
+    }
+    PinchMount=DirectGunMount;
+    if (auto* Source=Welder.SourceTool.Get()) {
+        Source->SetVisibility(false); Source->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        for (int32 I=0;I<3;++I) {
+            auto* Part=NewObject<UStaticMeshComponent>(this,PinchNames[I]);
+            Part->SetMobility(EComponentMobility::Movable); Part->SetupAttachment(Welder.Joint.Get());
+            Part->SetStaticMesh(PinchAssets[I]); Part->SetRelativeTransform(DirectGunMount);
+            for (int32 M=0;M<Source->GetNumMaterials();++M) Part->SetMaterial(M,Source->GetMaterial(M));
+            Part->SetLightingChannels(true,true,false);
+            // Authored jaw kinematics: particle collision belongs to the sheet stack.
+            Part->SetCollisionEnabled(ECollisionEnabled::NoCollision); Part->RegisterComponent();
+            MeshComponents.Add(Part); PinchParts.Add(Part);
+            FPanelProfileShare Share; Share.Target=Part; Share.Source=Source; PanelProfileShares.Add(Share);
+        }
+    }
+    for (int32 I:{PanelAdhesiveRobot,PanelHolderRobot}) if (auto* M=EmitterRigs[I].SourceTool.Get()) {
+        M->SetVisibility(false); M->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    }
+    auto Material=[&](const FLinearColor& Color,float Roughness,float Metallic) {
+        auto* MID=UMaterialInstanceDynamic::Create(ToolMaterial,this);
+        MID->SetVectorParameterValue(TEXT("BaseColor"),Color); MID->SetScalarParameterValue(TEXT("Roughness"),Roughness);
+        MID->SetScalarParameterValue(TEXT("Metallic"),Metallic); return MID;
+    };
+    auto* Gunmetal=Material(FLinearColor(.045f,.055f,.072f),.35f,.85f);
+    auto* Silver=Material(FLinearColor(.55f,.61f,.68f),.24f,.95f);
+    auto* Copper=Material(FLinearColor(.62f,.24f,.085f),.28f,.88f);
+    auto* Purple=Material(FLinearColor(FColor(117,59,189)),.31f,.25f);
+    auto* Blue=Material(FLinearColor(.025f,.13f,.31f),.36f,.4f);
+    auto* Rubber=Material(FLinearColor(.012f,.015f,.021f),.78f,0);
+    auto Prop=[&](const TCHAR* Name,int32 Robot,UStaticMesh* Shape,const FVector& Position,const FVector& Dimensions,UMaterialInterface* Mat,const FRotator& Rotation=FRotator::ZeroRotator) {
+        auto* M=NewObject<UStaticMeshComponent>(this,Name); M->SetMobility(EComponentMobility::Movable);
+        M->SetupAttachment(EmitterRigs[Robot].Joint.Get()); M->SetStaticMesh(Shape);
+        M->SetRelativeLocation(Position); M->SetRelativeRotation(Rotation); M->SetRelativeScale3D(Dimensions/100.);
+        M->SetMaterial(0,Mat); M->SetLightingChannels(true,true,false);
+        M->SetCollisionEnabled(ECollisionEnabled::QueryOnly); M->SetCollisionResponseToAllChannels(ECR_Ignore);
+        M->SetCollisionResponseToChannel(ECC_Visibility,ECR_Block); M->SetGenerateOverlapEvents(false); M->RegisterComponent();
+        MeshComponents.Add(M); FPanelProfileShare Share; Share.Target=M;
+        Share.Source=EmitterRigs[Robot==PanelWelderRobot ? PanelHolderRobot:Robot].SourceTool.Get(); PanelProfileShares.Add(Share);
+        return M;
+    };
+    // The purchased gun now mates directly to its original wrist flange.
+    const FVector Tip=EmitterRigs[PanelAdhesiveRobot].Position;
+    const double MountYaw=FMath::RadiansToDegrees(FMath::Atan2(Tip.Y,Tip.X));
+    Prop(TEXT("PanelDispenserFlange"),PanelAdhesiveRobot,Cylinder,FVector(0,0,-3),FVector(28,28,6),Silver);
+    Prop(TEXT("PanelDispenserMount"),PanelAdhesiveRobot,Cube,FVector(Tip.X*.5,Tip.Y*.5,-10),FVector(45,24,8),Gunmetal,FRotator(0,MountYaw,0));
+    Prop(TEXT("PanelAdhesiveReservoir"),PanelAdhesiveRobot,Cylinder,FVector(Tip.X,Tip.Y,-37),FVector(18,18,44),Purple);
+    for (int32 I=0;I<2;++I) Prop(*FString::Printf(TEXT("PanelDispenserBand%d"),I),PanelAdhesiveRobot,Cylinder,FVector(Tip.X,Tip.Y,I==0 ? -18:-56),FVector(19.5,19.5,3),Silver);
+    Prop(TEXT("PanelDispenserValve"),PanelAdhesiveRobot,Cube,FVector(Tip.X,Tip.Y,-65),FVector(14,14,12),Gunmetal);
+    Prop(TEXT("PanelDispenserReducer"),PanelAdhesiveRobot,Cone,FVector(Tip.X,Tip.Y,-75),FVector(12,12,8),Copper,FRotator(180,0,0));
+    Prop(TEXT("PanelAdhesiveNozzle"),PanelAdhesiveRobot,Cylinder,FVector(Tip.X,Tip.Y,(-79+Tip.Z)*.5),FVector(2.4,2.4,-79-Tip.Z),Silver);
+    Prop(TEXT("PanelDispenserController"),PanelAdhesiveRobot,Cube,FVector(Tip.X+11,Tip.Y,-39),FVector(6,12,23),Blue);
+    Prop(TEXT("PanelDispenserFeedTube"),PanelAdhesiveRobot,Cylinder,FVector(Tip.X-11,Tip.Y,-30),FVector(4,4,38),Rubber);
+    for (int32 I=0;I<6;++I) {
+        const double Angle=2.*PI*I/6.;
+        Prop(*FString::Printf(TEXT("PanelDispenserBolt%d"),I),PanelAdhesiveRobot,Cylinder,FVector(10.8*FMath::Cos(Angle),10.8*FMath::Sin(Angle),-6.7),FVector(2.6,2.6,2.2),Gunmetal);
+    }
+    const double FrameShift=122.-HolderStem;
+    Prop(TEXT("PanelGripperFlange"),PanelHolderRobot,Cylinder,FVector(0,0,-3),FVector(25,25,6),Silver);
+    Prop(TEXT("PanelGripperStem"),PanelHolderRobot,Cylinder,FVector(0,0,-HolderStem*.5),FVector(14,14,HolderStem),Silver);
+    auto RackBeam=[&](const TCHAR* Name,const FVector& Position,const FVector& NativeDimensions,const FVector& Axis) {
+        // Exact purchased H-profile, source normals/UVs and the rack's own blue
+        // material. Only instance dimensions/orientation differ from the rack.
+        auto* M=Prop(Name,PanelHolderRobot,RackBar,Position,FVector(100),RackMaterial,FRotationMatrix::MakeFromZ(Axis).Rotator());
+        M->SetRelativeScale3D(NativeDimensions/RackBar->GetBoundingBox().GetSize());
+    };
+    // Eight-centimeter depth puts the upper flange exactly at the stem end.
+    RackBeam(TEXT("PanelGripperCrossX"),FVector(0,0,-126+FrameShift),FVector(8,8,112),FVector::ForwardVector);
+    for (int32 I=0;I<2;++I) RackBeam(*FString::Printf(TEXT("PanelGripperCrossY%d"),I),FVector(I ? 44:-44,0,-128+FrameShift),FVector(7,7,70),FVector::RightVector);
+    // Articulated pad feet land on authored solid panel surfaces. Short angled
+    // struts connect them to the purchased blue rack bars at their real anchors.
+    for (int32 I=0;I<GripPads.Num();++I) {
+        const auto& Pad=GripPads[I];
+        const FVector Back=Pad.Contact+Pad.Normal*3.;
+        const FVector Rod=Pad.Anchor-Back;
+        Prop(*FString::Printf(TEXT("PanelGripperRod%d"),I),PanelHolderRobot,Cylinder,(Pad.Anchor+Back)*.5,
+            FVector(4,4,Rod.Size()),Silver,FRotationMatrix::MakeFromZ(Rod).Rotator());
+        Prop(*FString::Printf(TEXT("PanelGripperPad%d"),I),PanelHolderRobot,Cylinder,Pad.Contact+Pad.Normal*1.5,
+            FVector(Pad.Diameter,Pad.Diameter,3),Rubber,FRotationMatrix::MakeFromZ(Pad.Normal).Rotator());
+    }
+    for (auto& Spot:BodyWeldSpots) { Spot.TemperatureC=Spot.HaloTemperatureC=20; Spot.Glow=Spot.WitnessStrength=0; }
+    for (const auto& Binding:BodyWeldMaterials) for (const auto& W:Binding.Materials) if (auto* M=W.Get()) {
+        M->SetScalarParameterValue(TEXT("WeldWitnessEnabled"),0);
+        for (int32 I=0;I<6;++I) M->SetScalarParameterValue(FName(*FString::Printf(TEXT("WeldHeatGlow%d"),I)),0);
+    }
+    bPanelAssembly=true; PanelPhase=EDarkFactoryProcessPhase::Arriving; PanelPhaseSeconds=0; bPanelHolderEngaged=false;
+    PanelToolHeatClock=ProcessClock; InspectionRequestedSpot=0; InspectionScanStartClock=ProcessClock-InspectionScanDurationSeconds;
+    for (int32 J=0;J<6;++J) InspectionScanFromAngles[J]=PanelInspectionPoses[0][J];
+    SetPanelSupplyCount(5); BindPanelSharedProfiles();
+    return true;
+}
+
+UStaticMeshComponent* ADarkFactoryWeldingCell::GetPanelBodyMesh() const { return FindSceneMesh(TEXT("SM_BodyPanel_0386")); }
+FTransform ADarkFactoryWeldingCell::GetPanelSupplyTransform(int32 Slot) const {
+    if (!PanelSupplyMeshes.IsValidIndex(Slot) || !PanelSupplyMeshes[Slot].IsValid()) return FTransform::Identity;
+    return FTransform(PanelSupplyRotation,PanelSupplyMeshes[Slot]->GetRelativeLocation())*SceneRoot->GetComponentTransform();
+}
+FTransform ADarkFactoryWeldingCell::GetPanelHeldTransform() const {
+    return EmitterRigs.IsValidIndex(PanelHolderRobot) && EmitterRigs[PanelHolderRobot].Joint.IsValid()
+        ? PanelHeldOffset*EmitterRigs[PanelHolderRobot].Joint->GetComponentTransform():FTransform::Identity;
+}
+bool ADarkFactoryWeldingCell::GetPanelContact(int32 Index,FVector& LocalPosition,FVector& LocalNormal) const {
+    if (!bPanelAssembly || !PanelContacts.IsValidIndex(Index)) return false;
+    LocalPosition=PanelContacts[Index]; LocalNormal=PanelContactNormals[Index]; return true;
+}
+bool ADarkFactoryWeldingCell::GetPanelAdhesivePath(int32 Bead,TArray<FVector>& LocalPoints,TArray<FVector>& LocalNormals) const {
+    if (!bPanelAssembly || !PanelAdhesivePathPoints.IsValidIndex(Bead) || !PanelAdhesivePathNormals.IsValidIndex(Bead)) return false;
+    LocalPoints=PanelAdhesivePathPoints[Bead]; LocalNormals=PanelAdhesivePathNormals[Bead]; return true;
+}
+double ADarkFactoryWeldingCell::GetPanelAdhesiveStartSeconds(int32 Bead) { return Bead==0 ? 1.25:Bead==1 ? 6.80:-1.; }
+double ADarkFactoryWeldingCell::GetPanelAdhesiveProgress(int32 Bead,double PhaseSeconds) {
+    if (Bead<0 || Bead>1 || !FMath::IsFinite(PhaseSeconds)) return 0.;
+    const double U=FMath::Clamp((PhaseSeconds-GetPanelAdhesiveStartSeconds(Bead))/4.75,0.,1.);
+    return U*U*(3.-2.*U);
+}
+void ADarkFactoryWeldingCell::SetPanelSupplyCount(int32 Count) {
+    PanelSupplyCount=FMath::Clamp(Count,0,5);
+    for (int32 I=0;I<PanelSupplyMeshes.Num();++I) if (auto* M=PanelSupplyMeshes[I].Get()) {
+        // Stock stays fixed; the outer sheet reappears when the carrier departs.
+        M->SetVisibility(I<PanelSupplyCount); M->SetCollisionEnabled(I<PanelSupplyCount ? ECollisionEnabled::QueryOnly:ECollisionEnabled::NoCollision);
+    }
+}
+void ADarkFactoryWeldingCell::SetPanelMotionState(EDarkFactoryProcessPhase Phase,double PhaseSeconds,bool HoldingPanel) {
+    if (!bPanelAssembly || !FMath::IsFinite(PhaseSeconds) || PhaseSeconds<0) return;
+    if (Phase!=PanelPhase) {
+        if (Phase==EDarkFactoryProcessPhase::PanelPlacement) { PanelPickupSlot=4; bPanelHolderEngaged=true; }
+        if (Phase==EDarkFactoryProcessPhase::Arriving || Phase==EDarkFactoryProcessPhase::Departing) bPanelHolderEngaged=false;
+    }
+    bPanelHolderEngaged=Phase!=EDarkFactoryProcessPhase::Arriving && Phase!=EDarkFactoryProcessPhase::Departing
+        && (Phase==EDarkFactoryProcessPhase::PanelPlacement || HoldingPanel);
+    PanelPhase=Phase; PanelPhaseSeconds=PhaseSeconds;
+}
+double ADarkFactoryWeldingCell::PanelJointAngle(const FJointMotion& Joint) const {
+    const int32 MotionIndex=JointMotion.IndexOfByPredicate([&](const FJointMotion& J){return &J==&Joint;});
+    const FString Suffix=Joint.Id.Mid(EmitterRigs[Joint.RobotIndex].Id.Len()+1);
+    int32 J=INDEX_NONE; for (int32 I=0;I<6;++I) if (Suffix==InspectionJointRoles[I]) { J=I; break; }
+    if (J==INDEX_NONE || MotionIndex==INDEX_NONE) return Joint.RestAngle;
+    const double T=PanelPhaseSeconds,Rest=Joint.RestAngle;
+    auto Pose=[&](int32 P) { return PanelAssemblyPoses[P][J]; };
+    auto Blend=[&](double A,double B,double Alpha) { return A+FMath::UnwindDegrees(B-A)*Smooth(Alpha); };
+    auto W=[&](int32 P) { return PanelWelderWaypoints[P][J]; };
+    auto A=[&](int32 P) { return PanelAdhesiveWaypoints[P][J]; };
+    auto H=[&](int32 P) { return PanelHolderWaypoints[P][J]; };
+    auto FrontTurn=[&](double From,double To,double Alpha) { return J==0 ? FMath::Lerp(From,To,Smooth(Alpha)):Blend(From,To,Alpha); };
+    if (Joint.RobotIndex==PanelHolderRobot) {
+        if (!bPanelHolderEngaged) return Rest;
+        if (PanelPhase==EDarkFactoryProcessPhase::PanelPlacement) {
+            const int32 Pick=6,Lift=7;
+            if (T<.65) return Blend(Rest,Pose(Lift),T/.65);
+            if (T<1.25) return Blend(Pose(Lift),Pose(Pick),(T-.65)/.60);
+            if (T<1.5) return Pose(Pick);
+            if (T<2.2) return Blend(Pose(Pick),Pose(Lift),(T-1.5)/.7);
+            if (T<2.6) return Blend(Pose(Lift),H(0),(T-2.2)/.4);
+            // The long base arc goes around the rack; unwrap only its display angle.
+            if (T<3.45) return FMath::UnwindDegrees(FrontTurn(H(0),H(1)+(J==0 ? 360.:0.),(T-2.6)/.85));
+            if (T<3.85) return Blend(H(1),H(2),(T-3.45)/.4);
+            if (T<4.15) return Blend(H(2),H(3),(T-3.85)/.3);
+            if (T<4.45) return Blend(H(3),H(4),(T-4.15)/.3);
+            if (T<4.75) return Blend(H(4),H(5),(T-4.45)/.3);
+            if (T<5.15) return Blend(H(5),H(6),(T-4.75)/.4);
+            if (T<5.55) return Blend(H(6),H(7),(T-5.15)/.4);
+            if (T<6.) return Blend(H(7),Pose(9),(T-5.55)/.45);
+            return Pose(9);
+        }
+        if (PanelPhase==EDarkFactoryProcessPhase::HolderRetract) {
+            const int32 Lift=7;
+            if (T<.35) return Blend(Pose(9),H(8),T/.35);
+            if (T<.7) return Blend(H(8),H(2),(T-.35)/.35);
+            if (T<1.) return Blend(H(2),H(1),(T-.7)/.3);
+            if (T<1.8) return FMath::UnwindDegrees(FrontTurn(H(1)+(J==0 ? 360.:0.),H(0),(T-1.)/.8));
+            if (T<2.1) return Blend(H(0),Pose(Lift),(T-1.8)/.3);
+            return Blend(Pose(Lift),Rest,(T-2.1)/(PanelRetractSeconds-2.1));
+        }
+        return Pose(9);
+    }
+    // R1 temporarily faces the front while R3 takes its rack detour. The
+    // dispenser wrist retains its process-only clearance pose during holds.
+    if (Joint.RobotIndex==PanelAdhesiveRobot && J==0) {
+        if (PanelPhase==EDarkFactoryProcessPhase::PanelPlacement)
+            return T<.65 ? Blend(Rest,-90.,T/.65):T<5.25 ? -90.:Blend(-90.,Rest,(T-5.25)/.75);
+        if (PanelPhase==EDarkFactoryProcessPhase::HolderRetract)
+            return T<.35 ? Blend(Rest,-90.,T/.35):T<2.1 ? -90.:Blend(-90.,Rest,(T-2.1)/(PanelRetractSeconds-2.1));
+    }
+    if (Joint.RobotIndex==PanelAdhesiveRobot && PanelPhase==EDarkFactoryProcessPhase::AdhesiveApplication) {
+        auto Stroke=[&](int32 Bead,double U) {
+            const auto& Progress=PanelAdhesivePathProgress[Bead]; int32 Segment=0;
+            while (Segment<39 && Progress[Segment+1]<U) ++Segment;
+            const double Alpha=FMath::Clamp((U-Progress[Segment])/(Progress[Segment+1]-Progress[Segment]),0.,1.);
+            const double From=PanelAdhesiveStrokePoses[Bead*41+Segment][J],To=PanelAdhesiveStrokePoses[Bead*41+Segment+1][J];
+            return From+FMath::UnwindDegrees(To-From)*Alpha;
+        };
+        if (T<.30) return Blend(Rest,A(0),T/.30);
+        if (T<.60) return FrontTurn(A(0),A(1),(T-.30)/.30);
+        if (T<.85) return Blend(A(1),A(2),(T-.60)/.25);
+        if (T<1.25) return Blend(A(2),Stroke(0,0),(T-.85)/.40);
+        if (T<6.00) return Stroke(0,GetPanelAdhesiveProgress(0,T));
+        if (T<6.25) return Blend(Stroke(0,1),A(3),(T-6.00)/.25);
+        if (T<6.55) return Blend(A(3),A(4),(T-6.25)/.30);
+        if (T<6.80) return Blend(A(4),Stroke(1,0),(T-6.55)/.25);
+        if (T<11.55) return Stroke(1,GetPanelAdhesiveProgress(1,T));
+        if (T<11.85) return Blend(Stroke(1,1),A(5),(T-11.55)/.30);
+        if (T<12.15) return Blend(A(5),A(6),(T-11.85)/.30);
+        if (T<13.15) return FrontTurn(A(6),A(0),(T-12.15));
+        return Blend(A(0),Rest,(T-13.15)/.35);
+    }
+    if (Joint.RobotIndex==PanelWelderRobot && PanelPhase==EDarkFactoryProcessPhase::Welding) {
+        auto Work=[&](int32 I) { return PanelWeldPoses[I][J]; };
+        auto Travel=[&](int32 Segment,double U) {
+            const double Scaled=FMath::Clamp(U,0.,1.)*10.;
+            const int32 K=FMath::Min(9,FMath::FloorToInt(Scaled));
+            const double From=PanelWeldCrossPoses[Segment*10+K][J],To=PanelWeldCrossPoses[Segment*10+K+1][J];
+            return From+FMath::UnwindDegrees(To-From)*(Scaled-K);
+        };
+        if (T<.35) return Blend(Rest,W(0),T/.35);
+        if (T<.90) return Blend(W(0),W(1),(T-.35)/.55);
+        if (T<1.3) return Blend(W(1),Work(0),(T-.90)/.40);
+        for (int32 I=0;I<PanelWeldCount;++I) {
+            const double End=PanelWeldStartSeconds(I)+.5;
+            // Settle, squeeze, current pulse, hold, open; translate only after release.
+            if (T<End+.20) return Work(I);
+            if (I+1<PanelWeldCount && T<PanelWeldStartSeconds(I+1)-.15)
+                return Travel(I,Smooth((T-End-.20)/.50));
+        }
+        const double Last=PanelWeldStartSeconds(PanelWeldCount-1)+.70;
+        if (T<9.6) return Blend(Work(5),W(2),(T-Last)/(9.6-Last));
+        if (T<10.4) return Blend(W(2),W(0),(T-9.6)/.8);
+        return Blend(W(0),Rest,(T-10.4)/(PanelWeldingSeconds-10.4));
+    }
+    return Rest;
+}
+void ADarkFactoryWeldingCell::UpdatePinchGun() {
+    if (!bPanelAssembly || PinchParts.Num()!=3) return;
+    double Angle=PinchOpenAngle;
+    if (PanelPhase==EDarkFactoryProcessPhase::Welding) for (int32 I=0;I<PanelWeldCount;++I) {
+        const double Age=PanelPhaseSeconds-PanelWeldStartSeconds(I);
+        if (Age>=-.15 && Age<.70) {
+            const double Closed=Age<0 ? Smooth((Age+.15)/.15):Age<.58 ? 1.:1.-Smooth((Age-.58)/.12);
+            Angle=FMath::Lerp(PinchOpenAngle,PinchClampAngle,Closed); break;
+        }
+    }
+    PinchCurrentAngle=Angle;
+    for (int32 I=0;I<2;++I) if (auto* Jaw=PinchParts[I+1].Get()) {
+        const FQuat Q(PinchAxis,FMath::DegreesToRadians((I==0 ? -1.:1.)*Angle));
+        const FTransform Hinge(Q,PinchPivots[I]-Q.RotateVector(PinchPivots[I]));
+        Jaw->SetRelativeTransform(Hinge*PinchMount);
+    }
+}
+void ADarkFactoryWeldingCell::BindPanelSharedProfiles() {
+    auto Share=[&](UStaticMeshComponent* Target,UStaticMeshComponent* Source) {
+        if (Target && Source && Source->CustomDepthStencilValue>0) {
+            Target->SetRenderCustomDepth(true); Target->SetCustomDepthStencilValue(Source->CustomDepthStencilValue);
+        }
+    };
+    for (const auto& M:MeshComponents) if (M) {
+        const FString Name=M->GetName();
+        if (Name.StartsWith(TEXT("SM_PanelSupply_"))) Share(M,FindSceneMesh(Name.EndsWith(TEXT("Rack")) ? TEXT("SM_Background_robots_blue"):
+            bPanelAssembly ? TEXT("SM_BodyPanel_0386"):TEXT("SM_Background_chrome")));
+        else if (Name.StartsWith(TEXT("SM_AssemblyPedestal_"))) Share(M,FindSceneMesh(TEXT("SM_Background_robots_tiles")));
+        else if (Name.StartsWith(TEXT("SM_AssemblyFloorFixture_"))) Share(M,FindSceneMesh(TEXT("SM_Background_chrome")));
+        else if (Name.StartsWith(TEXT("SM_AssemblyFloorDeck_"))) Share(M,FindSceneMesh(TEXT("SM_Background_robots_tiles")));
+        else if (Name==TEXT("SM_AssemblyFence_Black")) Share(M,FindSceneMesh(TEXT("SM_Background_robots_plastic_black")));
+        else if (Name==TEXT("SM_AssemblyFence_Yellow")) Share(M,FindSceneMesh(TEXT("SM_Background_robots_yellow")));
+    }
+    for (const auto& Pair:PanelProfileShares) Share(Pair.Target.Get(),Pair.Source.Get());
+    if (bPanelAssembly) if (auto* Thermal=ToolThermalRig.Get()) {
+        for (const auto& Binding:BodyWeldMaterials) if (auto* M=Binding.Mesh.Get()) Thermal->SetImportedWeldHeat(M,{});
+    }
+}
+TSharedRef<FJsonObject> ADarkFactoryWeldingCell::GetPanelAssemblyMetadata() const {
+    auto O=MakeShared<FJsonObject>(); O->SetBoolField(TEXT("enabled"),bPanelAssembly);
+    O->SetStringField(TEXT("recipe"),TEXT("authored-panel-assembly-v1"));
+    O->SetStringField(TEXT("motion_recipe"),PanelMotionRecipe);
+    O->SetNumberField(TEXT("pinch_angle_deg"),PinchCurrentAngle);
+    O->SetNumberField(TEXT("pinch_part_count"),PinchParts.Num());
+    TArray<TSharedPtr<FJsonValue>> PinchTipValues; FVector TipWorld[2];
+    if (PinchParts.Num()==3) for (int32 I=0;I<2;++I) if (auto* Jaw=PinchParts[I+1].Get()) {
+        TipWorld[I]=Jaw->GetComponentTransform().TransformPosition(PinchTips[I]);
+        PinchTipValues.Add(MakeShared<FJsonValueArray>(Vec(TipWorld[I])));
+    }
+    O->SetArrayField(TEXT("pinch_tips_world_cm"),PinchTipValues);
+    if (PinchTipValues.Num()==2) O->SetNumberField(TEXT("pinch_gap_cm"),FVector::Distance(TipWorld[0],TipWorld[1]));
+    O->SetStringField(TEXT("layout_recipe"),PanelLayoutRecipe);
+    O->SetStringField(TEXT("motion_authoring_sha256"),PanelAuthoringSHA256);
+    O->SetNumberField(TEXT("adhesive_bead_count"),2);
+    O->SetStringField(TEXT("floor_platform_layout"),TEXT("front-clamp-support-v1"));
+    O->SetArrayField(TEXT("floor_platform_offsets_cm"),{MakeShared<FJsonValueArray>(Vec(ProcessFloorOffsets[0])),MakeShared<FJsonValueArray>(Vec(ProcessFloorOffsets[1]))});
+    O->SetArrayField(TEXT("adhesive_progress"),{MakeShared<FJsonValueNumber>(GetPanelAdhesiveProgress(0,PanelPhaseSeconds)),MakeShared<FJsonValueNumber>(GetPanelAdhesiveProgress(1,PanelPhaseSeconds))});
+    if (const auto* Joint=EmitterRigs[PanelAdhesiveRobot].Joint.Get()) O->SetArrayField(TEXT("dispenser_tip_world_cm"),Vec(Joint->GetComponentTransform().TransformPosition(EmitterRigs[PanelAdhesiveRobot].Position)));
+    O->SetStringField(TEXT("stock_feed"),TEXT("fixed outer slot4; picked sheet reappears when carrier departs"));
+    O->SetNumberField(TEXT("stock_pickup_slot"),4);
+    if (bPanelAssembly) {
+        if (const auto* Rack=FindSceneMesh(TEXT("SM_PanelSupply_Rack")))
+            O->SetArrayField(TEXT("supply_rack_world_location_cm"),Vec(Rack->GetComponentLocation()));
+        O->SetArrayField(TEXT("supply_slot4_world_center_cm"),Vec(GetPanelSupplyTransform(4).GetLocation()));
+    }
+    O->SetStringField(TEXT("welding_head"),TEXT("original purchased gun; uniform scale0.7; direct native-cap mount with axial rollÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢90 degrees; no extension rod; source normals and heat MIDs preserved"));
+    O->SetBoolField(TEXT("welder_extension_rod"),false);
+    O->SetStringField(TEXT("body_template"),TEXT("SM_BodyPanel_0386"));
+    O->SetStringField(TEXT("body_geometry_recipe"),bPanelAssembly ? TEXT("rear-roof-open-v1"):TEXT("source-body-v1"));
+    if (bPanelAssembly) {
+        const auto* Roof=FindSceneMesh(ProcessRemovedRoof);
+        O->SetStringField(TEXT("removed_roof_component"),ProcessRemovedRoof);
+        O->SetBoolField(TEXT("rear_roof_hidden"),Roof && !Roof->IsVisible());
+        O->SetBoolField(TEXT("rear_roof_collision_disabled"),Roof && Roof->GetCollisionEnabled()==ECollisionEnabled::NoCollision);
+        for (const auto& Shape:CarriageColliders) if (Shape && Shape->GetFName()==FName(TEXT("CarriageRoof"))) {
+            O->SetArrayField(TEXT("roof_collider_min_cm"),Vec(Shape->GetRelativeLocation()-Shape->GetUnscaledBoxExtent()));
+            O->SetArrayField(TEXT("roof_collider_max_cm"),Vec(Shape->GetRelativeLocation()+Shape->GetUnscaledBoxExtent()));
+        }
+    }
+    O->SetNumberField(TEXT("welder_robot_index"),PanelWelderRobot); O->SetNumberField(TEXT("adhesive_robot_index"),PanelAdhesiveRobot);
+    O->SetNumberField(TEXT("holder_robot_index"),PanelHolderRobot); O->SetNumberField(TEXT("camera_robot_index"),3);
+    O->SetBoolField(TEXT("holder_engaged"),bPanelHolderEngaged); O->SetNumberField(TEXT("supply_remaining"),PanelSupplyCount);
+    O->SetNumberField(TEXT("pickup_slot"),PanelPickupSlot); O->SetNumberField(TEXT("phase_seconds"),PanelPhaseSeconds);
+    O->SetBoolField(TEXT("legacy_body_heat_disabled"),bPanelAssembly);
+    TArray<TSharedPtr<FJsonValue>> Robots;
+    auto Quaternion=[](const FQuat& Q) -> TArray<TSharedPtr<FJsonValue>> {
+        return {MakeShared<FJsonValueNumber>(Q.X),MakeShared<FJsonValueNumber>(Q.Y),MakeShared<FJsonValueNumber>(Q.Z),MakeShared<FJsonValueNumber>(Q.W)};
+    };
+    if (bPanelAssembly) if (const auto* Tool=EmitterRigs[PanelWelderRobot].SourceTool.Get()) {
+        const auto& Mount=Tool->GetRelativeTransform();
+        O->SetStringField(TEXT("source_welder_mount_recipe"),TEXT("native-cap-direct-v1"));
+        O->SetArrayField(TEXT("source_welder_relative_location_cm"),Vec(Mount.GetLocation()));
+        O->SetArrayField(TEXT("source_welder_relative_quaternion_xyzw"),Quaternion(Mount.GetRotation()));
+        O->SetArrayField(TEXT("source_welder_relative_scale"),Vec(Mount.GetScale3D()));
+        O->SetArrayField(TEXT("source_welder_electrode_local_cm"),Vec(EmitterRigs[PanelWelderRobot].Position));
+    }
+    for (int32 RobotIndex=0;RobotIndex<EmitterRigs.Num();++RobotIndex) {
+        auto Robot=MakeShared<FJsonObject>(); Robot->SetNumberField(TEXT("robot_index"),RobotIndex);
+        Robot->SetStringField(TEXT("id"),EmitterRigs[RobotIndex].Id);
+        TArray<TSharedPtr<FJsonValue>> Joints;
+        for (const auto& Joint:JointMotion) if (Joint.RobotIndex==RobotIndex) if (const auto* Component=Joint.Component.Get()) {
+            auto J=MakeShared<FJsonObject>(); J->SetStringField(TEXT("id"),Joint.Id);
+            J->SetNumberField(TEXT("angle_deg"),Joint.Angle); J->SetNumberField(TEXT("rest_angle_deg"),Joint.RestAngle);
+            J->SetArrayField(TEXT("axis"),Vec(Joint.Axis));
+            J->SetArrayField(TEXT("relative_location_cm"),Vec(Component->GetRelativeLocation()));
+            J->SetArrayField(TEXT("relative_quaternion_xyzw"),Quaternion(Component->GetRelativeRotation().Quaternion()));
+            J->SetArrayField(TEXT("world_location_cm"),Vec(Component->GetComponentLocation()));
+            J->SetArrayField(TEXT("world_quaternion_xyzw"),Quaternion(Component->GetComponentQuat()));
+            Joints.Add(MakeShared<FJsonValueObject>(J));
+        }
+        Robot->SetArrayField(TEXT("joints"),Joints); Robots.Add(MakeShared<FJsonValueObject>(Robot));
+    }
+    O->SetArrayField(TEXT("robots"),Robots);
+    O->SetStringField(TEXT("decorative_thermal_profiles"),TEXT("Explicit shared uniform source stencils: cold template for stock, blue rack, tiles pedestals, matching fence backgrounds, cold non-welding tools for gripper/nozzle"));
+    if (bPanelAssembly) {
+        const FTransform P=GetPanelHeldTransform(); O->SetArrayField(TEXT("held_panel_location_cm"),Vec(P.GetLocation()));
+        O->SetArrayField(TEXT("fixed_holder_offset_cm"),Vec(PanelHeldOffset.GetLocation()));
+        O->SetArrayField(TEXT("fixed_holder_quaternion_xyzw"),Quaternion(PanelHeldOffset.GetRotation()));
+        O->SetNumberField(TEXT("holder_stem_length_cm"),-PanelHeldOffset.GetLocation().Z-28.);
+        O->SetStringField(TEXT("gripper_frame_source"),TEXT("SM_PanelGripperRackBar / robots_blue island158; original rack material"));
+        TArray<TSharedPtr<FJsonValue>> Contacts;
+        for (int32 I=0;I<PanelWeldCount;++I) { auto C=MakeShared<FJsonObject>(); C->SetArrayField(TEXT("position_cm"),Vec(PanelContacts[I])); C->SetArrayField(TEXT("normal"),Vec(PanelContactNormals[I])); Contacts.Add(MakeShared<FJsonValueObject>(C)); }
+        O->SetArrayField(TEXT("contacts"),Contacts);
+    }
+    return O;
 }

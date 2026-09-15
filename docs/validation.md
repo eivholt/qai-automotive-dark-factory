@@ -1,6 +1,70 @@
-# Preparation validation — 11 September 2026
+# Validation and evidence
 
-This records starter integration checks. **No new LoRA was trained, no model weights were loaded for inference, and no IQ9 service was contacted or changed.** Mock responses are not accuracy or EVK latency evidence.
+This page separates the current six-weld refinement from historical two-bead panel-v3 results from the earlier procedural starter reports. Numbers below are recorded local results from 14 September 2026; updating this documentation does not rerun the fixtures or retrain the model. Private images, datasets, weights, runtime packages and detailed artifact reports are not distributed in this repository.
+
+## Current six-weld refinement
+
+The Unreal build and 109 Python tests pass. Native policy passes 91 checks without model requests. Motion QA captures 38 checkpoints, including all six weld pulses, plate-free EVKs and the corrected NIR withdrawal. Camera/PNG QA passes 127,778 checks; thermal QA checks 1,404 targets across train/validation, including every weld pair. A final 8-episode capture keeps all 192 PNGs byte-identical after the withdrawal route change. Procedural thermal/spatial/transfer checks, nine legacy welding suites and 681 realism checks pass. Selected shared448 at 0.98 confidence scores 95/96 development decisions, with zero false G and one cool-weld hold. The actual three-body run passes all six thermal audits, 5,636 camera checks and 27 live-curtain checks. Read the [current model guide](model_classification.md) for provenance and timing.
+
+These new recipes are `rigid-arm-panel-six-weld-scan-v4`, `panel-six-weld-episodes-v4` and `panel-six-weld-contact-core-halo-v5`. Old shared256 compatibility failed: 80/96 letters, 86/96 actions and 7 ambiguous thermal false G decisions. This failed result is preserved and motivates the new compatible continuation. Historical held-out scores below retain their three-contact geometry scope.
+
+## Historical three-contact panel-v3 validation — 14 September 2026
+
+The active process contract is `automotive-panel-process-v3`, with view recipe `rigid-arm-panel-two-bead-scan-v3`, capture recipe `panel-two-bead-episodes-v3` and thermal recipe `panel-two-bead-contact-core-halo-v4`. NIR gates inspect panel presence and seating; thermal gates inspect two front adhesive beads and three weld contacts. All stages receive three lossless 448 x 256 grayscale images from the physical R4 camera. Old door and three-bead panel scores are separate historical evidence.
+
+| Evidence | Recorded result | What it establishes |
+| --- | --- | --- |
+| Final UE 5.8 build and Python/launcher checks | Build passed; 96 Python tests and 34 launcher checks passed | Compilation, contracts, compatibility guards and report validation |
+| Native process policy | 91 checks, zero model requests | Consensus, holds, freshness and invalidation behavior; no model accuracy claim |
+| Final scene/motion | 23 checkpoints, 69 modality images; source geometry conserved across 90 components | Reviewed tools, two purple beads, physical poses and bounded geometry audits; no industrial collision certification |
+| Current synthetic capture | 64 episodes, 512 batches, 1,536 PNGs; 127,778 camera/PNG and 936 train/validation thermal checks passed | Camera/recipe consistency and observable thermal labels; no classification result |
+| Selected shared256 validation | 95/96 letters; 96/96 actions; no false release or wrong presence branch | Exact merged host-serving behavior on 12 validation episodes |
+| One-time held-out evaluation | 95/96 letters/actions; no false release or wrong presence branch | Selected host model on 12 separate test episodes; one conservative cool-weld hold |
+| Actual model-driven process | Assembly / preassembled / assembly; three forward departures, 30 image-only requests, six thermal acceptance audits passed | Integrated camera-to-model-to-motion behavior without a ground-truth override |
+| Final observer graphics | 2,012 checks across 32 states; all 128 fixed/R4 PNGs identical to their camera references | Actual DLSS/Lumen/HWRT toggles and sensor isolation |
+| Fixed observer thermal display | 50 checks; all palettes, exact fixed-sensor parity | Observer 0–120 °C independent of sensor 20–120 °C, with no welding-range switch |
+| Legacy welding regression | Nine suites, 12,261 checks passed | Retained legacy visual cycle, motion, cooling and sensor isolation |
+| Readback and mock transport | Native readback plus ten checks; G/A/R/disconnected mock fixtures passed | Sync/async PNG parity and transport/reaction behavior; mocks are not classification evidence |
+
+The selected model is `panel-two-bead-shared-256-v3`, a shared rank-8 visual/language LoRA served as a merged Torch BF16 model on host port 18191. Its 256 cumulative optimizer updates took 742.78 seconds across two passes; capture, shader preparation, build and validation add separate elapsed time. The full provenance, exact serving alias, confidence policy and private evidence paths are in [model classification](model_classification.md#selected-host-runtime). The previous 128-update candidate was not selected, and the held-out set was not used for further tuning or selection.
+
+Held-out standalone HTTP median/p95 were 49.28/54.55 ms, with 41.17 ms median GPU forward/scoring time. The 30 actual reply events during native Unreal rendering measured 84.43/92.83 ms HTTP median/p95. The three-body run completed in 182.31 wall-clock seconds, including mechanical movement, physical cooling and repeated inspection. These are different timing scopes; inference latency is not production throughput or a sustained graphics benchmark.
+
+The held-out NIR presence/seating and adhesive cases were all correct. Weld was 35/36: one cool weld held A. No incorrect releases or wrong presence branches were observed in this small synthetic set; this does not establish real-camera reliability, adhesive cure, weld strength or IQ9 performance. The six native thermal acceptance audits only inspect outcomes after model decisions and cannot advance the controller. See [process inspection](process_inspection.md) and [scene implementation](process_scene.md) for live evidence and physical limits.
+
+## Reproduce the current checks
+
+Use [README setup](../README.md) for local assets, generated content and the installed UE 5.8 toolchain. The [model workflow](model_classification.md) owns current capture/training/evaluation commands and the separately started compatible host service. Preserve frozen train/validation/test splits and use fresh artifact directories; do not rerun held-out evaluation during routine documentation or visual changes.
+
+```powershell
+python -m unittest discover -s tests -v
+.\unreal\Scripts\build.ps1
+
+# Native controller fixture: no model requests.
+.\unreal\Scripts\run.ps1 -ProcessPolicySmoke -Output artifacts\fresh-panel-policy
+
+# Actual host-model integration: requires the compatible v3 service.
+.\unreal\Scripts\run.ps1 -ProcessSmoke -ProcessEndpoint http://127.0.0.1:18191/v1/inspect -Output artifacts\fresh-panel-model
+```
+
+`ProcessSmoke` requires assembly/preassembled/assembly departures and all six thermal acceptance audits. The launcher checks matching session identity, explicit native verdicts and Windows exit status. Missing or stale reports fail. `ProcessPolicySmoke`, offline capture and explicit `-NoInference` do not substitute for this actual model run.
+
+Use the focused guides when changing the corresponding subsystem:
+
+- [Observer graphics](observer_graphics.md): DLSS/Lumen/HWRT installation and the rendered graphics parity fixture.
+- [Fixed thermal display](thermal_welding_range.md): the observer's 0–120 °C scale and palette/encoding checks; fixed/model sensors remain 20–120 °C.
+- [Scene implementation](process_scene.md): two-bead geometry, physical camera/motion audits and panel capture recipes.
+- [Factory lighting](factory_lighting.md), [welding effects](welding_effects.md) and [motor heat](robot_motor_heat.md): their rendered regression procedures.
+- [Thermal QA](thermal_qa.md), [spatial fields](thermal_spatial_fields.md) and [heat transfer](thermal_heat_transfer.md): separately scoped procedural rendering/solver checks.
+- [Panel-v2 history](model_classification_panel_v2_history.md) and [door-process history](model_classification_v1_history.md): previous geometry, contracts and model scores.
+
+## Current limits
+
+The demonstrated model runtime is the host GPU. A task-matched IQ9 export, quantization comparison, new EVK latency/accuracy evaluation and sustained EVK soak remain pending. The selected shared adapter does not resolve the planned shared-versus-per-modality adapter comparison. Rendered labels and authored temperatures are synthetic evidence, not calibrated real-camera or industrial acceptance tests. Graphics parity proves sensor isolation, not a sustained frame-rate improvement. Source-triangle and pose samples do not certify continuous collision-free robot trajectories.
+
+## Historical starter validation — 11 September 2026
+
+This section records the original procedural starter checks from 11 September. **At that time, no new LoRA had been trained, no model weights had been loaded for inference, and no IQ9 service had been contacted or changed.** The current panel host model is documented above. These historical mock responses are not model accuracy or EVK latency evidence.
 
 | Check | Result |
 | --- | --- |
@@ -26,9 +90,9 @@ The actual-image processor check used the existing WSL environment: Torch 2.9.0+
 
 The pilot's frozen manifest hash is `4a58de93dd8d8bcb2be88be6e56fcbc0b59885a77a2a33d3132f150b7e94e55b`. Its prompt hash is `a43db23a0d91a26fad7dac074d7fdb2867da3ac2d44622f73034f2c2f16efaf0`. The local pilot, freeze outputs and detailed verification remain under `artifacts/pilot-v1/` and are intentionally ignored by Git.
 
-Compact portable evidence is in [validation.json](validation.json). Real sensor images are shown in [the night-vision guide](night_vision.md). The README screenshot shows the rendered green night-vision shader with inference disabled. [Night-vision validation](night_vision_validation.json) records all 20 fast-mode checks, image hashes, measured changes and shader-source hashes. This is display validation only.
+Compact portable evidence is in [validation.json](validation.json). Real sensor images are shown in [the night-vision guide](night_vision.md). The original starter screenshot showed the rendered green night-vision shader with inference disabled. [Night-vision validation](night_vision_validation.json) records all 20 fast-mode checks, image hashes, measured changes and shader-source hashes. This is display validation only.
 
-## GPU capture and live loop
+### Historical GPU capture and live loop
 
 The [GPU capture report](gpu_capture_validation.json) records a GPU-only preview with no CPU readbacks until an image was requested. Asynchronous readback plus the unchanged grayscale/PNG processor produced exactly the same PNG as the synchronous reference. Completed stale jobs and an obsolete preview were rejected. The four live mock runs (G/A/R/disconnected) all passed using asynchronous readback, with zero synchronous live readbacks and zero CPU preview uploads.
 
@@ -36,14 +100,14 @@ One diagnostic sample measured 9.60 ms on the game thread for synchronous captur
 
 [Quality-mode evidence](night_vision_quality_validation.json) covers the optional five-sample halo; fast mode uses one source-image sample. No warm GPU-pass timing or final-scene FPS claim is made.
 
-## Reproduce the checks
+### Reproduce the procedural starter checks
 
-From the repository root after installing the Python package:
+These commands exercise the procedural reference, not the panel model. From the repository root after installing the Python package:
 
 ```powershell
 python -m unittest discover -s tests -v
 .\unreal\Scripts\build.ps1
-.\unreal\Scripts\run.ps1 -Smoke -Output artifacts\fresh-camera-smoke
+.\unreal\Scripts\run.ps1 -Scene procedural -Smoke -Output artifacts\fresh-camera-smoke
 ```
 
 Run `python scripts/verify_unreal_bridge.py` to reproduce all four live checks with automatically managed temporary loopback mocks. They do not contact the IQ9.
@@ -62,21 +126,21 @@ Then run:
 
 Repeat with A and R after restarting the mock with the corresponding fixed decision. Stop the mock and run `smoke_bridge.ps1 -Expected ERROR` to verify a disconnected service holds. The scripts write JSON reports and screenshots under `unreal/Saved/Smoke/`. Fresh capture runs need a new output directory.
 
-## Remaining verification
+### Verification that remained at the starter milestone
 
 - Actual Xbox hardware interaction has not been physically tested; bindings are implemented and compiled.
-- The current launch path uses Unreal Editor in game mode. A standalone cooked Windows distribution has not been built.
-- The primitive process is kinematic. Contact physics, purchased assets and manufacturing-specific timing remain scenario work.
+- The starter launch path used Unreal Editor in game mode. A standalone cooked Windows distribution was not part of this milestone.
+- The primitive process was kinematic. Purchased-asset import, robot choreography and portal contact physics were implemented at later milestones; see the current scene guides above.
 - The NIR material/sensor model is an approximation, with no real-camera calibration.
-- The pilot is too small for the proposed release gates. Model training, host/EVK accuracy, quantization, latency and soak tests remain pending.
+- The pilot was too small for its proposed release gates. Model training, host/EVK accuracy, quantization, latency and soak tests were pending at this milestone. Current panel host results are recorded above; the panel IQ9 export/evaluation remains pending.
 
-## Thermal sensor rendering
+### Historical procedural thermal rendering
 
-The thermal GPU smoke passes all 42 image/runtime checks on UE 5.8.1 with D3D12 SM6. It checks overheating, a cold heater strip, a missing warm-glue segment, opaque occlusion, light independence, three observer/HUD palettes, unchanged NIR pixels, raw/async PNG parity and stale snapshot/preview rejection. Capture-time metadata records part and camera transforms. The fixed thermal preview performs zero CPU readbacks until an explicit image request. [Thermal QA](thermal_qa.md) explains the measurements; [portable evidence](thermal_validation.json) includes image and source hashes. Sustained GPU/frame timings and thermal adapter accuracy remain unmeasured.
+The thermal GPU smoke passes all 42 image/runtime checks on UE 5.8.1 with D3D12 SM6. It checks overheating, a cold heater strip, a missing warm-sealant segment, opaque occlusion, light independence, three observer/HUD palettes, unchanged NIR pixels, raw/async PNG parity and stale snapshot/preview rejection. Capture-time metadata records part and camera transforms. The fixed thermal preview performs zero CPU readbacks until an explicit image request. [Thermal QA](thermal_qa.md) explains the measurements; [portable evidence](thermal_validation.json) includes image and source hashes. This historical rendering fixture did not measure sustained GPU/frame timings or thermal adapter accuracy. Current panel thermal classification is evaluated separately above.
 
 All four local mock bridge reactions (G/A/R/disconnected) also pass with both cameras active. Live NIR inference uses asynchronous readback, with zero synchronous live readbacks and zero CPU preview uploads. These are transport/reaction checks, not Cosmos or IQ9 accuracy results.
 
-## Spatial thermal gradients
+### Historical procedural spatial gradients
 
 The spatial update passes 55 additional GPU field checks and all 42 thermal regressions. The normal-case body centre is approximately 8.4 °C warmer than both sampled edges. From cooling age 15 to 45 seconds the rib loses about 74% of its heat excess above ambient, versus 12% for the body, while powered heaters remain unchanged. Object-local samples remain stable after translation and rotation. [Spatial evidence](thermal_fields_validation.json) records the actual images, ID-filtered measurements and source hashes. NIR visual and asynchronous readback regressions and all 34 Python tests also pass. No calibrated thermal accuracy or GPU speedup claim is made.
 

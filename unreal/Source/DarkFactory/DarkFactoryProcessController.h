@@ -16,8 +16,9 @@ class UMaterialInstanceDynamic;
 class USpotLightComponent;
 class FJsonObject;
 class FJsonValue;
+struct FDarkFactoryPanelMotionQA;
 
-/** Three camera-only Reason2 gates with bounded async capture and fail-hold transport. */
+/** Four camera-only Reason2 gates with bounded async capture and fail-hold transport. */
 UCLASS()
 class DARKFACTORY_API ADarkFactoryProcessController : public AActor {
     GENERATED_BODY()
@@ -50,23 +51,32 @@ private:
     struct FPreviewStamp { FString Body,Stage; double At=0; };
     TArray<FPreviewStamp> PreviewStamps;
     TArray<TArray<uint8>> BatchImages;
+    TArray<TSharedPtr<FJsonValue>> BatchInspectionViews,InspectionCaptures;
+    TSet<FString> SavedInspectionScreenshots;
+    TSharedPtr<FJsonObject> PendingInspectionView;
+    bool bCapturePoseReady=false,bSensorResourcesReady=false;
+    double SensorAssetsIdleSince=0,SensorResourcesReadyAt=0;
     TArray<TSharedPtr<FJsonValue>> Events;
     TArray<TSharedPtr<FJsonValue>> ModelSmokeOutcomes,ModelSmokeThermalChecks;
     bool bModelSmokeOutcomesMatch=true,bModelSmokeThermalLimitsMatch=true;
-    uint64 CaptureSerial=0;
-    int32 CaptureSlot=-1,SettleFrames=0,ForcedFault=-1,CompletedBodies=0,CaptureCase=-1,ExpectedImages=0;
-    int32 QAStartCase=0,QAEndCase=40,QAEpisodes=0,QASeed=701,QAExpectedFault=0;
+    uint64 CaptureSerial=0,BatchSerial=0,ModelRequestsSubmitted=0;
+    int32 CaptureSlot=-1,SettleFrames=0,SensorWarmupCaptures=0,ForcedPreassembled=-1,CompletedBodies=0,CaptureCase=-1,ExpectedImages=0;
+    int32 QAStartCase=0,QAEndCase=40,QAEpisodes=0,QASeed=701;
     bool bCasePrepared=false,bPhaseScreenshotTaken=false,bModelRequestsEnabled=true;
     FString CaptureSampleId;
-    double PhaseStarted=0,NextInspection=0,BatchStarted=0,RequestStarted=0,MotionPose=0;
-    double InspectionExtension=0;
+    double PhaseStarted=0,NextInspection=0,BatchStarted=0,RequestStarted=0;
     double CapturedAtMs=0,ResponseDeadlineSeconds=20,MaxCaptureAgeSeconds=8,SessionStarted=0;
     double MinimumLabelMass=.5,MinimumConditionalProbability=.8;
-    bool bCaptureActive=false,bReady=false,bCaptureQA=false,bModelQA=false,bPolicyQA=false;
+    float CaptureNIRPowerScale=1.f;
+    bool bCaptureActive=false,bReady=false,bCaptureQA=false,bModelQA=false,bPolicyQA=false,bPanelMotionQA=false;
+    TSharedPtr<FDarkFactoryPanelMotionQA> PanelMotionQA;
+    void PanelMotionQATick(float DeltaSeconds);
+    void PanelMotionQACaptureTick();
     void BeginBody();
     void EnterPhase(EDarkFactoryProcessPhase Phase);
     void StartCapture();
     void CaptureNext();
+    void RecordInspectionCapture(USceneCaptureComponent2D* Camera);
     void SubmitBatch();
     void ApplyDecision(const FString& Decision,bool Valid,const FString& Reason,float Latency,const FString& Backend);
     void CancelInspection();
@@ -75,7 +85,10 @@ private:
     FString StageName() const;
     void CaptureQATick();
     bool RunPolicySmoke();
-    static bool IsModelSmokeOutcomeCorrect(int32 BodySequence,bool bDeparted);
+    static bool HasGrayscaleSensorPixels(const TArray<FColor>& Pixels);
+    static bool AdvanceSensorIdleWindow(double Now,bool bCompiling,double& IdleSince);
+    bool SensorResourcesReady();
+    static bool IsModelSmokeOutcomeCorrect(int32 BodySequence,bool bDeparted,bool bPreassembled,bool bAssembled,bool bWelded);
     bool HasPassedModelSmoke() const;
     void RecordModelSmokeOutcome();
     void RecordModelSmokeThermalGate();

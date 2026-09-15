@@ -1,3 +1,4 @@
+#include "DarkFactoryColliderOverlay.h"
 #include "DarkFactoryGameMode.h"
 #include "Components/BoxComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"

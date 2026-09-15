@@ -2,70 +2,78 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "DarkFactoryWeldingCell.h"
+#include "DarkFactoryProcessTypes.h"
 #include "DarkFactoryProcessScene.generated.h"
 
 class UStaticMeshComponent;
 class USceneComponent;
-class UBoxComponent;
 class ADarkFactoryThermalRig;
 class UMaterialInstanceDynamic;
 
-/** Process-only authored inspection parts. No ground-truth value is a model input. */
+/** Physical panel/adhesive state. Private labels never determine live gate decisions. */
 UCLASS()
 class DARKFACTORY_API ADarkFactoryProcessScene : public AActor {
     GENERATED_BODY()
 public:
-    // Process transport clears the full curtain sweep before replacing a body.
     static constexpr double CarriageTravelCm=2050.;
     static constexpr double CarriageTravelSeconds=3.2;
     static constexpr double TunnelLengthCm=1400.;
+    static constexpr double InspectionDeploySeconds=1.;
+    static constexpr double InspectionWithdrawSeconds=.8;
+    static constexpr float AdhesiveCoolingTimeScale=.8f;
+    static constexpr double WeldHaloCoolingSeconds=5.; // Leaves visible residual heat after the intervening NIR scan.
+    static int32 AdhesiveBeadForView(int32 View) { return View==1 ? 1:0; }
     ADarkFactoryProcessScene();
     bool Initialize(ADarkFactoryWeldingCell* InCell,int32 Seed);
-    // -1: seeded 1/3 anomaly; 0 seated; 1 loose; 2 fallen; 3 missing.
-    void BeginBody(int32 BodyIndex,double ClockSeconds,int32 FaultOverride=-1,int32 DoorOverride=-1);
+    // -1: seeded 1/5 preassembled; 0: missing; 1: preassembled. Offline override only.
+    void BeginBody(int32 BodyIndex,double ClockSeconds,int32 PreassembledOverride=-1);
     void EndBody();
-    // Explicit offline episode variation; interactive defaults are unchanged.
     void SetCaptureVariation(int32 Seed);
-    // Explicit snapshots default to the settled inspection pose; live control supplies extension.
-    void ApplyFrame(double PoseSeconds,double ClockSeconds,double CarriageOffsetCm,bool BodyVisible,bool PermitWelding,double InspectionExtension=1.);
+    void ApplyAssemblyFrame(EDarkFactoryProcessPhase Phase,double StageSeconds,double ClockSeconds,double Offset,bool Visible);
+    static double GetPhaseDuration(EDarkFactoryProcessPhase Phase);
+    bool PrepareCapture(const FString& Stage,int32 CaseIndex,int32 Seed,double& ClockOut);
+    void RequestInspectionView(const FString& Stage,int32 View,double ClockSeconds,bool Snap=false);
+    bool IsInspectionViewSettled(int32 View) const;
+    void GetInspectionCameraPose(const FString& Stage,int32 View,FVector& Location,FRotator& Rotation,float& FOV) const;
+    void GetInspectionFramingCorners(const FString& Stage,int32 View,TArray<FVector>& Corners) const;
+    void GetSealantSurfaceSamples(int32 View,TArray<FVector>& Points) const;
+    void GetInspectionObserverView(FVector& Location,FRotator& Rotation) const;
     void BindThermalRig(ADarkFactoryThermalRig* Rig);
     const TArray<FDarkFactoryImportedThermalSurface>& GetThermalSurfaces() const { return ThermalSurfaces; }
-    void GetDoorSensorView(int32 Side,FVector& Location,FRotator& Rotation,float& FOV) const;
-    // A gimbal aims the actual R4-mounted lens; root settles/render-captures afterward.
-    void GetInspectionCameraPose(int32 Spot,FVector& Location,FRotator& Rotation,float& FOV);
-    void GetInspectionObserverView(FVector& Location,FRotator& Rotation) const;
     TSharedRef<FJsonObject> BuildMetadata() const;
     float GetMaximumAdhesiveC() const;
     float GetMaximumWeldC() const;
+    float GetMaximumSealantContactApparentC() const;
     float GetMaxAdhesiveTemperatureC() const { return GetMaximumAdhesiveC(); }
     float GetMaxWeldTemperatureC() const { return GetMaximumWeldC(); }
 private:
     UPROPERTY() TObjectPtr<USceneComponent> SceneRoot;
     UPROPERTY() TObjectPtr<ADarkFactoryWeldingCell> Cell;
-    UPROPERTY() TArray<TObjectPtr<UStaticMeshComponent>> DoorMeshes;
-    UPROPERTY() TArray<TObjectPtr<UBoxComponent>> DoorColliders;
+    UPROPERTY() TObjectPtr<UStaticMeshComponent> PanelTemplate;
+    UPROPERTY() TObjectPtr<UStaticMeshComponent> IncomingPanel;
+    UPROPERTY() TObjectPtr<UStaticMeshComponent> HeldPanel;
+    UPROPERTY() TObjectPtr<UStaticMeshComponent> MountingFrame;
     UPROPERTY() TArray<TObjectPtr<UStaticMeshComponent>> AdhesiveMeshes;
-    UPROPERTY() TObjectPtr<USceneComponent> CameraGimbal;
+    UPROPERTY() TObjectPtr<USceneComponent> CameraMount;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> CameraHousing;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> CameraLens;
-    UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> DoorMaterial;
-    FVector CaptureCameraOffsets[2]={FVector::ZeroVector,FVector::ZeroVector};
-    FVector CaptureTargetOffsets[2]={FVector::ZeroVector,FVector::ZeroVector};
-    float CaptureFovOffsets[2]={0,0};
-    float CaptureMaterialGain=1;
-    int32 CaptureVariationSeed=0;
-    bool bCaptureVariation=false;
+    UPROPERTY() TObjectPtr<UStaticMeshComponent> CaptureOccluder;
+    UPROPERTY() TArray<TObjectPtr<UMaterialInstanceDynamic>> PanelMaterials;
+    UPROPERTY() TArray<TObjectPtr<UMaterialInstanceDynamic>> AdhesiveMaterials;
     TWeakObjectPtr<ADarkFactoryThermalRig> ThermalRig;
     TArray<FDarkFactoryImportedThermalSurface> ThermalSurfaces;
-    TArray<FTransform> DoorHome;
-    TArray<FVector> AdhesiveLocal,SpotLocal,SpotNormals;
-    TArray<float> AdhesiveInitialC,AdhesiveTau,AdhesiveC;
-    FVector FallenVelocity=FVector::ZeroVector;
-    FRotator FallenRotation=FRotator::ZeroRotator;
-    double BodyBirthSeconds=0,Clock=0,LastClock=0;
-    int32 RandomSeed=42,BodySequence=0,Fault=0,FaultDoor=-1;
-    bool bInitialized=false,bBodyActive=false,bFallenDetached=false,bFallenResting=false;
-    void ResetDoors();
-    void UpdateDoors(double DeltaSeconds,bool Visible);
-    void UpdateAdhesive();
+    mutable TArray<TSharedPtr<FJsonValue>> CaptureVisibilityRays;
+    FTransform PanelTarget;
+    TArray<FVector> SpotLocal,SpotNormals,AdhesiveLocal;
+    TArray<float> AdhesiveInitialC,AdhesiveTau,AdhesiveC,ContactSurfaceC,WeldCoreC,WeldHaloC;
+    TArray<double> AdhesiveDeposited,WeldDeposited,AdhesiveProgress,AdhesiveLengths;
+    double ContactStarted=-1;
+    double BodyBirthSeconds=0,Clock=0,LastClock=0,InspectionExtension=0,LastStageSeconds=0;
+    int32 RandomSeed=42,BodySequence=0,SupplyRemaining=5,CaptureVariationSeed=0;
+    EDarkFactoryProcessPhase CurrentPhase=EDarkFactoryProcessPhase::Arriving;
+    FString InspectionStage=TEXT("panel_presence"),CaptureExpectedDecision;
+    bool bInitialized=false,bBodyActive=false,bPreassembled=false,bPanelPicked=false,bPanelWelded=false;
+    bool bBodyVisible=false,bCaptureVariation=false,bOfflinePrepared=false,bOccluded=false,bMisaligned=false;
+    void UpdateTemperatureFields();
+    void UpdatePanelVisibility();
 };

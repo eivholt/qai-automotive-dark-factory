@@ -17,7 +17,7 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
-from dark_factory.gates import load_gate_contract, hold_reply, parse_gate_request, IDENTITY_FIELDS, MESSAGE_LAYOUT
+from dark_factory.gates import load_gate_contract, hold_reply, parse_gate_request, IDENTITY_FIELDS, MESSAGE_LAYOUT, STAGE_MODALITIES
 
 
 def percentile(values, p):
@@ -34,10 +34,12 @@ def valid_model_reply(row):
 
 
 def gate_action(stage, decision):
+    if stage == "panel_presence":
+        return {"G": "preassembled", "R": "assemble", "A": "hold"}.get(decision, "hold")
     if decision == "G":
         return "proceed"
-    if stage == "doors" and decision == "R":
-        return "return"
+    if stage == "panel_seated" and decision == "R":
+        return "exception_hold"
     return "hold"
 
 
@@ -52,14 +54,19 @@ def summarize(rows):
         summary["correct"] = sum(valid_model_reply(r) and r["expected_decision"] == r["decision"] for r in labelled)
         summary["invalid_reply_holds"] = sum(not valid_model_reply(r) for r in labelled)
         summary["accuracy"] = summary["correct"] / len(labelled)
-        action_rows = [r for r in labelled if r.get("stage") in ("doors", "adhesive", "weld")]
+        action_rows = [r for r in labelled if r.get("stage") in STAGE_MODALITIES]
         if action_rows:
             correct_actions = sum(valid_model_reply(r) and gate_action(r["stage"], r["decision"]) == gate_action(r["stage"], r["expected_decision"]) for r in action_rows)
             summary["action_correct"] = correct_actions
             summary["action_accuracy"] = correct_actions / len(action_rows)
-            summary["action_scope"] = "Thermal A and R both hold; door R returns. Literal letter accuracy is reported separately."
+            summary["action_scope"] = "Presence G/R select distinct preassembled/assembly branches; seating R is an exception hold; thermal A/R both wait. Literal letter accuracy is separate."
 
         summary["false_proceed"] = sum(r["decision"] == "G" and r["expected_decision"] != "G" for r in labelled)
+        presence = [r for r in labelled if r.get("stage") == "panel_presence"]
+        if presence:
+            summary["wrong_presence_branches"] = sum(valid_model_reply(r) and r["decision"] in ("G", "R")
+                and r["decision"] != r["expected_decision"] for r in presence)
+            summary["presence_scope"] = "Both wrong G (skip needed assembly) and wrong R (assemble over an installed panel) are branch errors."
         summary["holds"] = sum(r["decision"] == "A" for r in labelled)
         summary["confusion_expected_predicted"] = dict(Counter(r["expected_decision"] + "->" + (r["decision"] if valid_model_reply(r) else "ERROR") for r in labelled))
         summary["per_class"] = {}
@@ -114,9 +121,9 @@ def main():
         for i, sample in enumerate(samples):
             stage = sample["stage"]
             stage_contract = contract["stages"][stage]
-            if sample.get("contract_version", contract["version"]) != contract["version"]:
+            if sample.get("contract_version") != contract["version"]:
                 raise ValueError("Manifest contract mismatch")
-            if sample.get("prompt_sha256", stage_contract["prompt_sha256"]) != stage_contract["prompt_sha256"]:
+            if sample.get("prompt_sha256") != stage_contract["prompt_sha256"]:
                 raise ValueError("Manifest prompt mismatch; explicitly recapture/version changed prompt experiments")
             payload = {"contract_version": contract["version"], "request_id": f"eval-{repeat}-{i}",
                 "body_id": str(sample["body_id"]), "stage": stage, "captured_at_ms": time.monotonic_ns() // 1_000_000,

@@ -121,7 +121,23 @@ def default_materials():
     return definitions
 
 
-def build_materials(definitions, manifest_directory):
+def clear_material_graph(material):
+    """UE 5.8 DeleteAll iterates the array it mutates; delete a stable snapshot."""
+    expressions = list(MATLIB.get_material_expressions(material))
+    for old_expression in expressions:
+        MATLIB.delete_material_expression(material, old_expression)
+    remaining = MATLIB.get_num_material_expressions(material)
+    if remaining != 0 or list(MATLIB.get_material_expressions(material)):
+        raise RuntimeError('Material graph reset left expressions: ' + material.get_path_name())
+    for prop in (unreal.MaterialProperty.MP_BASE_COLOR, unreal.MaterialProperty.MP_METALLIC,
+                 unreal.MaterialProperty.MP_ROUGHNESS, unreal.MaterialProperty.MP_EMISSIVE_COLOR):
+        if MATLIB.get_material_property_input_node(material, prop) is not None:
+            raise RuntimeError('Material graph reset left a connected output: ' + material.get_path_name())
+    return {'material': material.get_path_name(), 'deleted_expressions': len(expressions),
+            'remaining_expressions': remaining, 'outputs_disconnected': True}
+
+
+def build_materials(definitions, manifest_directory, reset_audits=None):
     materials = {}
     for definition in definitions:
         key = canonical_material(definition['id'])
@@ -134,7 +150,9 @@ def build_materials(definitions, manifest_directory):
             material = TOOLS.create_asset(name, '/Game/WeldingCell/Materials', unreal.Material, unreal.MaterialFactoryNew())
         if not isinstance(material, unreal.Material):
             raise TypeError('Generated material path has another asset type: ' + path)
-        MATLIB.delete_all_material_expressions(material)
+        reset = clear_material_graph(material)
+        if reset_audits is not None:
+            reset_audits.append(reset)
         material.set_editor_property('two_sided', bool(definition.get('two_sided', False)))
         texture_path = definition.get('base_color_texture')
         if texture_path:
@@ -346,6 +364,31 @@ def main():
             result['mesh_import_skipped'] = True
         else:
             result['task_imported_object_paths'] = import_meshes(source, destination, mode == 'prepared')
+        # The gripper reuses one real rack H-bar. Keep this auxiliary copy out
+        # of the conserved 90-component source scene and import it alongside
+        # full/panel updates, preserving its original blue material link.
+        auxiliary_path = manifest_path.parent / 'gripper_bar_manifest.json'
+        if mode == 'prepared' and manifest_path.name in ('manifest.json', 'panel_delta_manifest.json') and auxiliary_path.is_file():
+            auxiliary = json.loads(auxiliary_path.read_text(encoding='utf-8'))
+            auxiliary_source = auxiliary_path.parent / auxiliary['fbx']
+            before_aux = sha256(auxiliary_source)
+            if args.get('dfimportskipmesh', '0') != '1':
+                result['task_imported_object_paths'] += import_meshes(auxiliary_source, destination, True)
+            result['gripper_bar_validation'] = validate_prepared(auxiliary, destination)
+            if sha256(auxiliary_source) != before_aux:
+                raise RuntimeError('Auxiliary rack-bar export changed during import')
+            result['gripper_bar_source_sha256'] = before_aux
+        pinch_path = manifest_path.parent / 'pinch_gun_manifest.json'
+        if mode == 'prepared' and manifest_path.name in ('manifest.json', 'panel_delta_manifest.json') and pinch_path.is_file():
+            pinch = json.loads(pinch_path.read_text(encoding='utf-8'))
+            pinch_source = pinch_path.parent / pinch['fbx']
+            before_pinch = sha256(pinch_source)
+            if args.get('dfimportskipmesh', '0') != '1':
+                result['task_imported_object_paths'] += import_meshes(pinch_source, destination, True)
+            result['pinch_gun_validation'] = validate_prepared(pinch, destination)
+            if sha256(pinch_source) != before_pinch:
+                raise RuntimeError('Auxiliary pinch gun export changed during import')
+            result['pinch_gun_source_sha256'] = before_pinch
         result['status'] = 'building_materials'
         write_json(report_path, result)
         if mode == 'prepared':
@@ -354,13 +397,22 @@ def main():
         if args.get('dfimportskipmaterials', '0') == '1':
             materials = {canonical_material(d['id']): ASSETS.load_asset('/Game/WeldingCell/Materials/M_WC_' + canonical_material(d['id'])) for d in definitions}
         else:
-            materials = build_materials(definitions, manifest_path.parent)
+            result['material_graph_resets'] = []
+            materials = build_materials(definitions, manifest_path.parent, result['material_graph_resets'])
         # Rebuilding PBR expressions removes the optional runtime heat branch.
         # Reapply it from source even when previous asset metadata survives.
         tool_materials = runpy.run_path(str(Path(__file__).with_name('setup_welding_tool_materials.py')))
         result['tool_heat_materials'] = tool_materials['augment_materials'](materials.values())
         witness_materials = runpy.run_path(str(Path(__file__).with_name('setup_weld_witness.py')))
         result['weld_witness_materials'] = witness_materials['augment_materials'](materials.values())
+        # Replaying both independent augmenters must audit the complete graph
+        # without duplicating nodes or disturbing source PBR / prior emission.
+        heat_replay = tool_materials['augment_materials'](materials.values())
+        witness_replay = witness_materials['augment_materials'](materials.values())
+        if heat_replay['augmented'] != 0 or heat_replay['unchanged'] != len(materials) or any(row['status'] != 'unchanged' for row in witness_replay):
+            raise RuntimeError('Imported heat/witness augmentation is not idempotent')
+        result['material_augmentation_replay'] = {'passed': True, 'heat_unchanged': heat_replay['unchanged'],
+            'witness_unchanged': len(witness_replay)}
         cabinet_material = runpy.run_path(str(Path(__file__).with_name('setup_control_cabinet.py')))
         result['control_cabinet_material'] = cabinet_material['generate']()
         meshes = audit_meshes(destination, materials)

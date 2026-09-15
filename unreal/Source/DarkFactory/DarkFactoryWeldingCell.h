@@ -9,6 +9,7 @@ class UBoxComponent;
 class FJsonObject;
 class ADarkFactoryThermalRig;
 class UMaterialInstanceDynamic;
+enum class EDarkFactoryProcessPhase : uint8;
 
 /** Authored visual temperature only; never a calibrated material or thermal body. */
 struct FDarkFactoryImportedThermalSurface {
@@ -48,6 +49,15 @@ public:
     static constexpr double CycleDurationSeconds = 21.;
     static constexpr double LegacyCycleDurationSeconds = 18.;
     static constexpr int32 RobotTimingBankCycles = 16;
+    static constexpr double ProcessApproachSpeedScale=.8;
+    static constexpr double ProcessWeldPoseStartSeconds=3.4;
+    static constexpr double ProcessWeldPoseEndSeconds=16.3+(1./ProcessApproachSpeedScale-1.);
+    static constexpr double ProcessWeldPoseDurationSeconds=ProcessWeldPoseEndSeconds-ProcessWeldPoseStartSeconds;
+    static constexpr double ProcessWeldCorePeakC=1600.;
+    static constexpr double ProcessWeldHaloPeakC=420.;
+    static constexpr float ProcessWeldCoreRadiusCm=2.f;
+    static constexpr double ProcessWeldCoreCoolingTauSeconds=.65;
+    double GetRobotApproachDurationSeconds() const { return bProcessControlled ? 1./ProcessApproachSpeedScale:1.; }
     ADarkFactoryWeldingCell();
     bool LoadScene(const FString& Path, FString& Error);
     virtual void Tick(float DeltaSeconds) override;
@@ -56,15 +66,45 @@ public:
     void SetMotionTime(double Seconds);
     // Explicit model-gated process mode; legacy preview/QA retains its original cycle.
     void SetProcessControlled(bool Enabled);
+    void SetProcessMotorCaptureVariation(int32 Seed);
     bool IsProcessControlled() const { return bProcessControlled; }
     void BeginProcessBody(int32 BodyIndex,double ClockSeconds);
     void SetProcessFrame(double PoseSeconds,double ClockSeconds,double CarriageOffsetCm,bool Visible,bool PermitWelding,double InspectionExtension=1.);
     double GetInspectionExtension() const { return ProcessInspectionExtension; }
+    // Process-only six-joint motion; the camera mounting transform stays fixed.
+    void RequestInspectionSpot(int32 Spot,double ClockSeconds,bool Snap=false,bool NIR=false,bool Adhesive=false);
+    bool IsInspectionSpotSettled(int32 Spot) const;
+    FTransform GetInspectionCameraMountTransform() const;
+    TSharedRef<FJsonObject> GetInspectionScanMetadata() const;
     USceneComponent* GetCarriageRoot() const { return CarriageRoot; }
     USceneComponent* GetInspectionJoint() const;
     UStaticMeshComponent* FindSceneMesh(const FString& Name) const;
     bool GetWeldSite(int32 Index,FVector& LocalPosition,FVector& LocalNormal) const;
     float GetMaximumProcessWeldC() const;
+    // Imported trunk-panel assembly, explicitly enabled for the new process only.
+    static constexpr int32 PanelWelderRobot=1;
+    static constexpr int32 PanelAdhesiveRobot=0;
+    static constexpr int32 PanelHolderRobot=2;
+    static constexpr double PanelAdhesiveSeconds=13.5;
+    static constexpr double PanelPlacementSeconds=6.;
+    static constexpr double PanelPickupSeconds=1.5;
+    static constexpr int32 PanelWeldCount=6;
+    static constexpr double PanelWeldingSeconds=11.5;
+    static double PanelWeldStartSeconds(int32 Index) { return 1.45+1.35*Index; }
+    static constexpr double PanelRetractSeconds=2.5;
+    bool InitializePanelAssembly();
+    UStaticMeshComponent* GetPanelBodyMesh() const;
+    FTransform GetPanelSupplyTransform(int32 Slot=4) const;
+    FTransform GetPanelHeldTransform() const;
+    static constexpr double PanelSeatingLiftCm=.5;
+    bool GetPanelContact(int32 Index,FVector& LocalPosition,FVector& LocalNormal) const;
+    bool GetPanelAdhesivePath(int32 Bead,TArray<FVector>& LocalPoints,TArray<FVector>& LocalNormals) const;
+    static double GetPanelAdhesiveStartSeconds(int32 Bead);
+    static double GetPanelAdhesiveProgress(int32 Bead,double PhaseSeconds);
+    void SetPanelSupplyCount(int32 Count);
+    void SetPanelMotionState(EDarkFactoryProcessPhase Phase,double PhaseSeconds,bool HoldingPanel=false);
+    TSharedRef<FJsonObject> GetPanelAssemblyMetadata() const;
+    FString GetPanelFramePath() const;
     double GetArrivalOffsetCm() const { return ArrivalOffset; }
     double GetDepartureOffsetCm() const { return DepartureOffset; }
 
@@ -73,7 +113,7 @@ public:
     double GetEffectTime() const { return bProcessControlled ? ProcessClock:MotionSeconds; }
     double GetCycleSeconds() const;
     double GetCycleDurationSeconds() const { return bRandomizedRobotTiming ? CycleDurationSeconds:LegacyCycleDurationSeconds; }
-    double GetCarriageDepartureStartSeconds() const { return bRandomizedRobotTiming ? 16.3:13.5; }
+    double GetCarriageDepartureStartSeconds() const { return (bRandomizedRobotTiming ? 16.3:13.5)+(bProcessControlled ? 1./ProcessApproachSpeedScale-1.:0.); }
     double GetCarriageDepartureEndSeconds() const { return GetCarriageDepartureStartSeconds()+3.5; }
     bool IsRobotTimingRandomized() const { return bRandomizedRobotTiming; }
     // Explicit old-fixture timing only. Interactive/default mode is randomized.
@@ -176,7 +216,7 @@ private:
         FVector LocalPosition = FVector::ZeroVector;
         FVector LocalNormal = FVector::UpVector;
         float WitnessStrength = 0;
-        float RadiusCm = 12, TemperatureC = 20, Glow = 0, ContactErrorCm = 0;
+        float RadiusCm = 12, TemperatureC = 20, HaloTemperatureC = 20, Glow = 0, ContactErrorCm = 0;
     };
     struct FBodyWeldMaterial {
         TWeakObjectPtr<UStaticMeshComponent> Mesh;
@@ -187,7 +227,7 @@ private:
     void UpdateBodyWeldHeat(double Seconds);
     double BodyWeldHeatSeconds = 0;
     bool bWeldWitnessEnabled=false;
-    double EvaluateBodyWeldTemperature(int32 RobotIndex,double Seconds) const;
+    double EvaluateBodyWeldTemperature(int32 RobotIndex,double Seconds,bool Halo=false) const;
     TArray<FBodyWeldSpot> BodyWeldSpots;
     TArray<FBodyWeldMaterial> BodyWeldMaterials;
     bool InitializeToolHeat();
@@ -211,8 +251,45 @@ private:
     int32 ProcessBodyIndex=0;
     double ProcessClock=0,ProcessBirthClock=0,ProcessWeldEpoch=-1,ProcessCarriageOffset=0;
     double ProcessInspectionExtension=0;
+    static constexpr double InspectionScanDurationSeconds=.8;
+    TArray<int32> InspectionJointIndices;
+    TArray<double> InspectionScanFromAngles;
+    int32 InspectionRequestedSpot=0;
+    double InspectionScanStartClock=0;
+    bool bInspectionScanConfigured=false;
+    void InitializeInspectionScan();
+    double InspectionScanAngle(int32 JointIndex,double ClockSeconds) const;
+    FTransform InspectionEndpointTransform(int32 Spot) const;
     TArray<float> ProcessInitialBodyC,ProcessInitialTipC;
     TArray<double> ProcessPreviousJointAngles;
     double ProcessMotorLastClock=-1,ProcessMotorSampleSeconds=0;
-    FString ManifestPath;
+    bool bProcessMotorCaptureVariation=false;
+    int32 ProcessMotorCaptureSeed=0;
+    bool bPanelAssembly=false;
+    EDarkFactoryProcessPhase PanelPhase;
+    double PanelPhaseSeconds=0;
+    int32 PanelSupplyCount=5,PanelPickupSlot=4;
+    bool bPanelHolderEngaged=false;
+    double PanelToolHeatClock=-1;
+    FQuat PanelSupplyRotation=FQuat::Identity;
+    TArray<FVector> PanelContacts,PanelContactNormals;
+    struct FPanelProfileShare { TWeakObjectPtr<UStaticMeshComponent> Target,Source; };
+    TArray<FPanelProfileShare> PanelProfileShares;
+    TArray<TWeakObjectPtr<UStaticMeshComponent>> PinchParts;
+    FVector PinchPivots[2],PinchTips[2],PinchAxis=FVector::ForwardVector;
+    FTransform PinchMount;
+    double PinchClampAngle=0,PinchOpenAngle=14,PinchCurrentAngle=14;
+    void UpdatePinchGun();
+    void BindPanelSharedProfiles();
+    double InspectionTargetAngle(int32 Spot,int32 Joint) const;
+    TArray<TWeakObjectPtr<UStaticMeshComponent>> PanelSupplyMeshes;
+    FTransform PanelHeldOffset,PanelInspectionMount;
+    TArray<TArray<double>> PanelAssemblyPoses;
+    TArray<TArray<double>> PanelWelderWaypoints,PanelAdhesiveWaypoints,PanelHolderWaypoints,PanelWeldCrossPoses,PanelWeldPoses;
+    TArray<TArray<double>> PanelInspectionPoses,PanelNIRInspectionPoses,PanelAdhesiveInspectionPoses;
+    TArray<TArray<double>> PanelAdhesiveStrokePoses,PanelAdhesivePathProgress;
+    TArray<TArray<FVector>> PanelAdhesivePathPoints,PanelAdhesivePathNormals;
+    bool bPanelInspectionNIR=false,bPanelInspectionAdhesive=false;
+    double PanelJointAngle(const FJointMotion& Joint) const;
+    FString ManifestPath,PanelAuthoringSHA256,PanelMotionRecipe,PanelLayoutRecipe;
 };

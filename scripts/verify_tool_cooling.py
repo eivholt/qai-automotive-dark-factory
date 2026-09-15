@@ -120,7 +120,7 @@ def verify(directory):
     require('thermal_encoding_constant', encodings[0] == encodings[1] == encodings[2])
     require('thermal_encoding_fixed_raw', all(e['width'] == 448 and e['height'] == 256 and e['min_temperature_c'] == 20
             and e['max_temperature_c'] == 120 and e['quantity'] == 'apparent_temperature' and e['linear_u8'] is True for e in encodings))
-    require('hotspot_lut_rows_22', all(snapshot.get('lut_rows') == 22 for snapshot in snapshots))
+    require('hotspot_lut_rows_70', all(snapshot.get('lut_rows') == 70 for snapshot in snapshots))
 
     for identifier in ids:
         tools = [obj(stage.get(identifier)) for stage in tools_by_stage]

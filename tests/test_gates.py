@@ -20,8 +20,8 @@ def gray_png(width=448, height=256):
 class GateTests(unittest.TestCase):
     def setUp(self):
         self.c = load_gate_contract()
-        self.payload = {"contract_version": self.c["version"], "request_id": "r1", "body_id": "b1", "stage": "doors", "captured_at_ms": 100,
-            "images": [{"camera_id": k, "png_base64": base64.b64encode(gray_png()).decode()} for k in ["left", "right"]]}
+        self.payload = {"contract_version": self.c["version"], "request_id": "r1", "body_id": "b1", "stage": "panel_presence", "captured_at_ms": 100,
+            "images": [{"camera_id": k, "png_base64": base64.b64encode(gray_png()).decode()} for k in ["spot1", "spot2", "spot3"]]}
 
     def reply(self, payload=None, decision="G"):
         result = hold_reply(payload or self.payload, self.c, "test", valid=True)
@@ -74,7 +74,7 @@ class GateTests(unittest.TestCase):
             parse_gate_request(bad, self.c)
 
     def test_prompt_hash_and_temperature_mapping_are_locked(self):
-        for change in (lambda c: c["stages"]["doors"].update(prompt="Different"), lambda c: c.update(thermal_window_c=[0, 100])):
+        for change in (lambda c: c["stages"]["panel_presence"].update(prompt="Different"), lambda c: c.update(thermal_window_c=[0, 100])):
             c = copy.deepcopy(self.c)
             change(c)
             with tempfile.TemporaryDirectory() as d:
@@ -99,7 +99,8 @@ class GateTests(unittest.TestCase):
 
     def test_uncertain_logits_hold(self):
         p = self.c["decision_policy"]
-        self.assertEqual(select_decision({"G": .96, "A": .02, "R": .02}, .9, p)[0], "G")
+        self.assertEqual(select_decision({"G": .99, "A": .005, "R": .005}, .9, p)[0], "G")
+        self.assertEqual(select_decision({"G": .96, "A": .02, "R": .02}, .9, p)[0], "A")
         self.assertEqual(select_decision({"G": .96, "A": .02, "R": .02}, .1, p)[0], "A")
         self.assertEqual(select_decision({"G": .4, "A": .2, "R": .4}, .9, p)[0], "A")
         self.assertEqual(select_decision({"G": .01, "A": .01, "R": .98}, .9, p)[0], "R")
@@ -123,13 +124,52 @@ class GateTests(unittest.TestCase):
         self.assertEqual(GateLatch(self.c).observe(self.reply(), self.payload, 9000), "A")
         self.assertEqual(GateLatch(self.c).observe(self.reply(), self.payload, 50), "A")
 
-    def test_red_immediate_and_new_body_resets_green_history(self):
+    def test_seating_red_immediate_and_new_body_resets_green_history(self):
+        self.payload["stage"] = "panel_seated"
         latch = GateLatch(self.c)
         self.assertEqual(latch.observe(self.reply(decision="R"), self.payload, 200), "R")
         second = {**self.payload, "request_id": "r2", "captured_at_ms": 300}
         self.assertEqual(latch.observe(self.reply(second), second, 400), "A")
         third = {**second, "request_id": "r3", "captured_at_ms": 500, "body_id": "new-body"}
         self.assertEqual(latch.observe(self.reply(third), third, 600), "A")
+
+    def test_presence_red_requires_two_matching_fresh_frames(self):
+        latch = GateLatch(self.c)
+        first = self.payload
+        self.assertEqual(latch.observe(self.reply(first, "R"), first, 200), "A")
+        self.assertEqual(latch.observe(self.reply(first, "R"), first, 200), "A")
+        def send(i, label, body="b1"):
+            p = {**first, "request_id": f"r{i}", "captured_at_ms": i*100, "body_id": body}
+            return latch.observe(self.reply(p, label), p, i*100+10)
+        self.assertEqual(send(2, "R"), "A")
+        self.assertEqual(send(3, "G"), "A")
+        self.assertEqual(send(4, "R"), "A")
+        self.assertEqual(send(5, "R"), "R")
+        self.assertEqual(send(6, "R", "new-body"), "A")
+        self.assertEqual(send(7, "A", "new-body"), "A")
+        self.assertEqual(send(8, "R", "new-body"), "A")
+
+    def test_v1_door_contract_and_request_are_rejected(self):
+        with self.assertRaises(ProtocolError):
+            parse_gate_request({**self.payload, "contract_version": "automotive-process-v1", "stage": "doors"}, self.c)
+        c = copy.deepcopy(self.c)
+        c["version"] = "automotive-process-v1"
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d)/"legacy.json"
+            path.write_text(json.dumps(c), encoding="utf-8")
+            with self.assertRaises(ProtocolError):
+                load_gate_contract(path)
+
+    def test_three_bead_panel_v2_contract_and_request_are_rejected(self):
+        with self.assertRaises(ProtocolError):
+            parse_gate_request({**self.payload, "contract_version": "automotive-panel-process-v2"}, self.c)
+        c = copy.deepcopy(self.c)
+        c["version"] = "automotive-panel-process-v2"
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d)/"three-bead-panel.json"
+            path.write_text(json.dumps(c), encoding="utf-8")
+            with self.assertRaises(ProtocolError):
+                load_gate_contract(path)
 
     def test_errors_are_uniform_holds(self):
         for payload in (None, {}, self.payload, {"stage": []}):

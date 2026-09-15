@@ -44,7 +44,7 @@ Face centres have `w = 1`; box edges and corners decrease smoothly. `edgeSurface
 | Module ribs | Same initial source as their module; default field | Their smaller `V/A` cools faster; no base-to-tip conduction model |
 | Robot pedestal / arm parts | 38 / 48 °C; default field | Illustrative warm components; motor locations are not resolved |
 | Window heater strips | 65 °C; faulty strip 24 °C; edge fraction 0.55, falloff 1.1 | Powered strips retain their source regardless of cooling age |
-| Glue beads | 58 °C; edge fraction 0.32, falloff 1.8 | Passive cooling with broader warm centre; no cure kinetics |
+| Sealant beads | 58 °C; edge fraction 0.32, falloff 1.8 | Passive cooling with broader warm centre; no cure kinetics |
 
 Battery field parameters should remain replaceable. [NREL's thermal-characterization work](https://research-hub.nlr.gov/en/publications/battery-thermal-characterization-2/) combines measurements and models of cells, interconnects and cooling; primitive geometry does not supply that information.
 
@@ -71,7 +71,7 @@ A standalone C++17 check used the actual [radiometry helper](../unreal/Source/Da
 | Sampled range | Evaluations | Largest checked error | Conservative reference-bracket bound over sampled points |
 | --- | ---: | ---: | ---: |
 | Core 22–95 °C every 0.5 °C; emissivity 0.70/0.85/0.90/0.92/0.94/0.95/0.96; edge fractions 0.22/0.32/0.55; weight 0–1 every 0.002 | 1,546,587 | 0.025077 °C | 0.025542 °C |
-| Twelve current component/source combinations, including module/rib normal and fault, robot parts, heater normal/fault, glue, pane and plate; cooling age 0–90 seconds every second; same weight grid | 547,092 | 0.008870 °C | 0.009331 °C |
+| Twelve current component/source combinations, including module/rib normal and fault, robot parts, heater normal/fault, sealant, pane and plate; cooling age 0–90 seconds every second; same weight grid | 547,092 | 0.008870 °C | 0.009331 °C |
 
 The first maximum occurred at core 95 °C, emissivity 0.70, edge fraction 0.22 and weight 0.206. These are dense sampled checks of the approximation against the implemented radiometry, not a continuous mathematical bound, a GPU precision measurement or physical camera accuracy. Retest changed temperature ranges or emissivities. The 8-bit 20–120 °C encoding itself has steps of approximately 0.392 °C.
 

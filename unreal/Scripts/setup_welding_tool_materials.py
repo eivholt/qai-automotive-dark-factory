@@ -7,7 +7,7 @@ before this commandlet writes its loaded assets. No source meshes are imported.
 
 The importer calls augment_materials after rebuilding its ordinary PBR graphs.
 Only existing /Game/WeldingCell/Materials/M_WC_* assets are eligible. Shared
-ToolHeatGlow and WeldHeatGlow0..3 default to zero; runtime uses separate MIDs.
+ToolHeatGlow and WeldHeatGlow0..5 default to zero; runtime uses separate MIDs.
 V2 retains the complete audited V1 tool graph and prior source emission, adding
 one four-contact custom expression through a new final emissive addition.
 The fixed NIR capture's existing post-process desaturation preserves grayscale;
@@ -41,7 +41,7 @@ float S = saturate(1.0 - dot(D, D) / (Radius * Radius));
 float Weight = S * S * (3.0 - 2.0 * S);
 return max(ToolHeatGlow, 0.0) * max(ToolGlowColor.rgb, 0.0) * Weight;
 '''
-WELD_PATCH_COUNT = 4
+WELD_PATCH_COUNT = 6
 WELD_SCALARS = {name: value for index in range(WELD_PATCH_COUNT)
                 for name, value in ((f'WeldHeatRadiusCm{index}', 8.), (f'WeldHeatGlow{index}', 0.))}
 WELD_VECTORS = {name: value for index in range(WELD_PATCH_COUNT)
@@ -184,6 +184,32 @@ def custom_block(material, scalars, vectors, code, world, prefix, y, group):
     return custom
 
 
+def update_custom_layout(material, nodes, scalars, vectors, code, world, prefix):
+    """Extend an owned custom node in place without disturbing source branches."""
+    custom = nodes['hotspot']
+    names = ['WorldPosition', *scalars, *vectors]
+    if (custom.get_editor_property('code') == code and
+            [str(i.get_editor_property('input_name')) for i in custom.get_editor_property('inputs')] == names):
+        return False
+    for table, kind in [(scalars, unreal.MaterialExpressionScalarParameter), (vectors, unreal.MaterialExpressionVectorParameter)]:
+        for name, value in table.items():
+            if name in nodes:
+                continue
+            parameter = node(material, kind, name, -650, 1700+100*len(nodes), prefix)
+            parameter.set_editor_property('parameter_name', name)
+            parameter.set_editor_property('default_value', unreal.LinearColor(*value) if isinstance(value, tuple) else value)
+            nodes[name] = parameter
+    inputs = []
+    for name in names:
+        entry = unreal.CustomInput(); entry.set_editor_property('input_name', name); inputs.append(entry)
+    custom.set_editor_property('inputs', inputs)
+    custom.set_editor_property('code', code)
+    connect(world, '', custom, 'WorldPosition')
+    for name in [*scalars, *vectors]: connect(nodes[name], '', custom, name)
+    audit_custom(material, custom, nodes, scalars, vectors, code, world)
+    return True
+
+
 def material_result(material, status, before, expressions_before, existing_emission):
     tool_nodes, weld_nodes = owned_nodes(material), owned_nodes(material, WELD_PREFIX)
     count = audit_heat_graph(material, tool_nodes, check_material_output=False) + audit_weld_graph(material, weld_nodes, tool_nodes)
@@ -211,7 +237,13 @@ def augment_material(material):
     if weld_nodes:
         if not tool_nodes or version != VERSION:
             raise RuntimeError('Surface weld graph exists without its complete V2 generator state')
-        return material_result(material, 'unchanged', before, expressions_before, 'add_existing_emissive' in tool_nodes)
+        changed = update_custom_layout(material,weld_nodes,WELD_SCALARS,WELD_VECTORS,WELD_CODE,tool_nodes['world_position'],WELD_PREFIX)
+        result = material_result(material, 'updated' if changed else 'unchanged', before, expressions_before, 'add_existing_emissive' in tool_nodes)
+        if changed:
+            EDIT.recompile_material(material)
+            ASSETS.set_metadata_tag(material, 'DarkFactoryWeldHeatSHA256', WELD_CODE_SHA256)
+            if not ASSETS.save_loaded_asset(material,only_if_is_dirty=False): raise RuntimeError('Cannot save extended weld material')
+        return result
 
     if tool_nodes:
         # Audit V1 before any mutation. Every V1 expression remains in place.

@@ -125,7 +125,7 @@ def verify(directory):
     require('thermal_encoding_expected', all(e['width'] == 448 and e['height'] == 256 and e['min_temperature_c'] == 20
             and e['max_temperature_c'] == 120 and e['quantity'] == 'apparent_temperature' and e['linear_u8'] is True
             and e['band_um'] == [8, 14] and finite(e['ambient_temperature_c']) for e in encodings))
-    require('body_heat_lut_22_rows', all(s.get('lut_rows') == 22 for s in snapshots))
+    require('body_heat_lut_70_rows', all(s.get('lut_rows') == 70 for s in snapshots))
     require('thermal_remains_separate_from_training', all(s.get('training_manifest') is False and s.get('adapter_ready') is False
             and s.get('heat_transfer_enabled') is False for s in snapshots))
     matched_profiles = {}

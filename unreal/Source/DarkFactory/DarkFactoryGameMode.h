@@ -17,6 +17,15 @@ class DARKFACTORY_API ADarkFactoryGameMode : public AGameModeBase {
 public:
     ADarkFactoryGameMode();
     virtual void StartPlay() override;
+protected:
+    bool bPanelMapDefaults=false;
+};
+/** Current editor map; explicit launcher/fixture selections still take precedence. */
+UCLASS()
+class DARKFACTORY_API ADarkFactoryPanelGameMode : public ADarkFactoryGameMode {
+    GENERATED_BODY()
+public:
+    ADarkFactoryPanelGameMode();
 };
 UCLASS()
 class DARKFACTORY_API ADarkFactoryHUD : public AHUD {
@@ -33,7 +42,11 @@ public:
     void CycleColliderOverlay() { SetColliderOverlayMode((ColliderOverlayMode+1)%3); }
     TSharedRef<FJsonObject> BuildColliderOverlayMetadata();
     bool HasNightVisionMaterial() const { return SensorDisplayMaterial != nullptr; }
+    // Actual procedural HUD draw bounds, excluding labels, scales and borders.
+    TSharedRef<FJsonObject> GetThermalQARegions() const;
 private:
+    FIntRect ThermalPreviewQARegion=FIntRect(0,0,0,0);
+    FIntRect ThermalObserverQARegion=FIntRect(0,0,0,0);
     int32 ColliderOverlayMode=0;
     double ColliderCacheTime=-1;
     TArray<TWeakObjectPtr<UPrimitiveComponent>> ColliderComponents;

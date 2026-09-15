@@ -1,113 +1,105 @@
 # Dark factory inspection with Unreal and Cosmos Reason2
 
-This tutorial covers the procedural battery-tray reference scene and its proposed Cosmos inspection loop. Select it with `run.ps1 -Scene procedural`. The [local welding preview](welding_production_cycle.md) has a separate production cycle and keeps inference and training disabled until its inspection scenario is defined. The imported preview also includes [ten researched factory details and production cues](realism_additions.md), with independent observer viewpoints and fixed sensors. The complete target loop is:
+The current demonstration assembles an inner trunk panel in a locally supplied automotive welding cell. A robot-mounted NIR/thermal camera sends images to Cosmos-Reason2-2B on the host GPU, and four model gates control the production sequence. The selected two-bead adapter is trained and evaluated; moving this task to IQ9 EVK remains future work. The separate procedural battery-tray scene remains available for learning capture, mock transport and dataset preparation.
 
-```text
-Xbox controller -> spectator camera                     (presentation only)
-Fixed inspection camera -> GPU render target -> shaded HUD preview
-                                  |
-                      on-demand async readback
-                                  |
-                      CPU grayscale/noise + PNG -> local bridge -> IQ9 EVK
-                                  ^                               |
-                                  +-- simulated cell <- valid G/A/R
+Start with the [README](../README.md) for installation and launch commands. The [process guide](process_inspection.md) describes the live sequence, [scene guide](process_scene.md) covers tools and choreography, and [model guide](model_classification.md) records the exact prompts, adapter provenance and measured results. This repository publishes tutorial and source examples only: purchased assets, generated Unreal content, runtime packages, training images and model weights stay private.
 
-Offline dataset/calibration: synchronous capture -> same grayscale/noise + PNG
+The precursor is [Physics-aware Edge AI](https://github.com/eivholt/qai-physics-reasoning/blob/main/docs/isaac_sim_conveyor_reason2_tutorial.md). This project carries forward independent sensor cameras, synthetic data, bounded answers and a resident model worker. Its old parcel adapter, the removed door adapter and three-bead panel adapters do not satisfy the current `automotive-panel-process-v3` contract.
+
+## 1. Run the current panel process
+
+Prepare/import your local assets and build using the README. Start the compatible host model service described in [selected host runtime](model_classification.md#selected-host-runtime), then launch:
+
+```powershell
+.\unreal\Scripts\run.ps1 -Scene welding -Process -ProcessEndpoint http://127.0.0.1:18191/v1/inspect
 ```
 
-The simulator runs on the Windows PC. The IQ9 receives a fixed camera image and one text prompt, and returns a bounded visual decision. A separate observer can fly through the factory without moving the model's sensor.
+For scene exploration without model calls, use `-Process -NoInference`. This does not establish model acceptance or exercise a complete live gated cycle. Without `-Process`, the imported cell runs its separate [legacy visual production cycle](welding_production_cycle.md).
 
-The precursor is [Physics-aware Edge AI](https://github.com/eivholt/qai-physics-reasoning/blob/main/docs/isaac_sim_conveyor_reason2_tutorial.md). Its final implementation uses a native Unreal scene, synthetic training data, a compact user-only prompt, and a resident GenieX QAIRT service. This project carries forward those design principles; the old parcel adapter is not trained to inspect this tray.
+The selected runtime is the shared NIR/thermal LoRA `panel-two-bead-shared-256-v3`, merged into the host Torch BF16 model with its explicitly selected linear patch projection. It has 256 cumulative optimizer updates across two training passes. The canonical model guide contains reproducible commands, hashes and confidence policy; a checkpoint name alone is not a compatibility check.
 
-## 1. Establish an observable task
+```text
+Xbox / mouse -> observer camera + graphics / HUD        (presentation)
 
-The starter contract defines four rectangular modules seated side by side in a tray:
+R4 robot joints -> rigid NIR or thermal lens -> GPU render target
+                                                    |-> GPU HUD preview
+                                                    |-> bounded async readback
+                                                        -> grayscale PNG triplet
+                                                        -> host Reason2 stage prompt
+                                                        -> fresh gated decision
+                                                        -> physical next step / hold
 
-| Token | Visible evidence | Simulation action |
+Offline: same physical poses, frozen episode clock -> synchronous PNG capture
+Future: validated task-specific export -> IQ9 resident worker
+```
+
+The observer can move independently. R4 physically positions its camera for each inspection; a hidden camera does not pivot independently of the arm. Fixed sensor previews remain independent of both the observer and R4 process captures.
+
+## 2. Define the four model gates
+
+One generated body in five starts with the panel already installed, but only the model's presence consensus selects the live branch.
+
+| Stage | Images and decision | Result after required fresh consensus |
 | --- | --- | --- |
-| G | All four modules visibly present, seated and aligned | Proceed |
-| A | Occlusion or image quality prevents reliable inspection | Hold |
-| R | A module visibly missing, raised or misaligned | Reject / request rework |
+| `panel_presence` | NIR: G = installed; R = missing | Two matching G batches select the preassembled path; two matching R batches select assembly |
+| `adhesive` | Thermal: two front adhesive beads | Two G batches permit welding on the assembly path, or the next inspection on the preassembled path; R/A wait |
+| `panel_seated` | NIR: panel placement after welding | Two G batches permit weld-cooldown inspection; R holds an exception with the holder engaged; A holds |
+| `weld` | Thermal: three weld contacts | Two G batches permit holder retraction and departure, or direct departure for the preassembled body; R/A wait |
 
-A transport error also holds, but it is logged separately from a model's A prediction. An error is never a correct A in evaluation.
+Every stage uses three lossless 448 x 256 grayscale PNGs from the physical R4 poses in `spot1`, `spot2`, `spot3` order. Adhesive views map to the two real beads as `[0, 1, 0]`; there is no rear-middle bead. Weld views still cover three contacts. Capture waits for settled joints and three actual discarded render captures. Eight-second batch/reply freshness, stage identity and the compatible scoring policy apply before a result can act. Errors, stale replies and incomplete evidence always hold. A scene timer or generator flag cannot override that hold.
 
-The placeholders include normal, missing, misaligned and obscured states. They are for testing the integration and for learning how to generate data. The conveyor and reject gate move kinematically, and primitive collisions are disabled for observer fly-through. They do not simulate contact mechanics or establish an industrial defect-detection benchmark. The [scenario guide](scenario_design.md) describes how to replace them.
+For a missing panel, R1 applies the two rounded purple adhesive beads, R3 picks and holds the panel, R4 checks adhesive readiness, R2 spot welds, and R4 confirms seating and weld cooldown. R3 then retracts and the body exits. Preassembled bodies run presence and both thermal gates while skipping assembly, welding, seating inspection and holder retraction. The rack restores its picked sheet when the current body starts departing. The HUD and cabinet indicators reflect these model-controlled steps.
 
-A single still image is appropriate for gross seating or presence inspection at a defined pause in a manufacturing sequence. If the task depends on motion, timing or whether a robot completed a sequence, design a temporal input contract and retrain/evaluate that contract explicitly.
+The adhesive/weld limits are illustrative 45/55 °C apparent-temperature readiness thresholds, with ±3 °C ambiguity bands. They are not measurements of chemical cure or structural weld quality. Both wrong presence directions matter: a wrong R could assemble over an installed panel. See [process inspection](process_inspection.md) for timings and complete policy.
 
-## 2. Separate darkness, sensor illumination and display
+## 3. Keep observer rendering separate from evidence
 
-The procedural observer has dim roof-window fill and a visible-only headlamp for navigation. Complete darkness is an explicit calibration condition: remove the roof fill with `-RoofLightLumens 0` and turn off the headlamp with L. A fixed sensor uses an active near-infrared rendering proxy and exports grayscale RGB images. Both the observer and fixed-camera preview use display shaders with shaded greens, animated grain, soft highlight compression and mild lens falloff. The default shader uses one texture sample; `run.ps1 -NightVisionQuality` selects a five-sample variant with an optional bright-region halo. These sample counts describe the display shader, not the complete scene renderer.
+Tab / Xbox Y cycles dim visible, NIR, thermal and bright factory. Dim visible uses roof-window spill and an optional headlamp; bright mode starts grouped fluorescent-style lights with a brief staggered flicker and suppresses the headlamp. L changes the headlamp preference outside bright mode. I / N / Xbox B toggles visible/NIR; B / Xbox X cycles observer bookmarks. Esc quits; Space / Xbox View pauses scene motion and cancels incomplete process evidence. Resume starts a fresh spot-0 batch.
 
-Press I or N, or Xbox B, to toggle the observer's NIR and visible views. Tab or Xbox Y cycles dim visible, NIR, thermal and bright factory. Bright factory switches on six overhead fluorescent banks with a brief staggered startup. L toggles the headlamp preference outside bright mode; the lamp emits only in dim visible and retains that preference when switching modes. See [factory lighting](factory_lighting.md) for the startup and sensor-isolation checks. The fixed sensor stays in active-IR mode throughout the interactive demo. Sensor illumination is disabled only by internal offline calibration for control images. Observer movement and display controls leave sensor pose and model input unchanged. Press V for green/monochrome, [ or ] (Xbox LB/RB) for display gain, and comma/period for grain.
+The NIR observer uses a camera-following illuminator, green/monochrome display, grain and lens effects. V changes phosphor presentation, brackets / Xbox LB/RB adjust display gain, and comma/period adjust grain. The fixed NIR illuminator and model PNG path remain independent. The fast NIR display shader uses one source sample; `-NightVisionQuality` selects the optional five-sample display variant. These counts describe the display pass, not total rendering cost. See [night vision](night_vision.md) and [factory lighting](factory_lighting.md).
 
-The HUD reads the sensor render target directly on the GPU, refreshing at 15 Hz by default. Configure `[DarkFactory.Sensor] PreviewHz` or pass `-DFPreviewHz=` to the executable for a rate from 1 to 30 Hz. Display palette and grain run on the GPU; the grain pattern changes at 24 Hz independently of camera refresh. The preview precedes CPU sensor augmentation, so it is not an exact copy of the saved/model PNG.
+The observer thermal scale is fixed at **0–120 °C**, with iron color by default and white-hot/black-hot palettes on K / Xbox D-pad left. There is no F10/right-stick welding-range switch. Fixed and model thermal sensors remain linear **20–120 °C**; the HUD sensor previews use that sensor window. Physical weld surface fields can exceed 120 °C and saturate the display without changing those fields or the sensor encoding. See [thermal rendering](thermal_rendering.md) and [fixed display range](thermal_welding_range.md).
 
-When inference or a save needs pixels, one asynchronous `FRHIGPUTextureReadback` job transfers the image. The game thread polls readiness without waiting; a CPU worker performs deterministic grayscale augmentation and PNG encoding. Browsing alone requires no CPU readback. Press C to queue a fresh sensor capture and metadata save. Stale scene epochs are rejected before a completed job can affect the new inspection. Offline datasets and calibration retain synchronous capture for deterministic ordering and use the same augmentation/encoding function.
+Visible observer views request real NVIDIA DLSS Quality, Lumen GI/reflections and hardware ray tracing on supported installations. F6 / F7 / F11 toggle them separately; `-NoDLSS`, `-NoLumen` and `-NoHardwareRayTracing` set startup preferences. Observer NIR/thermal modes suspend these effects, and all fixed/R4 sensor cameras disable them. [Observer graphics](observer_graphics.md) documents installation, fallback behavior and byte-identical sensor checks across all graphics combinations.
 
-The rendering proxy retains geometry and occlusion but does not model measured infrared material spectra or camera electronics. It is also not a thermal camera. See [the night-vision guide](night_vision.md) for HLSL and controls, [the infrared research](infrared_research.md) for imaging mechanisms, [existing rendering implementations](night_vision_implementations.md) for performance techniques, and [rendered QA](night_vision_qa.md) for verification.
+NIR is an active-illumination rendering proxy, not measured infrared reflectance. Thermal uses assigned surface temperatures, emissivity and an 8–14 μm apparent-temperature model, with mesh-local gradients and explicit cooling fields. Imported bulk heat exchange is disabled until physical thickness/contact data exists; the procedural thermal scene has a separate heat-transfer demonstration. Neither visual model is calibrated real-camera evidence.
 
-`run.ps1 -NightVisionSmoke` exercises display variants and checks that presentation changes preserve model PNGs. `run.ps1 -ReadbackSmoke` checks GPU browsing without CPU readback, synchronous/asynchronous PNG byte parity, stale-epoch rejection and observer/sensor independence. These checks do not substitute for profiling sustained frame time or IQ9 request latency.
+## 4. Capture and freeze whole episodes
 
-## 3. Start with a declared mock backend
+Live previews sample GPU render targets directly. Image requests use bounded asynchronous GPU readback and worker PNG encoding; obsolete epochs and partial batches are rejected. Model images exclude HUD, cabinet display and gate lamps. Ground truth, temperatures, seed/case labels and prior decisions never enter the model prompt or images.
 
-Follow the [repository quick start](../README.md) to build the generated Unreal scene and launch the local bridge. Its default mock backend returns scripted tokens; it does not analyze pixels. Use it to verify capture, HTTP transport, HUD status and reversible scene reactions before loading a model.
+Offline capture uses the same physical lens poses and PNG contract with a frozen process/heat clock across each triplet. Use the [model workflow](model_classification.md) for panel capture, camera/radiometry audits, preparation and freezing. Its current recipes are `rigid-arm-panel-two-bead-scan-v3`, `panel-two-bead-episodes-v3` and `panel-two-bead-contact-core-halo-v4`. A capture plan is not a rendered dataset.
 
-Exercise all three responses and disconnect the service. The scene should proceed on a valid G, hold on A or a failure, and reject on R. Change the scene while a request is outstanding and verify that the old response cannot control the new inspection.
+The current capture contains 64 whole-body episodes: 40 train, 12 validation and 12 test. Each body supplies eight batches: presence, adhesive G/A/R, seating and weld G/A/R. This gives 512 batches and 1,536 PNGs; all states/views of a body stay in one split. The seed-4307 cohort is separate from the old three-bead dataset. Inspect geometry coverage, occlusion, visible defect size, grayscale output and thermal contact labels before fitting. Nuisance variation must not encode the answer through brightness, background or camera placement.
 
-The bridge receives only image data and opaque request/episode identifiers. It does not forward identifiers or simulator labels to Cosmos. It sends one image-first user message with the versioned prompt in [inspection_contract.json](../configs/inspection_contract.json).
+Do not treat source metadata or a nonblank image as proof that an anomaly is observable. Keep test episodes out of tuning and select the complete adapter/runtime/prompt/policy before opening test predictions. Geometry, bead placement, physical scan poses or sensor-processing changes require compatible recapture and new evaluation.
 
-## 4. Generate and inspect synthetic data
+## 5. Fit and evaluate the actual serving path
 
-Domain randomization varies nuisance factors independently of the answer: materials, roughness, tray position, camera placement, illuminator intensity, gain and noise. Each matched family contains the same nuisance configuration for G, A and R. This avoids a shortcut such as learning that brighter images always mean a defect.
+The selected shared adapter covers both NIR and thermal across all four prompts. It adapts visual and language projections with rank-8 LoRA; a frozen-vision procedural starter remains a separate experiment. Shared versus modality-specific adapters is still an open comparison. See [model classification](model_classification.md) for the trained candidate and [training](training.md) for the distinct procedural preparation path.
 
-Plan captures deterministically, render them in Unreal, then validate and freeze the captured manifest. This offline path captures and encodes synchronously; it does not use the interactive preview cadence or asynchronous job scheduling. A capture plan is not a dataset. Never mark missing images as captured or use simulator metadata as a substitute for checking the pixels.
+A bounded answer reduces generated output, but LoRA alone does not promise faster inference. Vision encoding and model prefill still run. The current host scorer evaluates G/A/R probabilities with minimum total label mass and conditional-confidence checks; uncertainty maps to A. Validate that complete scoring policy and the exact merged runtime rather than only an unmerged training checkpoint.
 
-Keep entire episodes and matched nuisance families in a single split. A validation frame must not be a near duplicate of a training frame from the same randomized scene. The validator also checks duplicate image hashes across splits. After selecting the final scenario, add difficult backgrounds, geometry and sensor conditions that are completely absent from training.
+The selected shared256 runtime scored 95/96 literal labels and 96/96 actions on validation, then 95/96 labels/actions on the one-time held-out panel. The held-out error conservatively held a cool weld; there were no false releases or wrong presence branches in that small set. The full live assembly/preassembled/assembly sequence also passed. [Validation](validation.md) separates these model results from policy, rendering and transport checks and links measured timings. This is synthetic-scene development evidence; IQ9 and real-camera results are still pending.
 
-Inspect a contact sheet before training. Confirm labels from the actual image, usable defect size, settled rendering, and that neither labels nor UI leaked into the image. The [training guide](training.md) contains the executable commands.
+Report per-stage confusion, conservative holds, false releases, both presence-branch errors, malformed replies, transport failures and warm/cold latency separately. Inference milliseconds exclude physical scanning, capture scheduling, cooling and two-batch consensus; full production-cycle time must be measured separately.
 
-## 5. Teach the bounded answer
+## 6. Prepare the IQ9 deployment
 
-The intended model remains [NVIDIA Cosmos-Reason2-2B](https://huggingface.co/nvidia/Cosmos-Reason2-2B). NVIDIA provides a customizable physical-AI model and [post-training examples](https://github.com/nvidia-cosmos/cosmos-reason2/tree/main/examples/cosmos_rl).
+The previous project provides an export/build reference: merge the selected adapter, build host reference artifacts, calibrate and export a task-matched QAIRT bundle, and validate one resident GenieX worker. The panel task uses three images per request, so its processor, template, visual-token/context budget and deployed graph must be verified explicitly rather than copying a single-image parcel bundle.
 
-The local training path prepares a new LoRA adapter using the same image-first prompt as runtime. It supervises the response token only and validates that G, A and R each tokenize as one token in the chosen processor/template. Vision weights remain frozen in the initial recipe.
+An adapter directory is not automatically hot-swappable on IQ9. Record base revision, adapter weights, processor/template, prompts, scoring policy, quantization/export configuration and artifact hashes. Compare host and IQ9 predictions on identical PNG triplets, then run an independent held-out evaluation, sustained soak and native client test. Keep the adjacent project's running production service untouched. The current host results do not establish IQ9 accuracy, quantized equivalence or EVK latency.
 
-There are two distinct goals:
+## Procedural reference: battery tray and thermal sandbox
 
-- Accuracy: adapt the model to the actual inspection task, materials and sensor distribution.
-- Latency: avoid generating a prose explanation when the application needs one bounded decision.
+Select `run.ps1 -Scene procedural` for the asset-free battery-tray reference. Its [single-image contract](../configs/inspection_contract.json) defines G as four visible seated/aligned modules, R as a visibly missing/raised/misaligned module, and A as insufficient visual evidence. The mock bridge's G proceeds, R requests rejection/rework, and A or transport failure holds. These are reference semantics, distinct from panel presence R selecting assembly.
 
-LoRA alone does not promise faster inference. The base vision encoder and language-model prefill still run. The practical latency opportunity is a short prompt, an appropriate visual-token budget, one output token, a resident worker, and measured deployment optimization.
+The default mock returns scripted tokens and does not analyze pixels. Exercise G/A/R and disconnect the service; change the scene while a request is pending to verify stale-reply rejection. [Historical starter validation](validation.md#historical-starter-validation--11-september-2026) retains these checks. The reference conveyor/reject gate moves kinematically and does not establish manufacturing physics or model accuracy.
 
-The bridge uses a one-token completion API. It does not claim to implement a new runtime that reads restricted logits directly. If the backend later selects only among G/A/R logits, validate that behavior independently: forced closed-set output can hide uncertainty, so the A class and out-of-distribution tests still matter.
+The [training guide](training.md) preserves the procedural deterministic planner, balanced matched nuisance families, captured-manifest validator, freeze/export commands and optional decoder-only trainer. It supervises a one-letter image-first answer with the reference prompt. Its [bridge evaluator](../scripts/evaluate_bridge.py) supports plumbing-only mock runs, which cannot pass a model-accuracy gate. These files are not the panel capture/training workflow.
 
-## 6. Evaluate before exporting
+The procedural sensor preview defaults to 15 Hz, configured by `[DarkFactory.Sensor] PreviewHz` or `-DFPreviewHz=` from 1 to 30 Hz. It precedes the reference CPU grayscale/noise augmentation, so it is not an exact displayed copy of the saved PNG. C requests a fresh NIR capture; browsing alone does not require CPU readback. Offline calibration and training use synchronous capture with the same reference augmentation/encoding function. For zero-light calibration, pass `-RoofLightLumens 0` and turn off the visible headlamp with L.
 
-Use frozen validation and independent test splits. Report per-class recall, confusion, false G decisions on A/R cases, malformed replies, transport failures, and elapsed request latency. Keep the first request separate from warm latency.
+The independent thermal sandbox supports H / Xbox D-pad right for cases, J / D-pad up for spatial versus uniform fields, U / D-pad down for cooling-age increments, and O / right-stick click for its heat-transfer comparison. These are procedural experiment controls; right-stick does not switch the observer thermal range or enable imported bulk heat exchange. F9 saves a thermal snapshot under its separate metadata contract. See [spatial fields](thermal_spatial_fields.md), [heat transfer](thermal_heat_transfer.md), [thermal research](thermal_rendering_research.md) and [thermal QA](thermal_qa.md). Its older rendering reports do not establish panel-adapter accuracy.
 
-The evaluator in [scripts/evaluate_bridge.py](../scripts/evaluate_bridge.py) supports an explicit plumbing-only mock run. Such a run cannot pass a model-accuracy gate. For actual evidence, use the new adapter through the EVK backend and save the report alongside the model and dataset hashes.
-
-Set thresholds before tuning on the final task. The script's strict defaults are starter checks, not industrial acceptance criteria. A small synthetic test set cannot establish real-factory reliability.
-
-## 7. Prepare the IQ9 deployment
-
-The previous project provides the known export/build path: merge the adapter, build host reference artifacts, calibrate and export a task-matched QAIRT bundle, and validate it through one resident GenieX worker. Preserve the exact image size, processor, prompt, output tokens and context budget across those stages.
-
-A LoRA adapter directory is not automatically a hot-swappable IQ9 deployment. The selected runtime may require merging, quantization, graph export and a fresh bundle. Record base model revision, adapter hash, processor/template identity, export configuration and final artifact hashes.
-
-Point this project's bridge at the new candidate service only when that bundle is ready. The starter does not replace or restart the previous project's EVK worker. Compare host and EVK predictions on identical PNG files, then run a sustained soak and a rendered client test.
-
-No fine-tuning job, model export or new IQ9 accuracy/latency result is implied by the starter setup.
-
-## 8. Replace the placeholder cell
-
-After choosing the scenario, replace the primitive geometry and animation while preserving the independent sensor and observer cameras. Update the visual inspection definition, prompt version, randomization ranges and labels together. Regenerate data and repeat host, quantized-EVK and end-to-end tests.
-
-For the final tutorial, retain a reproducible asset-import procedure, a few representative sensor images, frozen evidence records and launch instructions. Keep licensed assets and large generated datasets outside Git.
-
-## Explore the thermal sensor
-
-The independent thermal prototype is described in [thermal rendering and controls](thermal_rendering.md). Press Tab or Xbox Y to switch observer modalities, H to cycle temperature/process cases, K to cycle thermal palettes, and F9 to save linear apparent-temperature pixels with metadata. Its GPU preview stays separate from the fixed NIR sensor and the NIR G/A/R gate. A thermal training contract and adapter are still pending. See [thermal research](thermal_rendering_research.md) and [actual GPU QA](thermal_qa.md) for design evidence and limitations.
-
-The thermal view now includes object-local surface gradients and thin-part cooling. J / Xbox D-pad up compares spatial fields with the original uniform mode; U / D-pad down advances the selected cooling age by 15 seconds. Powered heaters maintain their source. [Spatial thermal fields](thermal_spatial_fields.md) documents the approximation and its measured rendering behavior.
+`run.ps1 -NightVisionSmoke` verifies NIR presentation/input isolation. `run.ps1 -ReadbackSmoke` verifies GPU previews, sync/async PNG parity and stale-epoch rejection. For model, motion, graphics or thermal changes, use the corresponding current fixtures listed in [validation](validation.md); these tests do not substitute for sustained frame-time profiling.

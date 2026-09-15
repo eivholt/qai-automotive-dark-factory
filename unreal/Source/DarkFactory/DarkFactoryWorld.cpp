@@ -1,4 +1,6 @@
 #include "DarkFactoryWorld.h"
+#include "DarkFactoryGraphics.h"
+#include "Components/LightComponent.h"
 #include "DarkFactoryPawn.h"
 #include "DarkFactoryThermalRig.h"
 #include "DarkFactoryWeldingCell.h"
@@ -118,6 +120,7 @@ ADarkFactoryWorld::ADarkFactoryWorld() {
     TrayRoot->SetupAttachment(SceneRoot);
     Sensor = CreateDefaultSubobject<USceneCaptureComponent2D>(TEXT("FixedSensor"));
     Sensor->SetupAttachment(SceneRoot);
+    DarkFactoryGraphics::ConfigureSensorCapture(Sensor.Get());
     Sensor->bCaptureEveryFrame = false;
     Sensor->bCaptureOnMovement = false;
     Sensor->CaptureSource = SCS_FinalColorLDR;
@@ -156,7 +159,7 @@ ADarkFactoryWorld::ADarkFactoryWorld() {
         Light->ViewLightingChannels.bViewChannel1=false;
         Light->ViewLightingChannels.bViewChannel2=false;
         Light->SetIntensityUnits(ELightUnits::Lumens);
-        Light->SetIntensity(RoofLightLumens); Light->SetAttenuationRadius(1500);
+        Light->SetIntensity(GetActiveRoofLightIntensity()); Light->SetAttenuationRadius(1500);
         Light->SetSourceWidth(220); Light->SetSourceHeight(180);
         Light->SetLightColor(FLinearColor(.72f,.82f,1.f));
         Light->SetCastShadows(false);
@@ -167,10 +170,24 @@ ADarkFactoryWorld::ADarkFactoryWorld() {
 
 void ADarkFactoryWorld::SetFactoryLightsEnabled(bool Enabled) {
     if (FactoryLights) FactoryLights->SetEnabled(Enabled);
+    // Scale dim visible illumination without changing the configured window
+    // level used in bright factory mode or any infrared light source.
+    RoofLightOutputScale=Enabled ? 1.f:DimVisibleLightScale;
+    SetRoofLightIntensity(RoofLightLumens);
+}
+void ADarkFactoryWorld::SetObserverIndirectLightingEnabled(bool Enabled) {
+    for (auto* Actor:{static_cast<AActor*>(this),static_cast<AActor*>(FactoryLights.Get())}) if (Actor) {
+        TArray<ULightComponent*> Lights; Actor->GetComponents<ULightComponent>(Lights);
+        for (auto* Light:Lights) if (Light && Light->ViewLightingChannels.bViewChannel0
+            && !Light->ViewLightingChannels.bViewChannel1 && !Light->ViewLightingChannels.bViewChannel2) {
+            Light->SetIndirectLightingIntensity(Enabled ? 1.f:0.f);
+            Light->SetAffectGlobalIllumination(Enabled); Light->SetAffectReflection(Enabled);
+        }
+    }
 }
 void ADarkFactoryWorld::SetRoofLightIntensity(float Lumens) {
     RoofLightLumens=FMath::IsFinite(Lumens) ? FMath::Clamp(Lumens,0.f,20000.f):80.f;
-    for (const auto& Light:RoofWindowLights) if (Light) Light->SetIntensity(RoofLightLumens);
+    for (const auto& Light:RoofWindowLights) if (Light) Light->SetIntensity(GetActiveRoofLightIntensity());
 }
 
 UStaticMeshComponent* ADarkFactoryWorld::Box(const TCHAR* Name, FVector Position, FVector Size, float Value, USceneComponent* Parent) {
@@ -251,6 +268,7 @@ void ADarkFactoryWorld::BeginPlay() {
     FParse::Value(FCommandLine::Get(), TEXT("DFDataset="), DatasetCount);
     FParse::Value(FCommandLine::Get(), TEXT("DFMaxAge="), MaxResultAge);
     MaxResultAge = FMath::Clamp(MaxResultAge, 1.0, 120.0);
+    bGraphicsQA=FParse::Param(FCommandLine::Get(),TEXT("DFGraphicsSmoke"));
     bCurtainQA=FParse::Param(FCommandLine::Get(),TEXT("DFCurtainSmoke"));
     bWeldingSmoke=FParse::Param(FCommandLine::Get(),TEXT("DFWeldingSmoke"));
     bRealismQA=FParse::Param(FCommandLine::Get(),TEXT("DFRealismSmoke"));
@@ -293,9 +311,16 @@ void ADarkFactoryWorld::BeginPlay() {
         }
     }
     FString SceneSelection=TEXT("auto");
-    FParse::Value(FCommandLine::Get(),TEXT("DFScene="),SceneSelection); SceneSelection=SceneSelection.ToLower();
-    if (bWeldingSmoke || bProcessEnabled || bCurtainQA) SceneSelection=TEXT("welding");
+    const bool ExplicitScene=FParse::Value(FCommandLine::Get(),TEXT("DFScene="),SceneSelection);
+    SceneSelection=SceneSelection.ToLower();
     const bool LegacyAutomation=DatasetCount>0 || !PlanPath.IsEmpty() || bSmoke || bBridgeSmoke || bNightVisionSmoke || bReadbackSmoke || bThermalSmoke || bModalityScreenshots;
+    const bool UseMapDefaults=bPanelMapDefaults && !ExplicitScene && !LegacyAutomation && !bWeldingSmoke && !bCurtainQA && !bGraphicsQA;
+    if (UseMapDefaults) bProcessEnabled=true;
+    if (bWeldingSmoke || bProcessEnabled || bCurtainQA) SceneSelection=TEXT("welding");
+    if (bGraphicsQA && (!bProcessEnabled || !FParse::Param(FCommandLine::Get(),TEXT("DFNoInference")) || bWeldingSmoke || LegacyAutomation || bCurtainQA || FParse::Param(FCommandLine::Get(),TEXT("DFProcessCapture")) || FParse::Param(FCommandLine::Get(),TEXT("DFProcessSmoke")) || FParse::Param(FCommandLine::Get(),TEXT("DFProcessPolicySmoke")))) {
+        UE_LOG(LogTemp,Error,TEXT("DF_GRAPHICS requires DFProcess DFNoInference and no other fixture"));
+        FPlatformMisc::RequestExitWithStatus(false,1); return;
+    }
     if ((bCurtainQA && (bProcessEnabled || bWeldingSmoke || LegacyAutomation)) || (bProcessEnabled && bWeldingSmoke) || (SceneSelection!=TEXT("auto") && SceneSelection!=TEXT("procedural") && SceneSelection!=TEXT("welding")) || (SceneSelection==TEXT("welding") && LegacyAutomation)) {
         UE_LOG(LogTemp,Error,TEXT("DF_SCENE_ERROR invalid scene selection or welding preview mixed with procedural training/smoke flags"));
         FPlatformMisc::RequestExitWithStatus(false,1); return;
@@ -426,7 +451,7 @@ void ADarkFactoryWorld::BeginPlay() {
     AddTickPrerequisiteActor(FactoryLights);
     if (ThermalRig) ThermalRig->AddTickPrerequisiteActor(FactoryLights);
     if (bProcessEnabled) if (auto* PC=GetWorld()->GetFirstPlayerController()) if (auto* Observer=Cast<ADarkFactoryPawn>(PC->GetPawn())) {
-        int32 ReviewMode=0; FString ReviewView;
+        int32 ReviewMode=UseMapDefaults ? 3:0; FString ReviewView;
         FParse::Value(FCommandLine::Get(),TEXT("DFProcessObserverMode="),ReviewMode);
         FParse::Value(FCommandLine::Get(),TEXT("DFProcessView="),ReviewView);
         Observer->SetObserverMode(FMath::Clamp(ReviewMode,0,3));
@@ -438,6 +463,10 @@ void ADarkFactoryWorld::BeginPlay() {
     if (DatasetCount > 0) PrepareDatasetSample();
     NextAutomation = FPlatformTime::Seconds() + (bBridgeSmoke ? 6.0:4.0);
     BridgeSmokeDeadline=FPlatformTime::Seconds()+MaxResultAge+10.0;
+    if (bGraphicsQA && ProcessController) {
+        if (!ProcessController->GetStatus().bPaused) ToggleWeldingAnimation();
+        ProcessController->SetActorTickEnabled(false);
+    }
     if (bCurtainQA && !InitializeCurtainSmoke()) { FPlatformMisc::RequestExitWithStatus(false,1); return; }
     if (IsImportedScene()) { UE_LOG(LogTemp,Display,TEXT("DF_READY welding sensor=448x256 process_gates=%d legacy_inference=disabled"),bProcessEnabled); }
     else { UE_LOG(LogTemp, Display, TEXT("DF_READY sensor=448x256 active_nir_proxy endpoint=%s seed=%d"), *Endpoint, Seed); }
@@ -990,6 +1019,9 @@ void ADarkFactoryWorld::FactoryLightingSmokeTick(double Now) {
         State->SetNumberField(TEXT("observer_mode"),Observer->GetObserverMode());
         State->SetBoolField(TEXT("headlamp_requested"),Observer->IsObserverHeadlightEnabled());
         State->SetBoolField(TEXT("headlamp_emitting"),Observer->IsObserverHeadlightEmitting());
+        State->SetNumberField(TEXT("roof_window_nominal_lumens"),RoofLightLumens);
+        State->SetNumberField(TEXT("roof_window_active_lumens"),GetActiveRoofLightIntensity());
+        State->SetNumberField(TEXT("roof_window_output_scale"),RoofLightOutputScale);
         State->SetObjectField(TEXT("lights"),FactoryLights->BuildMetadata());
         FactoryLightingReport->GetObjectField(TEXT("snapshots"))->SetObjectField(Name,State);
     };
@@ -1697,7 +1729,7 @@ void ADarkFactoryWorld::AutomationTick(double Now) {
         } else if (SmokeStep==1) { Raw(TEXT("normal.png")); bThermalSmokePassed &= ThermalRig->SaveFieldSmoke(OutputRoot); bThermalSmokePassed &= ThermalRig->SaveTransferSmoke(OutputRoot); ThermalRig->SetCase(1); }
         else if (SmokeStep==2) { Raw(TEXT("overheated.png")); ThermalRig->SetCase(2); }
         else if (SmokeStep==3) { Raw(TEXT("heater_fault.png")); ThermalRig->SetCase(3); }
-        else if (SmokeStep==4) { Raw(TEXT("glue_gap.png")); ThermalRig->SetCase(1); }
+        else if (SmokeStep==4) { Raw(TEXT("sealant_gap.png")); ThermalRig->SetCase(1); }
         else if (SmokeStep==5) { SetRoofLightIntensity(0); IRLight->SetIntensity(0); Raw(TEXT("light_off.png")); SetRoofLightIntensity(ThermalSmokeRoofLightIntensity); IRLight->SetIntensity(24000); IRLight->ViewLightingChannels.bViewChannel0=true; IRLight->MarkRenderStateDirty(); }
         else if (SmokeStep==6) { Raw(TEXT("light_on.png")); IRLight->SetIntensity(ThermalSmokeIntensity); IRLight->ViewLightingChannels.bViewChannel0=false; IRLight->MarkRenderStateDirty(); ThermalRig->SetCase(4); }
         else if (SmokeStep==7) { Raw(TEXT("occluded.png")); ThermalRig->SetCase(1); }
@@ -1745,8 +1777,9 @@ void ADarkFactoryWorld::AutomationTick(double Now) {
             Report->SetBoolField(TEXT("stale_preview_rejected"),bThermalStalePreviewRejected);
             Report->SetStringField(TEXT("async_snapshot"),ThermalRig->LastSnapshot);
             auto ScreenRegions=MakeShared<FJsonObject>();
-            ScreenRegions->SetArrayField(TEXT("thermal_preview"),{MakeShared<FJsonValueNumber>(1054),MakeShared<FJsonValueNumber>(535),MakeShared<FJsonValueNumber>(1348),MakeShared<FJsonValueNumber>(703)});
+            if (PC) if (const auto* ThermalQAHUD=Cast<ADarkFactoryHUD>(PC->GetHUD())) ScreenRegions=ThermalQAHUD->GetThermalQARegions();
             Report->SetObjectField(TEXT("qa_screen_regions"),ScreenRegions);
+            Report->SetStringField(TEXT("qa_screen_region_source"),TEXT("hud-draw-bounds-v1"));
             Report->SetNumberField(TEXT("nir_inference_requests_before"),ThermalSmokeNIRRequests);
             Report->SetNumberField(TEXT("nir_inference_requests_after"),NIRInferenceRequests);
             Report->SetNumberField(TEXT("thermal_inference_requests"),0);
@@ -1945,6 +1978,7 @@ void ADarkFactoryWorld::AutomationTick(double Now) {
 void ADarkFactoryWorld::Tick(float DeltaSeconds) {
     Super::Tick(DeltaSeconds);
     const double Now=FPlatformTime::Seconds();
+    if (bGraphicsQA) { GraphicsSmokeTick(Now); return; }
     if (bCurtainQA) { CurtainSmokeTick(DeltaSeconds,Now); return; }
     PollSensorReadback();
     const bool bOfflineCapture=DatasetCount>0 || bSmoke || bNightVisionSmoke;

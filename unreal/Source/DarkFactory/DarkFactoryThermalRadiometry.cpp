@@ -5,7 +5,7 @@
 namespace
 {
     constexpr double MinTemperatureC = -100.0;
-    constexpr double MaxTemperatureC = 500.0;
+    constexpr double MaxTemperatureC = 2000.0;
     constexpr double DefaultTemperatureC = 20.0;
     constexpr double KelvinOffset = 273.15;
     constexpr double PlanckConstant = 6.62607015e-34; // J s, exact SI definition.
@@ -95,6 +95,38 @@ namespace DarkFactoryThermal
         return 0.5 * (LowC + HighC);
     }
 
+    FApparentTemperatureFit MakeApparentTemperatureFit(double MinimumSurfaceC,
+        double MaximumSurfaceC, double Emissivity, double ReflectedC)
+    {
+        MinimumSurfaceC = SafeTemperatureC(MinimumSurfaceC);
+        MaximumSurfaceC = SafeTemperatureC(MaximumSurfaceC);
+        if (MaximumSurfaceC < MinimumSurfaceC)
+        {
+            const double Swap = MinimumSurfaceC;
+            MinimumSurfaceC = MaximumSurfaceC;
+            MaximumSurfaceC = Swap;
+        }
+        FApparentTemperatureFit Fit;
+        Fit.MinC = MinimumSurfaceC;
+        const double Span = MaximumSurfaceC - MinimumSurfaceC;
+        Fit.InvSpan = Span > 0.00001 ? 1.0 / Span : 0.0;
+        Fit.LowC = ApparentTemperatureC(MinimumSurfaceC, Emissivity, ReflectedC);
+        Fit.MidC = ApparentTemperatureC(0.5 * (MinimumSurfaceC + MaximumSurfaceC), Emissivity, ReflectedC);
+        Fit.HighC = ApparentTemperatureC(MaximumSurfaceC, Emissivity, ReflectedC);
+        return Fit;
+    }
+
+    double EvaluateApparentTemperatureFit(const FApparentTemperatureFit& Fit, double SurfaceC)
+    {
+        const double Coordinate = Fit.InvSpan > 0.0 ?
+            (SafeTemperatureC(SurfaceC) - Fit.MinC) * Fit.InvSpan : 0.0;
+        const double H = Coordinate < 0.0 ? 0.0 : (Coordinate > 1.0 ? 1.0 : Coordinate);
+        const double A = 2.0 * (Fit.HighC + Fit.LowC - 2.0 * Fit.MidC);
+        const double B = 4.0 * Fit.MidC - 3.0 * Fit.LowC - Fit.HighC;
+        const double Result = Fit.LowC + B * H + A * H * H;
+        return Result < Fit.LowC ? Fit.LowC : (Result > Fit.HighC ? Fit.HighC : Result);
+    }
+
     bool SelfTest()
     {
         // Independent fine-midpoint quadrature reference for a 300 K blackbody
@@ -119,6 +151,23 @@ namespace DarkFactoryThermal
             Previous = Current;
         }
 
+        // High-temperature references use independent fine quadrature. Extending
+        // the supported domain must not create a plateau at the former 500 C cap.
+        if (std::abs(BandRadiance(1600.0) - 5396.372976202) > 0.001 ||
+            std::abs(BandRadiance(2000.0) - 7075.161979379) > 0.001 ||
+            BandRadiance(600.0) <= BandRadiance(500.0) ||
+            ApparentTemperatureC(1600.0, 1.0, 20.0) != 1600.0)
+        {
+            return false;
+        }
+        const double HotApparentC = ApparentTemperatureC(1600.0, 0.74, 20.0);
+        const double HotMixedRadiance = 0.74 * BandRadiance(1600.0) + 0.26 * BandRadiance(20.0);
+        if (HotApparentC <= 1000.0 || HotApparentC >= 1600.0 ||
+            std::abs(BandRadiance(HotApparentC) - HotMixedRadiance) > 0.001)
+        {
+            return false;
+        }
+
         const double MixedC = ApparentTemperatureC(120.0, 0.35, 20.0);
         const double ReverseC = ApparentTemperatureC(20.0, 0.65, 120.0);
         const double ExpectedRadiance = 0.35 * BandRadiance(120.0) + 0.65 * BandRadiance(20.0);
@@ -131,7 +180,7 @@ namespace DarkFactoryThermal
             ApparentTemperatureC(120.0, -1.0, 20.0) == 20.0 &&
             ApparentTemperatureC(120.0, 2.0, 20.0) == 120.0 &&
             BandRadiance(-200.0) == BandRadiance(MinTemperatureC) &&
-            BandRadiance(600.0) == BandRadiance(MaxTemperatureC) &&
+            BandRadiance(2001.0) == BandRadiance(MaxTemperatureC) &&
             BandRadiance(std::nan("")) == BandRadiance(DefaultTemperatureC) &&
             ApparentTemperatureC(120.0, std::nan(""), 20.0) == 120.0;
     }

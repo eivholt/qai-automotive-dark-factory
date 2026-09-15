@@ -128,6 +128,9 @@ bool ADarkFactoryCellMechanisms::Initialize(ADarkFactoryWeldingCell* Cell) {
         CarriageTranslation=Cell->GetCarriageColliders()[0]->GetAttachParent()->GetComponentLocation();
     FCollisionQueryParams ContactParams(SCENE_QUERY_STAT(CellMechanismContact),true);
     for (int32 SideIndex=0;SideIndex<2;++SideIndex) for (int32 Station=0;Station<2;++Station) {
+        // The relocated panel-process bases occupy the negative-Y clamp stations.
+        // Omit both complete assemblies; retain the opposite pair and legacy layout.
+        if (Cell->IsProcessControlled() && Station==0) continue;
         FFixture F; F.Side=SideIndex==0 ? -1.:1.; F.BodySideX=SideIndex==0 ? BodyMinX:BodyMaxX;
         F.Id=FString::Printf(TEXT("fixture_%s_%s"),SideIndex==0 ? TEXT("nx"):TEXT("px"),Station==0 ? TEXT("ny"):TEXT("py"));
         const double X=F.BodySideX+F.Side*FixtureOffset,Y=Station==0 ? -92.:92.;
@@ -181,13 +184,16 @@ bool ADarkFactoryCellMechanisms::Initialize(ADarkFactoryWeldingCell* Cell) {
     for (int32 Index=0;Index<2;++Index) {
         FPhotoeye Eye; Eye.Id=Index==0 ? TEXT("entry_photoeye"):TEXT("exit_photoeye");
         const double Y=Index==0 ? -1050.:1050.;
+        // The forward process decks now support the exit posts. Shorten their
+        // stems without moving the optical heads or changing beam occupancy.
+        const double PostBaseZ=Cell->IsProcessControlled() && Index==1 ? PlatformZ:GroundZ;
         Eye.Start=FVector(BodyMaxX+PostOffset-6,Y,BeamZ); Eye.End=FVector(BodyMinX-PostOffset+4,Y,BeamZ);
         Eye.Indicator=MakeIndicator(Indicator,FLinearColor(1.f,.25f,.005f));
         for (int32 EndIndex=0;EndIndex<2;++EndIndex) {
             const double X=EndIndex==0 ? BodyMaxX+PostOffset:BodyMinX-PostOffset;
             const FString Prefix=Eye.Id+(EndIndex==0 ? TEXT("_sensor"):TEXT("_reflector"));
-            AddPart(Prefix+TEXT("_foot"),Cube,Yellow,FVector(X,Y,GroundZ+2),FVector(25,25,4));
-            AddPart(Prefix+TEXT("_post"),Cube,Steel,FVector(X,Y,(BeamZ+GroundZ)*.5),FVector(7,7,BeamZ-GroundZ));
+            AddPart(Prefix+TEXT("_foot"),Cube,Yellow,FVector(X,Y,PostBaseZ+2),FVector(25,25,4));
+            AddPart(Prefix+TEXT("_post"),Cube,Steel,FVector(X,Y,(BeamZ+PostBaseZ)*.5),FVector(7,7,BeamZ-PostBaseZ));
             AddPart(Prefix+TEXT("_head"),Cube,EndIndex==0 ? Blue:Dark,FVector(X,Y,BeamZ),FVector(12,17,20));
             if (EndIndex==0) {
                 AddPart(Prefix+TEXT("_lens"),Cylinder,Dark,Eye.Start,FVector(7,7,1),FRotator(90,0,0));
@@ -253,9 +259,8 @@ void ADarkFactoryCellMechanisms::UpdateFromCell() {
         :1.-Ease((CycleSeconds-OpenStart)/(OpenEnd-OpenStart));
     if (ProcessStatus.bEnabled) {
         const auto Phase=ProcessStatus.Phase;
-        const bool Secured=Phase==EDarkFactoryProcessPhase::Doors || Phase==EDarkFactoryProcessPhase::Adhesive
-            || Phase==EDarkFactoryProcessPhase::Welding || Phase==EDarkFactoryProcessPhase::WeldCooling;
-        Closure=Secured ? (Phase==EDarkFactoryProcessPhase::Doors ? Ease(ProcessStatus.StageSeconds/.35):1.):0.;
+        const bool Secured=Phase!=EDarkFactoryProcessPhase::Arriving && Phase!=EDarkFactoryProcessPhase::Departing;
+        Closure=Secured ? (Phase==EDarkFactoryProcessPhase::PanelPresence ? Ease(ProcessStatus.StageSeconds/.35):1.):0.;
     }
     ArmAngleDegrees=OpenAngle*(1.-Closure);
     const double A=FMath::DegreesToRadians(ArmAngleDegrees);
@@ -272,11 +277,13 @@ void ADarkFactoryCellMechanisms::UpdateFromCell() {
     bool Green=bEnabled && CycleSeconds>=CloseEnd && CycleSeconds<OpenStart;
     bool Amber=bEnabled && !Green,Red=false;
     if (ProcessStatus.bEnabled) {
-        bool Exception=ProcessStatus.Phase==EDarkFactoryProcessPhase::Returning;
+        bool Exception=false;
         for (const auto Gate:ProcessStatus.Gates)
             Exception |= Gate==EDarkFactoryGateState::Rejected || Gate==EDarkFactoryGateState::Error;
         const bool Working=ProcessStatus.Phase==EDarkFactoryProcessPhase::Arriving
-            || ProcessStatus.Phase==EDarkFactoryProcessPhase::Welding || ProcessStatus.Phase==EDarkFactoryProcessPhase::Departing;
+            || ProcessStatus.Phase==EDarkFactoryProcessPhase::AdhesiveApplication || ProcessStatus.Phase==EDarkFactoryProcessPhase::PanelPlacement
+            || ProcessStatus.Phase==EDarkFactoryProcessPhase::Welding || ProcessStatus.Phase==EDarkFactoryProcessPhase::HolderRetract
+            || ProcessStatus.Phase==EDarkFactoryProcessPhase::Departing;
         Green=bEnabled && !ProcessStatus.bPaused && !Exception && Working;
         Amber=bEnabled && (ProcessStatus.bPaused || (!Exception && !Working));
         Red=bEnabled && !ProcessStatus.bPaused && Exception && FMath::Fmod(FMath::Max(0.,ProcessStatus.ClockSeconds),1.)<.5;
@@ -315,6 +322,7 @@ TSharedRef<FJsonObject> ADarkFactoryCellMechanisms::BuildMetadata() const {
     O->SetNumberField(TEXT("motion_seconds"),AppliedSeconds); O->SetNumberField(TEXT("cycle_seconds"),CycleSeconds);
     O->SetNumberField(TEXT("cycle_duration_seconds"),CycleDuration);
     O->SetNumberField(TEXT("mesh_count"),Meshes.Num()); O->SetNumberField(TEXT("fixture_count"),Fixtures.Num());
+    O->SetStringField(TEXT("fixture_layout"),Fixtures.Num()==2 ? TEXT("panel-two-clamps-py-v1"):TEXT("legacy-four-clamps-v1"));
     O->SetNumberField(TEXT("photoeye_count"),Photoeyes.Num()); O->SetNumberField(TEXT("new_light_count"),0);
     O->SetNumberField(TEXT("thermal_profile_count"),0); O->SetNumberField(TEXT("thermal_stencil_id"),0);
     O->SetNumberField(TEXT("thermal_ambient_fallback_c"),20); O->SetBoolField(TEXT("collision_enabled"),false);
@@ -350,7 +358,7 @@ TSharedRef<FJsonObject> ADarkFactoryCellMechanisms::BuildMetadata() const {
     Tower->SetStringField(TEXT("state"),!bEnabled ? TEXT("disabled") : bGreen ? TEXT("secured_cycle"):TEXT("transfer_clearance"));
     Tower->SetStringField(TEXT("meaning"),TEXT("Authored cycle status only; no model quality, fault or industrial safety claim"));
     if (ProcessStatus.bEnabled) {
-        bool Exception=ProcessStatus.Phase==EDarkFactoryProcessPhase::Returning;
+        bool Exception=false;
         for (const auto Gate:ProcessStatus.Gates)
             Exception |= Gate==EDarkFactoryGateState::Rejected || Gate==EDarkFactoryGateState::Error;
         Tower->SetBoolField(TEXT("red_exception"),bRed);

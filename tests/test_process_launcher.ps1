@@ -33,20 +33,21 @@ function Save-Fixture {
     return $Path
 }
 $Model = [pscustomobject]@{
-    session_id=$Session; passed=$true; source='host_gpu'; contract_version='automotive-process-v1'; model_smoke=$true
-    completed_bodies=3; passed_bodies=2; returned_bodies=1; body_outcomes_correct=$true; thermal_limits_respected=$true
+    session_id=$Session; passed=$true; source='host_gpu'; contract_version='automotive-panel-process-v3'; model_smoke=$true
+    completed_bodies=3; passed_bodies=3; body_outcomes_correct=$true; thermal_limits_respected=$true
     ground_truth_fields_sent_to_model=0; legacy_bridge_requests=0
     body_outcomes=@(foreach ($Sequence in 1..3) {
-        $Destination = if ($Sequence -eq 2) { 'entry' } else { 'exit' }
-        [pscustomobject]@{body_sequence=$Sequence; body_id="fixture-body-$Sequence"; expected_destination=$Destination; actual_destination=$Destination; correct=$true}
+        $Branch = if ($Sequence -eq 2) { 'preassembled' } else { 'assembly' }
+        [pscustomobject]@{body_sequence=$Sequence; body_id="fixture-body-$Sequence"; expected_destination='exit'; actual_destination='exit'; correct=$true
+            expected_branch=$Branch; actual_branch=$Branch; assembly_performed=($Sequence -ne 2); welding_authorized=($Sequence -ne 2)}
     })
-    thermal_gate_checks=@(foreach ($Sequence in @(1,3)) { foreach ($Stage in @('adhesive','weld')) {
+    thermal_gate_checks=@(foreach ($Sequence in @(1,2,3)) { foreach ($Stage in @('adhesive','weld')) {
         $Limit = if ($Stage -eq 'adhesive') { 45 } else { 55 }
         [pscustomobject]@{body_sequence=$Sequence; body_id="fixture-body-$Sequence"; stage=$Stage; maximum_apparent_c_at_acceptance=30; limit_c=$Limit; ready_at_acceptance=$true}
     }})
 }
 $Policy = [pscustomobject]@{
-    session_id=$Session; passed=$true; source='policy_test'; schema='darkfactory-process-policy-smoke-v1'
+    session_id=$Session; passed=$true; source='policy_test'; schema='darkfactory-process-policy-smoke-v1'; contract_version='automotive-panel-process-v3'
     model_accuracy_evidence=$false; http_requests_submitted=0; checks_count=2
     checks=@([pscustomobject]@{name='synthetic-policy-a';passed=$true}, [pscustomobject]@{name='synthetic-policy-b';passed=$true})
 }
@@ -75,7 +76,12 @@ $ModelMutations = @(
     @('wrong_source', {param($r) $r.source='policy_test'}),
     @('wrong_mode', {param($r) $r.model_smoke=$false}),
     @('incomplete_run', {param($r) $r.completed_bodies=2}),
-    @('swapped_destinations_correct_totals', {param($r) $r.body_outcomes[0].actual_destination='entry'; $r.body_outcomes[1].actual_destination='exit'}),
+    @('wrong_destination', {param($r) $r.body_outcomes[0].actual_destination='entry'}),
+    @('old_contract', {param($r) $r.contract_version='automotive-process-v1'}),
+    @('swapped_branches_three_exits', {param($r) $r.body_outcomes[0].actual_branch='preassembled'; $r.body_outcomes[1].actual_branch='assembly'}),
+    @('missing_required_assembly', {param($r) $r.body_outcomes[0].assembly_performed=$false}),
+    @('unwanted_preassembled_weld', {param($r) $r.body_outcomes[1].welding_authorized=$true}),
+    @('string_assembly_flag', {param($r) $r.body_outcomes[0].assembly_performed='true'}),
     @('duplicate_body', {param($r) $r.body_outcomes[1].body_sequence=1}),
     @('thermal_flag_false', {param($r) $r.thermal_limits_respected=$false}),
     @('missing_thermal_check', {param($r) $r.thermal_gate_checks=@($r.thermal_gate_checks[0])}),
@@ -97,7 +103,8 @@ $PolicyMutations = @(
     @('duplicate_check', {param($r) $r.checks[1].name=$r.checks[0].name}),
     @('model_request', {param($r) $r.http_requests_submitted=1}),
     @('accuracy_claim', {param($r) $r.model_accuracy_evidence=$true}),
-    @('wrong_mode', {param($r) $r.source='host_gpu'})
+    @('wrong_mode', {param($r) $r.source='host_gpu'}),
+    @('old_policy_contract', {param($r) $r.contract_version='automotive-process-v1'})
 )
 foreach ($Mutation in $PolicyMutations) {
     $Row = $PolicyJson | ConvertFrom-Json

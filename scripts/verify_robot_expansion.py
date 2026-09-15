@@ -440,18 +440,28 @@ def verify(directory):
     positions = {identity: [] for identity in reference_mounts}
     for label, prop in attachment_records:
         mounts = identified(prop.get('mounts'))
-        require(label+'_iq9_prop_scope_and_budget', prop.get('model') == 'iq9-evk-attached-props-v1'
+        require(label+'_iq9_prop_scope_and_budget', prop.get('model') == 'iq9-evk-direct-base-props-v3'
+                and prop.get('mount_recipe') == 'fixed-base-direct-cover-v3'
                 and prop.get('initialized') is True and prop.get('enabled') is True and prop.get('finite_state') is True
-                and prop.get('attached_to_arm') is True and prop.get('mount_count') == 4 and prop.get('thermal_profile_count') == 28
+                and prop.get('attached_to_fixed_base') is True and prop.get('mount_count') == 4 and prop.get('thermal_profile_count') == 24 and prop.get('backing_plate_present') is False
                 and prop.get('led_count') == 12 and prop.get('led_light_count') == 12 and set(mounts) == set(reference_mounts))
         for identity, mount in mounts.items():
             reference = obj(reference_mounts.get(identity))
-            require(label+'_'+identity+'_attached_local_transform_preserved', mount.get('attached_to_arm') is True
-                    and isinstance(mount.get('parent_mesh'), str) and mount['parent_mesh'].endswith('_upper_arm')
+            require(label+'_'+identity+'_attached_local_transform_preserved', mount.get('attached_to_fixed_base') is True
+                    and isinstance(mount.get('parent_mesh'), str) and mount['parent_mesh'].endswith('_fixed_base')
                     and mount.get('parent_mesh') == reference.get('parent_mesh')
-                    and all(distance(mount.get(k), reference.get(k)) < 1e-5 for k in ('contact_local_cm', 'relative_position_cm', 'relative_rotation_deg')))
+                    and all(distance(mount.get(k), reference.get(k)) < 1e-5 for k in ('contact_local_cm', 'normal_local', 'relative_position_cm', 'relative_rotation_deg')))
             require(label+'_'+identity+'_finite_world_frame', vector(mount.get('world_position_cm'))
                     and all(near(distance(mount.get(k), [0, 0, 0]), 1., 1e-4) for k in ('world_normal', 'world_right', 'world_up')))
+            require(label+'_'+identity+'_mounted_on_outward_fixed_cover', vector(mount.get('contact_world_cm'))
+                    and vector(mount.get('parent_world_position_cm')) and near(mount.get('mounting_gap_cm'), .30, 1e-4)
+                    and distance(mount.get('contact_local_cm'), [(-1 if '_nx_' in identity else 1)*115.5436,
+                                (1 if '_nx_' in identity else -1)*32.7940, -17.40384 if identity=='robot_px_ny' else -23.40384]) < .05
+                    and near(mount.get('mount_shift_up_cm'), 6. if identity=='robot_px_ny' else 0., 1e-5)
+                    and near(mount.get('enclosure_top_overhang_cm'), 1.609555 if identity=='robot_px_ny' else 0., 1e-4)
+                    and vector(mount.get('world_normal'))
+                    and mount['world_normal'][0]*(-1 if '_nx_' in identity else 1) > .999
+                    and abs(mount['world_normal'][2]) < 1e-5)
             if identity in positions and vector(mount.get('world_position_cm')):
                 positions[identity].append(mount['world_position_cm'])
             leds = rows(mount.get('leds'))
@@ -460,9 +470,9 @@ def verify(directory):
                             and near(obj(v).get('emissive_strength'), 100. if obj(v).get('enabled') else 0.)
                             and near(obj(v).get('local_light_lumens'), .45 if obj(v).get('enabled') else 0.) for v in leds)
                     and all(obj(v).get('enabled') is True for v in leds if obj(v).get('index') in (1, 2)))
-    require('one_prop_per_robot_upper_arm', len({m.get('parent_mesh') for m in reference_mounts.values()}) == 4)
+    require('one_prop_per_robot_fixed_base', len({m.get('parent_mesh') for m in reference_mounts.values()}) == 4)
     for identity, history in positions.items():
-        require(identity+'_prop_actually_moves_with_arm', len(history) > 1 and any(distance(history[0], p) > 5. for p in history[1:]))
+        require(identity+'_prop_stays_fixed_during_joint_motion', len(history) > 1 and all(distance(history[0], p) < 1e-5 for p in history[1:]))
     on_mounts, off_mounts = identified(on.get('mounts')), identified(off.get('mounts'))
     amber = lambda m: next((obj(led).get('enabled') for led in rows(obj(m).get('leds')) if obj(led).get('index') == 0), None)
     require('decorative_amber_led_animation_changes', set(on_mounts) == set(off_mounts) == set(reference_mounts) and len(on_mounts) == 4

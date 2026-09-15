@@ -29,7 +29,7 @@ SCALARS = {
     'CycleProgress': 0., 'CycleSeconds': 0., 'ActiveRobotCount': 0., 'Paused': 0.,
     'ProcessMode': 0., 'ProcessBody': 0., 'ProcessStageSeconds': 0.,
     'ProcessPassCount': 0., 'ProcessActiveGate': -1.,
-    **{f'ProcessGate{i}': 0. for i in range(3)},
+    **{f'ProcessGate{i}': 0. for i in range(4)},
     **{f'RobotPhase{i}': 0. for i in range(4)},
     **{f'RobotProgress{i}': 0. for i in range(4)},
     **{f'ButtonRadius{i}': 0. for i in range(12)},
@@ -94,7 +94,12 @@ def generate():
             name, folder, unreal.Material, unreal.MaterialFactoryNew())
     if not isinstance(material, unreal.Material):
         raise RuntimeError(f'{PATH} is not a base material')
-    EDIT.delete_all_material_expressions(material)
+    # UE 5.8's bulk helper mutates the collection while iterating it.
+    # Snapshot first so replay removes every old expression exactly once.
+    for old_expression in list(EDIT.get_material_expressions(material)):
+        EDIT.delete_material_expression(material, old_expression)
+    if EDIT.get_num_material_expressions(material) != 0:
+        raise RuntimeError('Cabinet material replay left stale graph expressions')
     material.set_editor_property('material_domain', unreal.MaterialDomain.MD_SURFACE)
     material.set_editor_property('blend_mode', unreal.BlendMode.BLEND_OPAQUE)
     material.set_editor_property('shading_model', unreal.MaterialShadingModel.MSM_DEFAULT_LIT)

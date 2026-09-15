@@ -19,12 +19,13 @@ from .gates_scores import topk_label_bounds, decision_from_bounds, SCORING_METHO
 
 
 class Reason2Classifier:
-    def __init__(self, model_path: str, contract: dict, adapter: str | None = None, *, linear_patch_embedding: bool = False):
+    def __init__(self, model_path: str, contract: dict, adapter: str | None = None, *, linear_patch_embedding: bool = False, allowed_stages=None):
         self.model_config_sha256 = hashlib.sha256((Path(model_path) / "config.json").read_bytes()).hexdigest()
+        self.allowed_stages = tuple(allowed_stages or contract["stages"])
         training_report = None
         if adapter:
             training_report = json.loads((Path(adapter) / "training_report.json").read_text(encoding="utf-8"))
-            validate_adapter_training(training_report, contract, self.model_config_sha256)
+            validate_adapter_training(training_report, contract, self.model_config_sha256, self.allowed_stages)
         import torch
         import transformers
         from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
@@ -67,7 +68,9 @@ class Reason2Classifier:
             "torch_version": str(torch.__version__), "transformers_version": transformers.__version__, "peft_version": package_version("peft") if adapter else None,
             "processor_files_sha256": {p.name: sha_file(p) for p in sorted(Path(model_path).glob("*")) if p.is_file() and (p.suffix in (".json", ".jinja") or p.name == "vocab.txt")},
             "projection_source_sha256": sha_file(Path(__file__).with_name("gates_patch_embed.py")) if linear_patch_embedding else None,
-            "message_layout": MESSAGE_LAYOUT,
+            "message_layout": MESSAGE_LAYOUT, "contract_version": contract["version"],
+            "prompt_hashes": {s:contract["stages"][s]["prompt_sha256"] for s in self.allowed_stages},
+            "allowed_stages": list(self.allowed_stages),
             "adapter_training_report_sha256": sha_file(Path(adapter) / "training_report.json") if adapter else None,
             "training_projection": training_report.get("vision_patch_embedding", "stock-conv3d") if training_report else None}
         identity_sha = hashlib.sha256(json.dumps(self.provenance, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -86,6 +89,8 @@ class Reason2Classifier:
         self.model_config_sha256 = hashlib.sha256((Path(model_path) / "config.json").read_bytes()).hexdigest()
 
     def inspect(self, request):
+        if request.identity["stage"] not in self.allowed_stages:
+            raise ProtocolError("Stage is outside this adapter runtime scope")
         from PIL import Image, ImageChops
         torch = self.torch
         started = time.perf_counter()
@@ -146,7 +151,8 @@ class Reason2Classifier:
         buffer = io.BytesIO()
         Image.new("L", (448, 256), 30).save(buffer, format="PNG")
         png = base64.b64encode(buffer.getvalue()).decode()
-        for stage, spec in self.contract["stages"].items():
+        for stage in self.allowed_stages:
+            spec = self.contract["stages"][stage]
             payload = {"contract_version": self.contract["version"], "request_id": "warmup-" + stage,
                 "body_id": "warmup", "stage": stage, "captured_at_ms": 0,
                 "images": [{"camera_id": camera, "png_base64": png} for camera in spec["camera_ids"]]}
@@ -155,24 +161,37 @@ class Reason2Classifier:
 
 
 class ModalityClassifier:
-    """Two explicitly selected resident merged models; routing uses stage only."""
-    def __init__(self, model_path, contract, nir_adapter, thermal_adapter, *, linear_patch_embedding=False):
+    """Two explicit resident models; routing depends only on the requested stage."""
+    def __init__(self, model_path, contract, primary_adapter, secondary_adapter, *, linear_patch_embedding=False, weld_only=False):
         self.contract = contract
-        self.models = {
-            "nir": Reason2Classifier(model_path, contract, nir_adapter, linear_patch_embedding=linear_patch_embedding),
-            "thermal": Reason2Classifier(model_path, contract, thermal_adapter, linear_patch_embedding=linear_patch_embedding)}
-        self.stage_models = {stage: self.models[spec["modality"]] for stage,spec in contract["stages"].items()}
-        self.stage_backend_aliases = {stage: model.model_alias for stage,model in self.stage_models.items()}
-        self.provenance = {"runtime": "resident-merged-modality-routing-v1", "stage_backend_aliases": self.stage_backend_aliases,
-            "models": {modality:model.provenance for modality,model in self.models.items()}}
-        identity = hashlib.sha256(json.dumps(self.provenance,sort_keys=True,separators=(",", ":")).encode()).hexdigest()
-        self.model_alias = "Cosmos-Reason2-2B-Modality-Router-" + identity[:32]
-        self.model_name = "nvidia/Cosmos-Reason2-2B/modality-adapters-bf16"
-        self.adapter = {modality:model.adapter for modality,model in self.models.items()}
-        self.gpu_name = self.models["nir"].gpu_name
-        self.model_config_sha256 = self.models["nir"].model_config_sha256
+        primary_key, secondary_key = ("primary", "weld") if weld_only else ("nir", "thermal")
+        self.routing = "resident-merged-weld-override-v1" if weld_only else "resident-merged-modality-routing-v1"
+        assignment = {stage: secondary_key if (stage == "weld" if weld_only else spec["modality"] == "thermal") else primary_key
+            for stage, spec in contract["stages"].items()}
+        if weld_only and "weld" not in contract["stages"]:
+            raise ValueError("Weld override requires the weld stage")
+        self.models = {}
+        try:
+            for key, adapter in ((primary_key, primary_adapter), (secondary_key, secondary_adapter)):
+                self.models[key] = Reason2Classifier(model_path, contract, adapter, linear_patch_embedding=linear_patch_embedding,
+                    allowed_stages=[stage for stage, owner in assignment.items() if owner == key])
+        except Exception:
+            for model in self.models.values():
+                model.close()
+            raise
+        self.stage_models = {stage: self.models[key] for stage, key in assignment.items()}
+        self.stage_backend_aliases = {stage: model.model_alias for stage, model in self.stage_models.items()}
+        self.provenance = {"runtime": self.routing, "stage_backend_aliases": self.stage_backend_aliases,
+            "models": {key: model.provenance for key, model in self.models.items()}}
+        identity = hashlib.sha256(json.dumps(self.provenance, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        self.model_alias = ("Cosmos-Reason2-2B-Stage-Router-" if weld_only else "Cosmos-Reason2-2B-Modality-Router-") + identity[:32]
+        self.model_name = "nvidia/Cosmos-Reason2-2B/" + ("stage-adapters-bf16" if weld_only else "modality-adapters-bf16")
+        self.adapter = {key: model.adapter for key, model in self.models.items()}
+        primary = self.models[primary_key]
+        self.gpu_name = primary.gpu_name
+        self.model_config_sha256 = primary.model_config_sha256
         self.scoring_method = "gar-full-vocabulary-logits-v1"
-        self.vision_patch_embedding = self.models["nir"].vision_patch_embedding
+        self.vision_patch_embedding = primary.vision_patch_embedding
         self.lock = threading.Lock()
         self.warmed = False
 
@@ -181,7 +200,7 @@ class ModalityClassifier:
         selected = self.stage_models[stage]
         reply = selected.inspect(request)
         reply.update(model=self.model_name, backend_alias=self.model_alias,
-            stage_backend_alias=selected.model_alias, routing="resident-merged-modality-routing-v1")
+            stage_backend_alias=selected.model_alias, routing=self.routing)
         return reply
 
     def warmup(self):
@@ -215,7 +234,7 @@ class LlamaClassifier:
         self.adapter = self.provenance.get("adapter")
         if self.adapter:
             ap = self.provenance.get("adapter_provenance", {})
-            validate_adapter_training(ap.get("training_report"), contract)
+            validate_adapter_training(ap.get("training_report"), contract, required_stages=contract["stages"])
             if ap.get("message_layout") != MESSAGE_LAYOUT:
                 raise ValueError("Automotive adapter message layout does not match the runtime")
             if ap.get("contract_version") != contract["version"] or ap.get("prompt_hashes") != {k:v["prompt_sha256"] for k,v in contract["stages"].items()}:
@@ -316,8 +335,8 @@ def make_handler(classifier):
                 "model_config_sha256": classifier.model_config_sha256,
                 "vision_patch_embedding": getattr(classifier, "vision_patch_embedding", "llamacpp-native"),
                 "stage_backend_aliases": getattr(classifier, "stage_backend_aliases", None),
-                "cuda_allocated_bytes": classifier.models["nir"].torch.cuda.memory_allocated() if isinstance(classifier, ModalityClassifier) else None,
-                "cuda_peak_allocated_bytes": classifier.models["nir"].torch.cuda.max_memory_allocated() if isinstance(classifier, ModalityClassifier) else None,
+                "cuda_allocated_bytes": next(iter(classifier.models.values())).torch.cuda.memory_allocated() if isinstance(classifier, ModalityClassifier) else None,
+                "cuda_peak_allocated_bytes": next(iter(classifier.models.values())).torch.cuda.max_memory_allocated() if isinstance(classifier, ModalityClassifier) else None,
                 "provenance": getattr(classifier, "provenance", None)})
 
         def do_POST(self):
@@ -379,6 +398,7 @@ def main():
     p.add_argument("--llama-endpoint", help="Use dedicated llama.cpp backend on loopback18192")
     p.add_argument("--llama-provenance", default=str(Path(__file__).resolve().parents[2] / "checkpoints/process-base-bf16/provenance.json"))
     p.add_argument("--adapter", help="Optional local automotive adapter (never the parcel adapter)")
+    p.add_argument("--weld-adapter", help="Optional resident adapter for weld only; requires --adapter for the other stages")
     p.add_argument("--nir-adapter", help="Explicit resident NIR model adapter; requires --thermal-adapter")
     p.add_argument("--thermal-adapter", help="Explicit resident model adapter for both thermal stages")
     p.add_argument("--contract")
@@ -386,6 +406,8 @@ def main():
     p.add_argument("--port", type=int, default=18191)
     args = p.parse_args()
     routed = bool(args.nir_adapter or args.thermal_adapter)
+    if args.weld_adapter and (not args.adapter or routed or args.llama_endpoint):
+        p.error("Weld override requires --adapter and excludes modality/GGUF routing")
     if routed and (not args.nir_adapter or not args.thermal_adapter or args.adapter or args.llama_endpoint):
         p.error("Resident modality routing requires both modality adapters, no --adapter or GGUF endpoint")
     if args.llama_endpoint and (args.adapter or args.linear_patch_embedding):
@@ -393,7 +415,9 @@ def main():
     if not args.llama_endpoint and not args.model:
         p.error("--model or --llama-endpoint required")
     contract = load_gate_contract(args.contract)
-    if routed:
+    if args.weld_adapter:
+        classifier = ModalityClassifier(args.model, contract, args.adapter, args.weld_adapter, linear_patch_embedding=args.linear_patch_embedding, weld_only=True)
+    elif routed:
         classifier = ModalityClassifier(args.model, contract, args.nir_adapter, args.thermal_adapter, linear_patch_embedding=args.linear_patch_embedding)
     elif args.llama_endpoint:
         classifier = LlamaClassifier(args.llama_endpoint, contract, args.llama_provenance)

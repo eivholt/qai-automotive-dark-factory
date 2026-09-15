@@ -7,14 +7,13 @@ H=runpy.run_path(str(Path(__file__).with_name('setup_welding_tool_materials.py')
 EDIT=unreal.MaterialEditingLibrary
 ASSETS=unreal.EditorAssetLibrary
 PREFIX='DF_WELD_WITNESS_V1/'
-CODE=(ROOT/'unreal/Shaders/WeldWitness.usf').read_text()
-SCALARS={'WeldWitnessEnabled':0.,**{f'WitnessStrength{i}':0. for i in range(4)}}
-VECTORS={k:v for i in range(4) for k,v in [(f'WitnessCenter{i}',(0.,0.,0.,0.)),(f'WitnessNormal{i}',(0.,0.,1.,0.))]}
+CODE=(ROOT/'unreal/Shaders/WeldWitness.usf').read_text(encoding='utf-8')
+SCALARS={'WeldWitnessEnabled':0.,**{f'WitnessStrength{i}':0. for i in range(6)}}
+VECTORS={k:v for i in range(6) for k,v in [(f'WitnessCenter{i}',(0.,0.,0.,0.)),(f'WitnessNormal{i}',(0.,0.,1.,0.))]}
 def augment(material):
     nodes=H['owned_nodes'](material,PREFIX)
     if nodes:
-        changed=nodes['hotspot'].get_editor_property('code')!=CODE
-        if changed: nodes['hotspot'].set_editor_property('code',CODE)
+        changed=H['update_custom_layout'](material,nodes,SCALARS,VECTORS,CODE,nodes['world_position'],PREFIX)
         H['audit_custom'](material,nodes['hotspot'],nodes,SCALARS,VECTORS,CODE,nodes['world_position'])
         for key,prop in [('color_result',unreal.MaterialProperty.MP_BASE_COLOR),('rough_result',unreal.MaterialProperty.MP_ROUGHNESS)]:
             if EDIT.get_material_property_input_node(material,prop)!=nodes[key]:
@@ -58,5 +57,5 @@ if __name__=='__main__':
     assert all(row['status']=='unchanged' for row in replay)
     report={'passed':True,'materials':rows,'replay_idempotent':True,'shader_sha256':hashlib.sha256(CODE.encode()).hexdigest()}
     (ROOT/'artifacts').mkdir(exist_ok=True)
-    (ROOT/'artifacts/weld-witness-materials.json').write_text(json.dumps(report,indent=2)+'\n')
+    (ROOT/'artifacts/weld-witness-materials.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
     unreal.log('DF_WELD_WITNESS_CONTENT_READY materials='+str(len(rows)))

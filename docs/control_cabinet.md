@@ -1,6 +1,6 @@
 # Illuminated robot control cabinet
 
-The imported control cabinet has a backlit LCD showing cycle progress, elapsed seconds, active welding robots and four individual robot phase/progress rows. Its five green and six red button lenses, plus a green status indicator below the LCD, illuminate in the dark. Existing button colors and cabinet geometry are preserved. The readouts come from the authored simulation clock; they do not represent measured current, real robot telemetry, model decisions or weld quality.
+In visual-preview mode, the imported control cabinet has a backlit LCD showing cycle progress, elapsed seconds, active welding robots and four individual robot phase/progress rows. Its five green and six red button lenses, plus a green status indicator below the LCD, illuminate in the dark. Existing button colors and cabinet geometry are preserved. These preview readouts come from the authored simulation clock, not measured current or real robot telemetry. In [panel process mode](process_ui.md), PANL/SEAL/SEAT/COOL rows and the indicator lights instead follow the actual gate controller, including inspection, hold, accepted and skipped states. They do not establish weld quality.
 
 The material runs on the existing `SM_Background_robots_screen` component, which contains exactly thirteen separate glass surfaces. `scripts/assets/prepare_control_cabinets.py` derives their face locations, dimensions, normals and color assignments from the private source triangles and texture atlas. It writes `assets/derived/welding_cell/control_cabinets.json` with source hashes. The LCD is approximately 43.42 by 32.75 cm. No mesh reimport or new collider is needed.
 
@@ -8,7 +8,7 @@ The material runs on the existing `SM_Background_robots_screen` component, which
 
 The LCD uses a matte, zero-specular inner display region to keep its graphics readable under the close NIR illuminator. Surrounding bezel and buttons retain their authored texture and ordinary surface finish. A single small rectangular light supplies blue screen spill (10 authored lumens, 110 cm radius), with no shadow, GI, reflection or translucent-lighting contribution. Actual device emission in a measured NIR band is not simulated; the existing NIR rendering proxy observes the scene material emission.
 
-Visible graphics and LEDs do not become hot thermal glyphs. The existing glass component keeps its original thermal profile and geometry. There are still 76 imported meshes and 244 thermal profiles. Changing display power leaves the raw thermal PNG unchanged. Observer modality/headlamp changes remain independent of the fixed sensor cameras.
+Visible graphics and LEDs do not become hot thermal glyphs. The existing glass component keeps its original thermal profile and geometry. The current panel-ready regroup contains 86 imported meshes. The separate visual-preview mode retains 244 thermal profiles; panel process mode adds eight, with tooling and mounting brackets sharing existing profiles. Changing display power leaves the raw thermal PNG unchanged. Observer modality/headlamp changes remain independent of the fixed sensor cameras.
 
 ## Generate and run
 

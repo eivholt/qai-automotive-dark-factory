@@ -21,18 +21,18 @@ except ImportError:
 
 RAW_SIZE = (448, 256)
 SCREEN_SIZE = (1600, 900)
-RAW_NAMES = ("normal", "overheated", "heater_fault", "glue_gap", "light_on", "light_off", "occluded")
+RAW_NAMES = ("normal", "overheated", "heater_fault", "sealant_gap", "light_on", "light_off", "occluded")
 NIR_NAMES = ("nir_before", "nir_after")
 SCREEN_NAMES = ("white_hot", "black_hot", "iron")
-REGION_NAMES = ("target_module", "heater", "glue_gap", "glue_intact", "occluder")
+REGION_NAMES = ("target_module", "heater", "sealant_gap", "sealant_intact", "occluder")
 OBSERVER_BOX = (30, 150, 990, 700)
 THRESHOLDS = {
     "roi_min_pixels": 16,
     "anomaly_mean_delta_u8_min": 5.0,
     "anomaly_changed_fraction_min": 0.10,
     "changed_pixel_delta_u8_min": 3,
-    "intact_glue_mean_drift_u8_max": 3.0,
-    "glue_gap_intact_contrast_u8_min": 5.0,
+    "intact_sealant_mean_drift_u8_max": 3.0,
+    "sealant_gap_intact_contrast_u8_min": 5.0,
     "occlusion_mean_drop_u8_min": 10.0,
     "occlusion_ambient_mean_tolerance_c": 3.0,
     "occlusion_ambient_p95_tolerance_c": 5.0,
@@ -200,7 +200,7 @@ def verify(directory):
 
     # One-sided contrasts check the intended physical direction without copying
     # shader formulas or relying on one exact reference screenshot.
-    comparisons = (("overheated", "target_module", 1), ("heater_fault", "heater", -1), ("glue_gap", "glue_gap", -1))
+    comparisons = (("overheated", "target_module", 1), ("heater_fault", "heater", -1), ("sealant_gap", "sealant_gap", -1))
     for case, region, sign in comparisons:
         if "normal" in images and case in images and region in regions:
             value = compare(images["normal"].crop(regions[region]), images[case].crop(regions[region]))
@@ -208,15 +208,15 @@ def verify(directory):
             checks[case + "_has_expected_local_temperature_change"] = (
                 sign * value["mean_signed_delta_u8"] >= THRESHOLDS["anomaly_mean_delta_u8_min"]
                 and value["changed_fraction"] >= THRESHOLDS["anomaly_changed_fraction_min"])
-    if "normal" in images and "glue_gap" in images and all(key in regions for key in ("glue_gap", "glue_intact")):
-        intact = compare(images["normal"].crop(regions["glue_intact"]), images["glue_gap"].crop(regions["glue_intact"]))
-        gap_mean = stats(images["glue_gap"].crop(regions["glue_gap"]))["mean_u8"]
-        intact_mean = stats(images["glue_gap"].crop(regions["glue_intact"]))["mean_u8"]
-        report["stats"]["glue_intact_control"] = intact
-        report["stats"]["glue_gap_intact_contrast_u8"] = round(intact_mean - gap_mean, 5)
-        checks["glue_gap_preserves_intact_heated_glue"] = (
-            abs(intact["mean_signed_delta_u8"]) <= THRESHOLDS["intact_glue_mean_drift_u8_max"]
-            and intact_mean - gap_mean >= THRESHOLDS["glue_gap_intact_contrast_u8_min"])
+    if "normal" in images and "sealant_gap" in images and all(key in regions for key in ("sealant_gap", "sealant_intact")):
+        intact = compare(images["normal"].crop(regions["sealant_intact"]), images["sealant_gap"].crop(regions["sealant_intact"]))
+        gap_mean = stats(images["sealant_gap"].crop(regions["sealant_gap"]))["mean_u8"]
+        intact_mean = stats(images["sealant_gap"].crop(regions["sealant_intact"]))["mean_u8"]
+        report["stats"]["sealant_intact_control"] = intact
+        report["stats"]["sealant_gap_intact_contrast_u8"] = round(intact_mean - gap_mean, 5)
+        checks["sealant_gap_preserves_intact_heated_sealant"] = (
+            abs(intact["mean_signed_delta_u8"]) <= THRESHOLDS["intact_sealant_mean_drift_u8_max"]
+            and intact_mean - gap_mean >= THRESHOLDS["sealant_gap_intact_contrast_u8_min"])
     if "overheated" in images and "occluded" in images and "occluder" in regions:
         box = regions["occluder"]
         difference = compare(images["overheated"].crop(box), images["occluded"].crop(box))
@@ -231,11 +231,24 @@ def verify(directory):
 
     screen_regions = {"observer": OBSERVER_BOX}
     optional_screens = runtime.get("qa_screen_regions", {})
-    if isinstance(optional_screens, dict) and "thermal_preview" in optional_screens:
-        try:
-            screen_regions["thermal_preview"] = validate_box(optional_screens["thermal_preview"], SCREEN_SIZE, "thermal_preview")
-        except ValueError as exc:
-            errors.append(str(exc))
+    if isinstance(optional_screens, dict):
+        for name in ("observer", "thermal_preview"):
+            if name not in optional_screens:
+                continue
+            try:
+                box = validate_box(optional_screens[name], SCREEN_SIZE, name)
+                # These are image-quality checks, so a tiny favorable crop must
+                # not replace a substantial scene/preview region.
+                minimum_size = (600, 300) if name == "observer" else (200, 100)
+                if box[2] - box[0] < minimum_size[0] or box[3] - box[1] < minimum_size[1]:
+                    raise ValueError(f"{name} must cover at least {minimum_size[0]} x {minimum_size[1]} pixels")
+                screen_regions[name] = box
+            except ValueError as exc:
+                errors.append(str(exc))
+    if runtime.get("qa_screen_region_source") == "hud-draw-bounds-v1":
+        checks["hud_declares_both_thermal_image_regions"] = (
+            isinstance(optional_screens, dict)
+            and all(name in optional_screens for name in ("observer", "thermal_preview")))
     report["qa_screen_regions"] = screen_regions
     report["thermal_preview_palette_checked"] = "thermal_preview" in screen_regions
     for region, box in screen_regions.items():

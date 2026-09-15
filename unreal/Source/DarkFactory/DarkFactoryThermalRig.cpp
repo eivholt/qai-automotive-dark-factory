@@ -1,4 +1,5 @@
 #include "DarkFactoryThermalRig.h"
+#include "DarkFactoryGraphics.h"
 #include "DarkFactoryWorld.h"
 #include "DarkFactoryWeldingCell.h"
 #include "DarkFactoryThermalRadiometry.h"
@@ -26,8 +27,8 @@
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 
 namespace {
-constexpr int32 ThermalWidth=448, ThermalHeight=256, LUTWidth=256, LUTRows=22;
-constexpr int32 WeldHeatPatchCount=4, WeldHeatFirstRow=14;
+constexpr int32 ThermalWidth=448, ThermalHeight=256, LUTWidth=256, LUTRows=70;
+constexpr int32 WeldHeatPatchCount=12, WeldHeatFirstRow=14;
 TArray<uint8> CompressThermal(TArray<FColor> Pixels) {
     // SceneCapture alpha is not radiometric data. Publish an opaque RGB image.
     for (FColor& Pixel:Pixels) Pixel.A=255;
@@ -37,10 +38,12 @@ TArray<uint8> CompressThermal(TArray<FColor> Pixels) {
 }
 }
 ADarkFactoryThermalRig::ADarkFactoryThermalRig() {
+    bDisplayRangeSmoke=FParse::Param(FCommandLine::Get(),TEXT("DFThermalRangeSmoke"));
     PrimaryActorTick.bCanEverTick=true;
     SceneRoot=CreateDefaultSubobject<USceneComponent>(TEXT("Root")); SetRootComponent(SceneRoot);
     ThermalSensor=CreateDefaultSubobject<USceneCaptureComponent2D>(TEXT("FixedThermalCamera"));
     ThermalSensor->SetupAttachment(SceneRoot);
+    DarkFactoryGraphics::ConfigureSensorCapture(ThermalSensor.Get());
     ThermalSensor->bCaptureEveryFrame=false;
     ThermalSensor->bCaptureOnMovement=false;
     // Manual captures need a persistent View.State for Unreal material blendables.
@@ -120,11 +123,11 @@ void ADarkFactoryThermalRig::Initialize(ADarkFactoryWorld* Cell, USceneCaptureCo
         auto* Strip=Fixture(*FString::Printf(TEXT("WindowHeater%d"),I),FVector(-225+35*I,114,150),FVector(20,5,66),65,.94f);
         if (I==1) HeaterFaultStrip=Strip;
     }
-    Fixture(TEXT("GlueInspectionPlate"),FVector(210,-5,100),FVector(100,105,7),28,.8f);
+    Fixture(TEXT("SealantInspectionPlate"),FVector(210,-5,100),FVector(100,105,7),28,.8f);
     for (int32 I=0;I<3;++I) {
-        auto* Bead=Fixture(*FString::Printf(TEXT("WarmGlue%d"),I),FVector(180+30*I,-43,106),FVector(25,13,6),58,.96f);
-        if (I==1) GlueGapSegment=Bead;
-        if (I==0) GlueIntactSegment=Bead;
+        auto* Bead=Fixture(*FString::Printf(TEXT("WarmSealant%d"),I),FVector(180+30*I,-43,106),FVector(25,13,6),58,.96f);
+        if (I==1) SealantGapSegment=Bead;
+        if (I==0) SealantIntactSegment=Bead;
     }
     // Not registered in CustomDepth: this deliberately tests SceneDepth rejection.
     DepthTestCover=Fixture(TEXT("ThermalDepthTestCover"),FVector(-15,-5,164),FVector(275,205,12),24,.9f,false);
@@ -165,6 +168,8 @@ bool ADarkFactoryThermalRig::InitializeImported(ADarkFactoryWorld* Cell,USceneCa
     }
     if (!InitializeCaptureResources(Cell,NIRCamera)) return false;
     bImportedProfiles=true;
+    // Preserve the established low-range legacy rendering fixtures. Imported
+    // interactive/process scenes show welding heat by default.
     bHeatTransferEnabled=false;
     AmbientC=20.f;
     CoolingAgeSeconds=0;
@@ -214,7 +219,7 @@ bool ADarkFactoryThermalRig::SetImportedWeldHeat(UStaticMeshComponent* Mesh,
     const FTransform Transform=Mesh->GetComponentTransform();
     for (const auto& Patch:Patches) {
         if (Patch.LocalPositionCm.ContainsNaN() || !FMath::IsFinite(Patch.RadiusCm) || Patch.RadiusCm<=0.f ||
-            !FMath::IsFinite(Patch.SurfaceC) || Patch.SurfaceC<AmbientC || Patch.SurfaceC>500.f) return false;
+            !FMath::IsFinite(Patch.SurfaceC) || Patch.SurfaceC<AmbientC || Patch.SurfaceC>2000.f) return false;
         const float InverseRadiusSquared=static_cast<float>(1.0/(double(Patch.RadiusCm)*Patch.RadiusCm));
         const FVector World=Transform.TransformPosition(Patch.LocalPositionCm);
         if (!FMath::IsFinite(InverseRadiusSquared) || InverseRadiusSquared<=0.f ||
@@ -232,6 +237,27 @@ bool ADarkFactoryThermalRig::SetImportedWeldHeat(UStaticMeshComponent* Mesh,
     UpdateProfile(Index);
     bLUTDirty=true; // Shared upload with moving tool/car transforms; no capture invalidation.
     return true;
+}
+bool ADarkFactoryThermalRig::SetImportedContactHeat(UStaticMeshComponent* Mesh,const TArray<FDarkFactoryContactHeatSegment>& Segments) {
+    if (!IsInGameThread() || !bImportedProfiles || !IsReady() || !IsValid(Mesh) || Segments.Num()>16) return false;
+    const int32 Index=Surfaces.IndexOfByPredicate([Mesh](const FDarkFactoryThermalSurface& S){return S.Mesh.Get()==Mesh;});
+    if (Index==INDEX_NONE || Mesh->GetComponentTransform().ContainsNaN()) return false;
+    for (const auto& Segment:Segments) {
+        if (Segment.LocalStartCm.ContainsNaN() || Segment.LocalEndCm.ContainsNaN() ||
+            !FMath::IsFinite(Segment.RadiusCm) || Segment.RadiusCm<=0.f ||
+            !FMath::IsFinite(Segment.SurfaceC) || Segment.SurfaceC<AmbientC || Segment.SurfaceC>2000.f) return false;
+        for (const FVector& Local:{Segment.LocalStartCm,Segment.LocalEndCm}) {
+            const FVector World=Mesh->GetComponentTransform().TransformPosition(Local);
+            if (!FMath::IsFinite(float(World.X)) || !FMath::IsFinite(float(World.Y)) || !FMath::IsFinite(float(World.Z))) return false;
+        }
+    }
+    auto& S=Surfaces[Index]; bool Same=S.ContactHeatSegments.Num()==Segments.Num();
+    for (int32 I=0;Same && I<Segments.Num();++I) {
+        const auto& A=S.ContactHeatSegments[I]; const auto& B=Segments[I];
+        Same=A.LocalStartCm==B.LocalStartCm && A.LocalEndCm==B.LocalEndCm && A.RadiusCm==B.RadiusCm && A.SurfaceC==B.SurfaceC;
+    }
+    if (Same) return true;
+    S.ContactHeatSegments=Segments; UpdateProfile(Index); bLUTDirty=true; return true;
 }
 bool ADarkFactoryThermalRig::SetImportedCastingTemperature(UStaticMeshComponent* Mesh,float TemperatureC) {
     if (!IsInGameThread() || !bImportedProfiles || !IsReady() || !IsValid(Mesh) ||
@@ -322,7 +348,7 @@ int32 ADarkFactoryThermalRig::RegisterSurface(UStaticMeshComponent* Mesh,float T
     const FString Name=Mesh->GetName();
     Entry.bPowered=Name.StartsWith(TEXT("WindowHeater")) || Name==TEXT("HeatTransferSource") || Name==TEXT("HeatTransferBlocker");
     if (Entry.bPowered) { Entry.EdgeFraction=.55f; Entry.EdgeFalloff=1.1f; }
-    else if (Name.StartsWith(TEXT("WarmGlue"))) { Entry.EdgeFraction=.32f; Entry.EdgeFalloff=1.8f; }
+    else if (Name.StartsWith(TEXT("WarmSealant"))) { Entry.EdgeFraction=.32f; Entry.EdgeFalloff=1.8f; }
     Entry.LocalBounds=Mesh->GetStaticMesh()->GetBoundingBox();
     const int32 Id=Surfaces.Add(Entry)+1;
     Mesh->SetRenderCustomDepth(true); Mesh->SetCustomDepthStencilValue(Id);
@@ -364,12 +390,26 @@ void ADarkFactoryThermalRig::UpdateProfile(int32 Index) {
     float FitMax=FMath::Max(S.EdgeSurfaceC,S.CoreSurfaceC+MaxDelta);
     if (S.HotspotRadiusCm>0.f) FitMax=FMath::Max(FitMax,S.TipSurfaceC);
     for (const auto& Patch:S.WeldHeatPatches) FitMax=FMath::Max(FitMax,Patch.SurfaceC);
-    const float Low=ProfileApparentTemperature(S,FitMin);
-    const float Mid=ProfileApparentTemperature(S,(FitMin+FitMax)*.5f);
-    const float High=ProfileApparentTemperature(S,FitMax);
-    LUTEntries[Index+1]=FLinearColor(Low,Mid,High,1);
+    for (const auto& Segment:S.ContactHeatSegments) FitMax=FMath::Max(FitMax,Segment.SurfaceC);
     LUTEntries[4*LUTWidth+Index+1]=FLinearColor(S.EdgeFalloff,S.ApparentC,S.CoolingRetention,S.EdgeFraction);
     LUTEntries[11*LUTWidth+Index+1]=FLinearColor(S.EdgeSurfaceC,S.CoreSurfaceC,FitMin,FitMax-FitMin>.00001f ? 1.f/(FitMax-FitMin):0.f);
+    if (bImportedProfiles && FitMax>500.f && FitMin<100.f) {
+        // A single 20..1600 C quadratic bends the inspection-temperature region.
+        // Imported surfaces never use face exchange: reuse one existing face row
+        // for a low fit, with a negative spare field channel as the explicit flag.
+        const auto LowFit=DarkFactoryThermal::MakeApparentTemperatureFit(FitMin,100.,S.Emissivity,AmbientC);
+        const auto HighFit=DarkFactoryThermal::MakeApparentTemperatureFit(100.,FitMax,S.Emissivity,AmbientC);
+        LUTEntries[Index+1]=FLinearColor(HighFit.LowC,HighFit.MidC,HighFit.HighC,1);
+        LUTEntries[5*LUTWidth+Index+1]=FLinearColor(LowFit.LowC,LowFit.MidC,LowFit.HighC,LowFit.InvSpan);
+        LUTEntries[4*LUTWidth+Index+1].A=-1.f;
+        LUTEntries[11*LUTWidth+Index+1]=FLinearColor(S.EdgeSurfaceC,S.CoreSurfaceC,HighFit.MinC,HighFit.InvSpan);
+    } else {
+        // Preserve the established low-temperature/procedural evaluation exactly.
+        const float Low=ProfileApparentTemperature(S,FitMin);
+        const float Mid=ProfileApparentTemperature(S,(FitMin+FitMax)*.5f);
+        const float High=ProfileApparentTemperature(S,FitMax);
+        LUTEntries[Index+1]=FLinearColor(Low,Mid,High,1);
+    }
     const bool ImportedCoreField=bImportedProfiles && S.AuthoredCoreEdgeDropC>0.f;
     // Row13 shares the existing tool-tip row; no texture dimensions/pass changes.
     LUTEntries[13*LUTWidth+Index+1]=FLinearColor(S.HotspotRadiusCm>0.f ? S.TipSurfaceC:0.f,
@@ -377,6 +417,7 @@ void ADarkFactoryThermalRig::UpdateProfile(int32 Index) {
         ImportedCoreField ? S.ImportedCoreFieldOffset:0.f);
     UpdateHotspotTransform(Index);
     UpdateWeldHeatTransforms(Index);
+    UpdateContactHeatTransforms(Index);
 }
 void ADarkFactoryThermalRig::UpdateHotspotTransform(int32 Index) {
     const auto& S=Surfaces[Index];
@@ -398,6 +439,22 @@ void ADarkFactoryThermalRig::UpdateWeldHeatTransforms(int32 Index) {
         Position=FLinearColor(World.X,World.Y,World.Z,static_cast<float>(1.0/(double(Patch.RadiusCm)*Patch.RadiusCm)));
         Temperature=FLinearColor(Patch.SurfaceC,0,0,0);
     }
+    LUTEntries[(WeldHeatFirstRow+1)*LUTWidth+Index+1].G=Mesh ? S.WeldHeatPatches.Num():0;
+}
+void ADarkFactoryThermalRig::UpdateContactHeatTransforms(int32 Index) {
+    const auto& S=Surfaces[Index]; const auto* Mesh=S.Mesh.Get();
+    for (int32 I=0;I<16;++I) {
+        auto& Start=LUTEntries[(38+2*I)*LUTWidth+Index+1];
+        auto& End=LUTEntries[(39+2*I)*LUTWidth+Index+1];
+        Start=End=FLinearColor::Transparent;
+        if (!Mesh || !S.ContactHeatSegments.IsValidIndex(I)) continue;
+        const auto& Segment=S.ContactHeatSegments[I];
+        const FVector A=Mesh->GetComponentTransform().TransformPosition(Segment.LocalStartCm);
+        const FVector B=Mesh->GetComponentTransform().TransformPosition(Segment.LocalEndCm);
+        Start=FLinearColor(A.X,A.Y,A.Z,Segment.RadiusCm);
+        End=FLinearColor(B.X,B.Y,B.Z,Segment.SurfaceC);
+    }
+    LUTEntries[15*LUTWidth+Index+1].B=Mesh ? S.ContactHeatSegments.Num():0;
 }
 void ADarkFactoryThermalRig::UploadLUT() {
     if (!ThermalLUT) return;
@@ -407,7 +464,7 @@ void ADarkFactoryThermalRig::UploadLUT() {
     auto* Region=new FUpdateTextureRegion2D(0,0,0,0,LUTWidth,LUTRows);
     ThermalLUT->UpdateTextureRegions(0,1,Region,LUTWidth*sizeof(FLinearColor),sizeof(FLinearColor),Data,
         [](uint8* Source,const FUpdateTextureRegion2D* Rectangle) { FMemory::Free(Source); delete Rectangle; });
-    ++LUTUploads; // 88 KiB upload, no texture recreation and no image readback.
+    ++LUTUploads; // 280 KiB upload, no texture recreation and no image readback.
 }
 void ADarkFactoryThermalRig::UpdateTransforms(bool Force) {
     // Resizing is an authored geometry reset: capacities must match the new volume.
@@ -435,6 +492,7 @@ void ADarkFactoryThermalRig::UpdateTransforms(bool Force) {
             LUTEntries[(Axis+1)*LUTWidth+Index+1]=FLinearColor(Inverse.M[0][Axis]/Extent[Axis],Inverse.M[1][Axis]/Extent[Axis],Inverse.M[2][Axis]/Extent[Axis],(Inverse.M[3][Axis]-Center[Axis])/Extent[Axis]);
         UpdateHotspotTransform(Index);
         UpdateWeldHeatTransforms(Index);
+        UpdateContactHeatTransforms(Index);
         S.LastTransform=Transform; S.bTransformCached=true; Changed=true;
     }
     if (Changed) { UploadLUT(); bLUTDirty=false; }
@@ -488,7 +546,7 @@ void ADarkFactoryThermalRig::SetCase(int32 Case) {
     CaseIndex=FMath::Clamp(Case,0,5);
     CoolingAgeSeconds=15;
     if (DepthTestCover) DepthTestCover->SetVisibility(CaseIndex==4,true);
-    if (GlueGapSegment) GlueGapSegment->SetVisibility(CaseIndex!=3,true);
+    if (SealantGapSegment) SealantGapSegment->SetVisibility(CaseIndex!=3,true);
     if (TransferSource) TransferSource->SetVisibility(CaseIndex==5,true);
     if (TransferReceiver) TransferReceiver->SetVisibility(CaseIndex==5,true);
     if (TransferBlocker) TransferBlocker->SetVisibility(false,true);
@@ -505,7 +563,7 @@ void ADarkFactoryThermalRig::SetCase(int32 Case) {
 }
 FString ADarkFactoryThermalRig::GetCaseName() const {
     if (bImportedProfiles) return TEXT("authored welding-cell temperatures");
-    static const TCHAR* Names[]={TEXT("normal"),TEXT("overheated module"),TEXT("heater fault"),TEXT("glue gap"),TEXT("opaque cover test"),TEXT("nearby heat transfer")};
+    static const TCHAR* Names[]={TEXT("normal"),TEXT("overheated module"),TEXT("heater fault"),TEXT("sealant gap"),TEXT("opaque cover test"),TEXT("nearby heat transfer")};
     return Names[CaseIndex];
 }
 void ADarkFactoryThermalRig::ApplyMaterial(UMaterialInstanceDynamic* Material,int32 Palette) const {
@@ -518,6 +576,27 @@ void ADarkFactoryThermalRig::ApplyMaterial(UMaterialInstanceDynamic* Material,in
     Material->SetScalarParameterValue(TEXT("ThermalPalette"),Palette);
     Material->SetScalarParameterValue(TEXT("ThermalSpatialEnabled"),bSpatialFields ? 1.f:0.f);
     Material->SetScalarParameterValue(TEXT("ThermalTransferEnabled"),bHeatTransferEnabled ? 1.f:0.f);
+}
+void ADarkFactoryThermalRig::ApplyObserverMaterial(UMaterialInstanceDynamic* Material,int32 Palette) const {
+    ApplyMaterial(Material,Palette);
+    if (!Material || !ThermalLUT) return;
+    Material->SetScalarParameterValue(TEXT("ThermalMinC"),GetObserverMinC());
+    Material->SetScalarParameterValue(TEXT("ThermalMaxC"),GetObserverMaxC());
+}
+TSharedRef<FJsonObject> ADarkFactoryThermalRig::GetObserverDisplayMetadata() const {
+    auto Data=MakeShared<FJsonObject>();
+    Data->SetStringField(TEXT("schema"),TEXT("observer-thermal-fixed-v2"));
+    Data->SetStringField(TEXT("quantity"),TEXT("apparent_temperature"));
+    Data->SetStringField(TEXT("range"),TEXT("fixed_observer"));
+    Data->SetNumberField(TEXT("min_temperature_c"),GetObserverMinC());
+    Data->SetNumberField(TEXT("max_temperature_c"),GetObserverMaxC());
+    Data->SetNumberField(TEXT("palette"),DisplayPalette);
+    Data->SetNumberField(TEXT("sensor_min_temperature_c"),MinC);
+    Data->SetNumberField(TEXT("sensor_max_temperature_c"),MaxC);
+    Data->SetBoolField(TEXT("sensor_range_changed"),false);
+    Data->SetNumberField(TEXT("additional_scene_captures"),0);
+    Data->SetNumberField(TEXT("additional_readbacks"),0);
+    return Data;
 }
 void ADarkFactoryThermalRig::CaptureGPU() {
     if (!ThermalMaterial || !ThermalTarget) return;
@@ -551,6 +630,7 @@ void ADarkFactoryThermalRig::NotifySceneChanged() {
 void ADarkFactoryThermalRig::Tick(float DeltaSeconds) {
     Super::Tick(DeltaSeconds);
     if (!ThermalMaterial) return;
+    if (bDisplayRangeSmoke) TickDisplayRangeSmoke();
     UpdateTransforms(); // Observer fields follow motion even between fixed-sensor captures.
     if (!bFrozen && FPlatformTime::Seconds()>=NextCapture) {
         CaptureGPU(); NextCapture=FPlatformTime::Seconds()+1.0/CaptureHz;
@@ -611,10 +691,13 @@ TSharedRef<FJsonObject> ADarkFactoryThermalRig::GetEncodingMetadata() const {
     Data->SetStringField(TEXT("temperature_source"),bImportedProfiles ? TEXT("authored_illustrative_not_measured"):TEXT("procedural_simulation"));
     Data->SetObjectField(TEXT("motor_radiometry_cache"),MotorRadiometryMetadata());
     Data->SetNumberField(TEXT("lut_width"),LUTWidth);
+    Data->SetNumberField(TEXT("contact_heat_segment_limit"),16);
     Data->SetNumberField(TEXT("lut_rows"),LUTRows);
     Data->SetNumberField(TEXT("lut_bytes"),LUTWidth*LUTRows*sizeof(FLinearColor));
     Data->SetStringField(TEXT("hotspot_model"),TEXT("s=saturate(1-distance_squared/world_radius_squared); weight=s*s*(3-2*s); lerp(surface_c,tip_c,weight); disabled in uniform comparison"));
     Data->SetNumberField(TEXT("weld_heat_patch_limit"),WeldHeatPatchCount);
+    Data->SetNumberField(TEXT("weld_heat_maximum_surface_c"),2000);
+    Data->SetStringField(TEXT("high_temperature_fit_model"),TEXT("Imported peak above500 C only: two quadratic apparent-temperature fits split at100 C surface; low fit reuses unused face row5, row4.w negative flag; legacy low and procedural fits unchanged"));
     Data->SetStringField(TEXT("weld_heat_model"),TEXT("s=saturate(1-distance_squared/world_radius_squared); weight=s*s*(3-2*s); max(base_surface_c,lerp(base_surface_c,patch_surface_c,weight) for each patch); disabled in uniform comparison"));
     Data->SetBoolField(TEXT("spatial_fields_enabled"),bSpatialFields);
     Data->SetBoolField(TEXT("heat_transfer_enabled"),bHeatTransferEnabled);
@@ -748,8 +831,8 @@ TSharedRef<FJsonObject> ADarkFactoryThermalRig::GetQARegions() const {
         Region(TEXT("target_module"),Center,3,3); Region(TEXT("occluder"),Center,3,3);
     }
     if (HeaterFaultStrip) Region(TEXT("heater"),HeaterFaultStrip->GetComponentLocation()+FVector(0,-3,0),2,5);
-    if (GlueGapSegment) Region(TEXT("glue_gap"),GlueGapSegment->GetComponentLocation()+FVector(0,0,3.1f),2,2);
-    if (GlueIntactSegment) Region(TEXT("glue_intact"),GlueIntactSegment->GetComponentLocation()+FVector(0,0,3.1f),2,2);
+    if (SealantGapSegment) Region(TEXT("sealant_gap"),SealantGapSegment->GetComponentLocation()+FVector(0,0,3.1f),2,2);
+    if (SealantIntactSegment) Region(TEXT("sealant_intact"),SealantIntactSegment->GetComponentLocation()+FVector(0,0,3.1f),2,2);
     return Result;
 }
 

@@ -7,7 +7,7 @@ The demo now runs a small thermal network: hot components can warm facing surfac
 Heat transfer is **on by default**, starting at 15 seconds of selected elapsed time.
 
 - **U** advances another 15 simulated seconds, up to 1,800 seconds, then cycles to zero. Wall-clock time does not advance the thermal state.
-- **O** or **Xbox right-stick click** toggles heat transfer. Off uses the earlier independent cooling approximation. Re-enabling resets temperatures and replays the currently selected time with the current geometry; it does not resume the old network.
+- **O** or **Xbox right-stick click** toggles heat transfer in the procedural reference scene. Off uses the earlier independent cooling approximation. Re-enabling resets temperatures and replays the currently selected time with the current geometry; it does not resume the old network.
 - **H** changes the thermal case and resets elapsed time to 15 seconds. The nearby-heat-transfer case places a maintained 110 °C source opposite an initially 24 °C receiver, with a 50 cm surface gap. Entering that case automatically frames the source and receiver in the observer view; leaving it returns the observer to its home view.
 - **T** selects thermal observer mode; **K** changes its palette; **F9** saves the fixed thermal sensor image and metadata. **J** toggles spatial presentation; disabling it shows uniform source temperatures while the network remains available to advance with U.
 
@@ -29,7 +29,7 @@ Each node has a positive heat capacity. The component capacity is `volume × vol
 | Contact tolerance | 0.75 cm | Geometric classification tolerance |
 | Radiation cutoff | 150 cm | Maximum face-centre separation |
 
-These values are authored inputs, not properties inferred from Unreal RGB materials. In particular, the low conductivity retains visible surface gradients and should not be presented as bare-metal or battery construction data. All components currently use the same capacity and conductivity model. Hollow structures, heterogeneous cells, glue cure chemistry, internal airflow and real interface resistance need their own parameters or models.
+These values are authored inputs, not properties inferred from Unreal RGB materials. In particular, the low conductivity retains visible surface gradients and should not be presented as bare-metal or battery construction data. All components currently use the same capacity and conductivity model. Hollow structures, heterogeneous cells, sealant cure chemistry, internal airflow and real interface resistance need their own parameters or models.
 
 Bulk-to-face conductance is `k A / distance`, using half the box thickness and a minimum 1 mm distance. Powered heater nodes hold their assigned temperature and act as reservoirs. In the heater-fault case the failed strip starts at ambient and becomes passive, so neighboring parts can warm it. The maintained source and cold blocker in the transfer verification fixture are explicit reservoirs, not finite passive bodies.
 

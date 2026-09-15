@@ -99,15 +99,19 @@ struct FControlCabinet {
         if(State<.5)return float3(.14,.25,.32);
         if(State<2.5)return float3(.96,.48,.045);
         if(State<3.5)return float3(.06,.77,.29);
-        return float3(1.,.055,.024);
+        if(State<5.5)return float3(1.,.055,.024);
+        if(State<6.5)return float3(.10,.56,.95);
+        return float3(.14,.25,.32);
     }
     uint4 GateText(float State) {
         if(State<.5)return uint4(80u,69u,78u,68u); // PEND
         if(State<1.5)return uint4(83u,67u,65u,78u); // SCAN
         if(State<2.5)return uint4(87u,65u,73u,84u); // WAIT
         if(State<3.5)return uint4(80u,65u,83u,83u); // PASS
-        if(State<4.5)return uint4(70u,65u,73u,76u); // FAIL
-        return uint4(69u,82u,82u,32u); // ERR
+        if(State<4.5)return uint4(72u,79u,76u,68u); // HOLD
+        if(State<5.5)return uint4(69u,82u,82u,32u); // ERR
+        if(State<6.5)return uint4(65u,83u,77u,66u); // ASMB
+        return uint4(83u,75u,73u,80u); // SKIP
     }
     float3 GateRow(float2 UV,float Y,float Index,float State,float Active,float Aspect,float AA) {
         float3 Color=float3(.009,.030,.049)*Box(UV,float2(.075,Y-.022),float2(.925,Y+.103),AA);
@@ -115,7 +119,7 @@ struct FControlCabinet {
         float Ring=Box(UV,float2(.095,Y+.003),float2(.114,Y+.038),AA);
         Color+=StateColor*Ring;
         Color+=float3(.25,.60,.72)*Number(UV,float2(.139,Y),.052,Index+1.,1,Aspect,AA);
-        uint4 Name=Index<.5 ? uint4(68u,79u,79u,82u):Index<1.5 ? uint4(71u,76u,85u,69u):uint4(67u,79u,79u,76u);
+        uint4 Name=Index<.5 ? uint4(80u,65u,78u,76u):Index<1.5 ? uint4(83u,69u,65u,76u):Index<2.5 ? uint4(83u,69u,65u,84u):uint4(67u,79u,79u,76u);
         Color+=float3(.24,.63,.73)*Word(UV,float2(.206,Y),.052,Name,Aspect,AA);
         Color+=StateColor*Word(UV,float2(.647,Y),.052,GateText(State),Aspect,AA);
         float Level=State>2.5&&State<3.5 ? 1.:State>.5&&State<2.5 ? .45:0.;
@@ -155,10 +159,11 @@ if(ScreenMask>.0001) {
         LCD+=Status*H.Word(UV,float2(.085,.211),.042,Paused>.5 ? uint4(80u,65u,85u,83u):uint4(72u,79u,83u,84u),Aspect,AA);
         LCD+=float3(.18,.55,.68)*H.Number(UV,float2(.687,.211),.042,ProcessStageSeconds,3,Aspect,AA);
         LCD+=float3(.18,.55,.68)*H.Glyph(UV,float2(.776,.211),.042,83u,Aspect,AA);
-        LCD+=H.GateRow(UV,.326,0.,ProcessGate0,ProcessActiveGate,Aspect,AA);
-        LCD+=H.GateRow(UV,.488,1.,ProcessGate1,ProcessActiveGate,Aspect,AA);
-        LCD+=H.GateRow(UV,.650,2.,ProcessGate2,ProcessActiveGate,Aspect,AA);
-        LCD+=float3(.15,.43,.55)*H.Word(UV,float2(.090,.836),.044,uint4(80u,65u,83u,83u),Aspect,AA);
+        LCD+=H.GateRow(UV,.300,0.,ProcessGate0,ProcessActiveGate,Aspect,AA);
+        LCD+=H.GateRow(UV,.432,1.,ProcessGate1,ProcessActiveGate,Aspect,AA);
+        LCD+=H.GateRow(UV,.564,2.,ProcessGate2,ProcessActiveGate,Aspect,AA);
+        LCD+=H.GateRow(UV,.696,3.,ProcessGate3,ProcessActiveGate,Aspect,AA);
+        LCD+=float3(.15,.43,.55)*H.Word(UV,float2(.090,.836),.044,uint4(83u,65u,77u,69u),Aspect,AA);
         LCD+=float3(.12,.65,.34)*H.Number(UV,float2(.673,.836),.044,ProcessPassCount,1,Aspect,AA);
         LCD+=float3(.15,.43,.55)*H.Word(UV,float2(.718,.836),.044,uint4(79u,70u,32u,50u),Aspect,AA);
     } else {

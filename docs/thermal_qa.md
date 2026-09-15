@@ -25,7 +25,7 @@ The portable equivalent is `python scripts/verify_thermal.py --directory artifac
 | `normal.png` | 448 × 256 | Baseline temperatures and emissivities |
 | `overheated.png` | 448 × 256 | One target module hotter |
 | `heater_fault.png` | 448 × 256 | Heater colder than its normal operating condition |
-| `glue_gap.png` | 448 × 256 | A cool gap interrupts heated glue; neighboring intact glue stays unchanged |
+| `sealant_gap.png` | 448 × 256 | A cool gap interrupts heated sealant; neighboring intact sealant stays unchanged |
 | `light_on.png`, `light_off.png` | 448 × 256 | Same scene, thermal state, emissivity and view with visible/NIR illumination changed |
 | `occluded.png` | 448 × 256 | Same overheated module, covered by an ambient opaque mesh which does **not** write custom depth/stencil |
 | `nir_before.png`, `nir_after.png` | 448 × 256 | Identical frozen NIR input before and after all thermal view/export changes |
@@ -55,13 +55,13 @@ Required true booleans are `observer_material_loaded`, `sensor_material_loaded`,
 }
 ```
 
-`qa_regions` contains `target_module`, `heater`, `glue_gap`, `glue_intact`, and `occluder`. Every value is an integer `[left, top, right, bottom]` box in the **raw fixed-camera image**, with exclusive right/bottom bounds and at least 16 pixels. Project inset surface regions from the fixed camera; avoid bounding boxes dominated by unrelated background. The occluder region must sit inside the previously visible hot target and its added cover. These simulator annotations are offline QA data and never model prompt content.
+`qa_regions` contains `target_module`, `heater`, `sealant_gap`, `sealant_intact`, and `occluder`. Every value is an integer `[left, top, right, bottom]` box in the **raw fixed-camera image**, with exclusive right/bottom bounds and at least 16 pixels. Project inset surface regions from the fixed camera; avoid bounding boxes dominated by unrelated background. The occluder region must sit inside the previously visible hot target and its added cover. These simulator annotations are offline QA data and never model prompt content.
 
 Observer palette checks use `[30, 150, 990, 700]` in the 1600 × 900 screenshot, excluding HUD text. If the HUD exports `qa_screen_regions.thermal_preview`, that same four-integer format enables independent preview palette checks. Otherwise the report explicitly marks preview palette checks as unperformed.
 
 ## What the report verifies
 
-The checks use broad image properties rather than exact reference images or copies of the shader equations: grayscale raw pixels; hotter module and colder heater/glue-gap regions; unchanged intact glue; ambient appearance where the hot custom-depth surface is hidden behind a main-depth-only occluder; byte-identical raw thermal captures despite visible/NIR light changes; inverse white-hot/black-hot luminance; and chromatic iron colors. Screenshot display encoding can be sRGB, so palette inversion uses luminance correlation instead of requiring an exact pixel sum of 255.
+The checks use broad image properties rather than exact reference images or copies of the shader equations: grayscale raw pixels; hotter module and colder heater/sealant-gap regions; unchanged intact sealant; ambient appearance where the hot custom-depth surface is hidden behind a main-depth-only occluder; byte-identical raw thermal captures despite visible/NIR light changes; inverse white-hot/black-hot luminance; and chromatic iron colors. Screenshot display encoding can be sRGB, so palette inversion uses luminance correlation instead of requiring an exact pixel sum of 255.
 
 NIR snapshots must be byte-identical and grayscale. Loaded-material/LUT metadata, model-contract identity and request counters provide complementary evidence of inference isolation; image appearance alone cannot establish that no request was sent. The current thermal adapter remains unavailable, so thermal anomalies have no model-driven decision claim.
 
@@ -75,8 +75,8 @@ The completed `artifacts/thermal-v1` run passed **all 42 checks**, including bot
 | --- | --- |
 | Overheated module region versus normal | +119 counts, approximately +46.67 °C apparent |
 | Faulted heater region versus normal | −99 counts, approximately −38.82 °C apparent |
-| Glue-gap region versus normal | −76 counts, approximately −29.80 °C apparent |
-| Neighboring intact glue | Exactly unchanged |
+| Sealant-gap region versus normal | −76 counts, approximately −29.80 °C apparent |
+| Neighboring intact sealant | Exactly unchanged |
 | Hot surface behind opaque, non-custom-depth cover | 23.92 °C apparent, consistent with quantized 24 °C ambient |
 | Visible/NIR lights changed | Raw thermal PNGs byte-identical |
 | NIR before/after | PNGs byte-identical and grayscale |

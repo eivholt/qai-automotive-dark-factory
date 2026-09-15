@@ -30,8 +30,11 @@ HEADLIGHT_BOX = (50, 100, 1200, 800)
 HUD_NAMES = ('01_visible_rest.png', '03_nir.png', '04_thermal.png', '05_thermal_black_hot.png')
 HEADLIGHT_NAMES = ('06_headlight_off.png', '07_headlight_on.png')
 SENSOR_SUFFIXES = ('rooflight_off', 'rooflight_on', 'thermal_view')
+# Panel preparation conserves source geometry in 91 groups: stock, rack,
+# fence, pedestals and four separate floor/clamp groups. Legacy motion/body
+# contracts and every image/physics threshold remain unchanged.
 THRESHOLDS = {
-    'expected_meshes': 76, 'expected_joints': 24, 'expected_body_panels': 29,
+    'expected_meshes': 91, 'expected_joints': 24, 'expected_body_panels': 29,
     'expected_carriage_holders': 2, 'expected_robot_bases': 4,
     'cycle_duration_seconds': 18.0, 'empty_station_dwell_seconds': 1.0,
     'empty_phase_start_seconds': 17.0, 'arrival_phase_end_seconds': 3.0,

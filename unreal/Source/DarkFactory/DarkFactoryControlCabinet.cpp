@@ -79,7 +79,7 @@ void ADarkFactoryControlCabinet::SetProcessStatus(const FDarkFactoryProcessStatu
     bool Changed=ProcessStatus.bEnabled!=Status.bEnabled || ProcessStatus.bPaused!=Status.bPaused
         || ProcessStatus.Phase!=Status.Phase || ProcessStatus.ActiveGate!=Status.ActiveGate
         || ProcessStatus.BodySequence!=Status.BodySequence || ProcessStatus.ConsecutivePasses!=Status.ConsecutivePasses;
-    for (int32 I=0;I<3;++I) Changed |= ProcessStatus.Gates[I]!=Status.Gates[I];
+    for (int32 I=0;I<4;++I) Changed |= ProcessStatus.Gates[I]!=Status.Gates[I];
     ProcessStatus=Status;
     UpdateFromCell(Changed);
 }
@@ -120,12 +120,12 @@ void ADarkFactoryControlCabinet::UpdateFromCell(bool Force) {
         DisplayMaterial->SetScalarParameterValue(TEXT("ProcessStageSeconds"),ProcessStatus.StageSeconds);
         DisplayMaterial->SetScalarParameterValue(TEXT("ProcessPassCount"),ProcessStatus.ConsecutivePasses);
         DisplayMaterial->SetScalarParameterValue(TEXT("ProcessActiveGate"),ProcessStatus.ActiveGate);
-        for (int32 I=0;I<3;++I)
+        for (int32 I=0;I<4;++I)
             DisplayMaterial->SetScalarParameterValue(*FString::Printf(TEXT("ProcessGate%d"),I),static_cast<int32>(ProcessStatus.Gates[I]));
     }
-    // Three nearby source-colored green/red pairs. Gate ordering is explicit,
+    // Four source-colored green/red pairs. Gate ordering is explicit,
     // independent of imported triangle ordering; no lens color is replaced.
-    const int32 GateGreen[]={3,4,5},GateRed[]={6,8,9};
+    const int32 GateGreen[]={2,3,4,5},GateRed[]={7,6,8,9};
     for (int32 I=0;I<Buttons.Num();++I) {
         auto& B=Buttons[I]; const bool Green=B.Color==TEXT("green");
         // Existing red/green caps remain backlit. Extra emphasis follows machine
@@ -134,9 +134,9 @@ void ADarkFactoryControlCabinet::UpdateFromCell(bool Force) {
         if (ProcessStatus.bEnabled) {
             B.Level=I==0 ? 1.f:.035f;
             const bool Pulse=FMath::Fmod(FMath::Max(0.,Seconds),1.)<.5;
-            for (int32 Gate=0;Gate<3;++Gate) {
+            for (int32 Gate=0;Gate<4;++Gate) {
                 const auto State=ProcessStatus.Gates[Gate];
-                const bool Passed=State==EDarkFactoryGateState::Passed;
+                const bool Passed=State==EDarkFactoryGateState::Passed || State==EDarkFactoryGateState::BranchChosen;
                 const bool Waiting=State==EDarkFactoryGateState::Inspecting || State==EDarkFactoryGateState::Waiting;
                 const bool Exception=State==EDarkFactoryGateState::Rejected || State==EDarkFactoryGateState::Error;
                 if (I==GateGreen[Gate]) B.Level=Passed ? 1.f:Waiting ? (Pulse ? .55f:.12f):.035f;
@@ -168,9 +168,9 @@ TSharedRef<FJsonObject> ADarkFactoryControlCabinet::BuildMetadata() const {
         R->SetNumberField(TEXT("process_body_sequence"),ProcessStatus.BodySequence);
         R->SetNumberField(TEXT("process_active_gate"),ProcessStatus.ActiveGate);
         R->SetNumberField(TEXT("process_consecutive_passes"),ProcessStatus.ConsecutivePasses);
-        const int32 Green[]={3,4,5},Red[]={6,8,9};
+        const int32 Green[]={2,3,4,5},Red[]={7,6,8,9};
         TArray<TSharedPtr<FJsonValue>> Gates;
-        for (int32 I=0;I<3;++I) {
+        for (int32 I=0;I<4;++I) {
             auto Gate=MakeShared<FJsonObject>(); Gate->SetNumberField(TEXT("index"),I);
             Gate->SetNumberField(TEXT("state"),static_cast<int32>(ProcessStatus.Gates[I]));
             Gate->SetNumberField(TEXT("green_button_index"),Green[I]); Gate->SetNumberField(TEXT("red_button_index"),Red[I]);

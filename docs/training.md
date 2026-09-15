@@ -1,10 +1,24 @@
-# Capture and fine-tuning preparation
+# Capture and fine-tuning workflows
+
+## Current automotive panel-v3 model
+
+The imported demo has two adhesive beads and six weld contacts. One shared multimodal LoRA covers the four NIR/thermal gates under `automotive-panel-process-v3`. The [current model guide](model_classification.md) records the six-weld capture, training commands, candidate selection and serving status. The [earlier three-contact experiment](model_classification_two_bead_history.md) retains its completed shared256 training and held-out results; those scores do not validate the new views.
+
+The seed 4307 capture contains 64 whole-body episodes: 40 training, 12 validation and 12 reserved test episodes, with 320/96/96 three-image batches. All states and views of a body stay in one split. The six-weld refinement reuses development validation explicitly and does not query the historically exposed test cohort. A future independent held-out accuracy claim needs new body episodes.
+
+Every gate receives three lossless 448 x 256 grayscale PNGs. Adhesive mapping is `[0,1,0]`; weld pairs are `[0,1]`, `[2,3]`, `[4,5]`. Sensors encode 20-120 C independently of the 0-120 C observer palette. Review actual camera coverage and thermal pixels before fitting, then validate through the exact host runtime and actual Unreal process. Images, private labels, model weights and purchased geometry remain local.
+
+The selected shared448 lineage starts from compatible shared256, adds 128 updates at 3e-5 and then 64 at 1e-5. The second fit expands to 50 training episodes / 400 batches with ten new training episodes from seed 7319. Rank 8, multimodal targets, BF16, batch 6 and accumulation 4 stay fixed. Reports record parent adapter and manifest hashes. The 0.98 confidence calibration gives 95/96 development decisions, zero false G and one conservative cool-weld hold. A separate thermal-only continuation did not improve the result and was not selected. Shared versus per-modality adapters remains an open experiment; selecting a shared adapter does not establish that it is best for future modalities.
+
+## Procedural battery-tray preparation
+
+The remainder documents the reusable starter pipeline in `scripts/training/`. Its one-image contract, proposed release gates and optional trainer are separate from the current automotive workflow above.
 
 The battery-tray cell is a replaceable preparation scenario. Four modules should be present, seated and aligned. `G` means visible normal completion, `R` means a visible missing or misaligned module, and `A` means the image cannot support a reliable inspection. The fixed wording, label mapping, PNG dimensions and generation settings live in [inspection_contract.json](../configs/inspection_contract.json). Changing the task wording or camera processing requires a new dataset and evaluated adapter version.
 
-This repository provides a deterministic capture planner, strict dataset validator, frozen dataset export and an opt-in BF16 LoRA trainer. No adapter has been trained for this scene, no purchased assets are required, and planning creates metadata rather than synthetic claims of model accuracy.
+This repository provides a deterministic capture planner, strict dataset validator, frozen dataset export and an opt-in BF16 LoRA trainer. No battery-tray adapter is selected for the current demo. This procedural workflow requires no purchased assets, and planning creates metadata rather than evidence of model accuracy.
 
-## Reuse from the previous project
+### Reuse from the previous project
 
 The [previous tutorial](https://github.com/eivholt/qai-physics-reasoning/blob/main/docs/isaac_sim_conveyor_reason2_tutorial.md) and [SpeedV1 scripts](https://github.com/eivholt/qai-physics-reasoning/tree/main/scripts/reason2_finetune) establish the single image, image-first user prompt, one `G/A/R` output token, merged adapter and direct PNG transport to one resident GenieX + QAIRT worker on IQ9. The new label semantics require a new adapter and fresh gates; a parcel adapter is not evidence of battery inspection accuracy.
 
@@ -12,7 +26,7 @@ Cosmos-Reason2-2B uses the Qwen3-VL architecture, so the optional trainer loads 
 
 The previous accepted model adapted both visual and language projections. This starter freezes the vision tower and trains decoder LoRA as a conservative first experiment. That may be inadequate for a new geometry or night-vision domain. Compare a separate candidate with `freeze_vision: false`, which adds the visual `qkv/linear_fc1/linear_fc2` projections, only after the baseline and error analysis justify it. Freeze base weights in both cases.
 
-## Reproducible capture plans
+### Reproducible capture plans
 
 From the repository root, with Python 3.11 or later:
 
@@ -30,7 +44,7 @@ The planner allocates whole nuisance families to splits before frames are captur
 
 Active illumination is a visible-renderer proxy for an NIR camera. It is not a spectral sensor model or thermal simulation. Keep all balanced training groups in `active_nir_proxy` mode. Capture an independent sensor-off/poor-visibility stress panel labelled A: switching the sensor off only for A in ordinary balanced groups creates a shortcut. Do not randomize valid images so aggressively that their G/R labels become unobservable; visually audit renders and relabel uncertain examples A.
 
-## Capture metadata and freeze
+### Capture metadata and freeze
 
 The Unreal batch runner accepts a plan and writes actual images plus capture metadata. From PowerShell:
 
@@ -67,7 +81,7 @@ Validation rejects group/episode leakage, unequal G/A/R counts within matched gr
 
 Keep held-out assets, nuisance seeds and final test examples outside curriculum tuning. Diagnose failures on validation only; select a final candidate before opening its frozen independent test results. Quantization calibration uses a representative subset of training images, including low-reflectance/high-noise cases, never the test set.
 
-## Optional model-host preflight and training
+### Optional model-host preflight and training
 
 The optional requirements follow the already installed previous-project WSL environment: Torch 2.9.0 (the observed wheel is `2.9.0+cu128`), Transformers 4.57.3, PEFT 0.20.0, Accelerate 1.12.0 and Pillow 12.0.0. NVIDIA's [reference inference script](https://github.com/nvidia-cosmos/cosmos-reason2/blob/main/scripts/inference_sample.py) confirms the core Torch/Transformers/Accelerate/Pillow baseline. Use a separate Linux/CUDA environment and the appropriate CUDA wheel; this requirements file is not a hardware-independent deployment lock. Record `pip freeze` for the actual training host. Do not install GPU packages merely to run dataset preparation.
 
@@ -88,7 +102,7 @@ Remove `--check-processor` to run the explicitly requested training on a BF16-ca
 
 Outputs include the adapter, processor, run configuration/manifest/template hashes, class token IDs, package versions, training metrics and local base-model file hashes (or immutable Hub revision). Successful training is recorded as `TRAINED_NOT_RELEASED`, never an accuracy claim.
 
-## Export and IQ9 release gates
+### Export and IQ9 release gates
 
 Use [training.json](../configs/training.json) as a proposed gate checklist, not a claim that any gate has passed. Freeze sufficient unique captures and report per-class recall/confusion, false G decisions on defects or unobservable frames, invalid output rate, capture-to-decision latency, warm p50/p95 and cold start separately. The proposed minimum panels are 60 validation and 30 independent test images per class; a finite panel with zero false G does not establish zero deployment risk. Set an explicit latency target once the manufacturing cycle is chosen.
 
@@ -103,6 +117,3 @@ The prior SpeedV1 release had stronger perfect-score gates for its own frozen ta
 Use the existing resident GenieX + QAIRT direct-PNG API architecture. Provisioning, worker replacement, quantization/export and deployment changes are intentionally deferred until a candidate exists and is evaluated. This preparation does not modify the previous production service.
 
 A LoRA adapter can improve task accuracy and make short answers reliable. It does not by itself accelerate the vision encoder or prefill. Reduced image tokens, a shorter prompt, one-token decoding, resident inference and the chosen precision each affect latency; benchmark them separately before attributing speedups.
-
-
-

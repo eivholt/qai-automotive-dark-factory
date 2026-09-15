@@ -121,7 +121,7 @@ def verify(directory):
         require(tag+'_finite', finite_tree(row))
         require(tag+'_scope_and_resources', panel.get('initialized') is True and panel.get('enabled') is True
                 and panel.get('mesh_count_added') == 0 and panel.get('light_count') == 1
-                and panel.get('thermal_profiles_added') == 0 and row.get('thermal_profile_count') == 244
+                and panel.get('thermal_profiles_added') == 0 and row.get('thermal_profile_count') == 240
                 and panel.get('parent_mesh') == 'SM_Background_robots_screen')
         require(tag+'_unchanged_imported_mesh_count', row.get('imported_mesh_count') == views[0].get('imported_mesh_count'))
         require(tag+'_preview_only', pose.get('inference_enabled') is False and pose.get('training_enabled') is False)

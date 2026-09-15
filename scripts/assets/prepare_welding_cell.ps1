@@ -81,10 +81,26 @@ cl /nologo /EHsc /O2 /std:c++17 /MD /DFBXSDK_SHARED /I"$SDK/include" scripts\ass
             & $Python scripts/assets/prepare_control_cabinets.py --root $Output
         }
         if ($LASTEXITCODE -ne 0) { throw 'Control cabinet placement preparation failed.' }
+        # Regroup only derived islands before either FBX export, then solve the
+        # process poses from the same custom output root and preserved source scan.
+        foreach ($PanelGenerator in @('prepare_panel_assembly.py', 'prepare_pinch_welder.py', 'prepare_panel_motion.py', 'prepare_panel_frame.py', 'prepare_gripper_rack_bar.py')) {
+            if ($UseWSL) {
+                & wsl.exe -d $WslDistribution --cd $LinuxRepo -- $WslPython ("scripts/assets/" + $PanelGenerator) --root $LinuxOutput
+            } else {
+                & $Python (Join-Path $PSScriptRoot $PanelGenerator) --root $Output
+            }
+            if ($LASTEXITCODE -ne 0) { throw "Panel preparation failed ($PanelGenerator): $LASTEXITCODE" }
+        }
         & $Tool group $Source (Join-Path $Output 'assignments.tsv') $Prepared
         if ($LASTEXITCODE -ne 0) { throw "Grouped FBX export failed: $LASTEXITCODE" }
         & $Tool group-subset $Source (Join-Path $Output 'assignments.tsv') (Join-Path $Output 'holder_delta.fbx') (Join-Path $Output 'holder_delta_groups.txt')
         if ($LASTEXITCODE -ne 0) { throw "Holder delta export failed: $LASTEXITCODE" }
+        & $Tool group-subset $Source (Join-Path $Output 'assignments.tsv') (Join-Path $Output 'panel_delta.fbx') (Join-Path $Output 'panel_delta_groups.txt')
+        if ($LASTEXITCODE -ne 0) { throw "Panel delta export failed: $LASTEXITCODE" }
+        & $Tool group-subset $Source (Join-Path $Output 'gripper_bar_assignments.tsv') (Join-Path $Output 'gripper_bar.fbx') (Join-Path $Output 'gripper_bar_groups.txt')
+        if ($LASTEXITCODE -ne 0) { throw "Gripper rack-bar copy export failed: $LASTEXITCODE" }
+        & $Tool group-subset $Source (Join-Path $Output 'pinch_gun_assignments.tsv') (Join-Path $Output 'pinch_gun.fbx') (Join-Path $Output 'pinch_gun_groups.txt')
+        if ($LASTEXITCODE -ne 0) { throw "Pinch gun copy export failed: $LASTEXITCODE" }
         Write-Host "Prepared local scene: $(Join-Path $Output 'scene.json')"
         Write-Host 'Next: unreal/scripts/import_welding_cell.ps1 -Mode prepared -Manifest assets/derived/welding_cell/manifest.json'
     }

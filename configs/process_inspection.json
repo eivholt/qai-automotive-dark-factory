@@ -1,5 +1,5 @@
 {
-  "version": "automotive-process-v1",
+  "version": "automotive-panel-process-v3",
   "model_family": "nvidia/Cosmos-Reason2-2B",
   "image": {
     "format": "PNG",
@@ -14,9 +14,9 @@
     120.0
   ],
   "labels": {
-    "G": "proceed",
+    "G": "present/ready: continue the stage-defined branch",
     "A": "hold or insufficient evidence",
-    "R": "anomaly: return at doors, wait at thermal gates"
+    "R": "missing at panel presence: assemble; exception at seating; wait at thermal gates"
   },
   "generation": {
     "method": "single_next_token_logits",
@@ -26,19 +26,20 @@
   },
   "decision_policy": {
     "minimum_label_mass": 0.5,
-    "minimum_conditional_probability": 0.8,
+    "minimum_conditional_probability": 0.98,
     "consecutive_green": 2,
     "max_reply_age_seconds": 8.0
   },
   "stages": {
-    "doors": {
+    "panel_presence": {
       "modality": "nir",
       "camera_ids": [
-        "left",
-        "right"
+        "spot1",
+        "spot2",
+        "spot3"
       ],
-      "prompt": "Inspect two NIR camera views of the same arriving car body, left side then right side. Check the four doors: every door must be present, aligned and attached. G = all four doors are visibly present, correctly seated and no detached door is visible. R = a door is visibly missing, hanging loose, displaced from its opening, or fallen beside the body. A = visibility is insufficient or the evidence is uncertain. Output exactly one letter G, A or R. Do not explain or think.",
-      "prompt_sha256": "33e082203e303ee2aa59349e8c3b1f930001606382a1ca52c64ac7c7d566449f"
+      "prompt": "Inspect three NIR camera views of the same inner trunk panel installation area, in order spot1, spot2, spot3. Determine whether the inner trunk panel is already installed inside the car body. G = the inner trunk panel is visibly present in its intended installation area. R = the installation area is clearly visible and the inner trunk panel is missing. A = the area is hidden, a panel is only partly present, or the evidence is uncertain. Ignore unrelated body panels, robot tools and background. Output exactly one letter G, A or R. Do not explain or think.",
+      "prompt_sha256": "de26a748e781c9c773db92660e7315b405cf1b413472e1156608632245e7e511"
     },
     "adhesive": {
       "modality": "thermal",
@@ -47,10 +48,20 @@
         "spot2",
         "spot3"
       ],
+      "prompt": "Inspect three monochrome thermal camera views of the inner trunk panel-to-body contacts, in order spot1, spot2, spot3. Hot sealant underneath warms the opaque metal panel surface along two continuous contact runs. Inspect these heated metal bands, not the hidden sealant. Spot1 and spot3 show the first run; spot2 shows the second. Each run follows half of the front contact and one side. The rear edge is free. Inspect the full three-edge contact, including both sides. Sensor grayscale is linear: black is 20 C, white is 120 C. The illustrative panel-surface readiness limit is 45 C with a 3 C ambiguity band. G = both contact runs are visible and the hottest panel contact area is below 42 C (grayscale 56 of 255). R = either contact run has a panel area above 48 C (grayscale 71); wait for cooling. A = the hottest panel contact area is between 42 C and 48 C inclusive, a required contact is hidden, or the evidence is uncertain. Inspect both runs even when cool contact areas have little contrast. Ignore unrelated robot parts and background. Output exactly one letter G, A or R. Do not explain or think.",
+      "prompt_sha256": "868364ae0f65f14e6a16151faf5317060b5c44cac52ea21f56d6ad42a2f18fa4",
       "ready_below_c": 45.0,
-      "prompt": "Inspect three monochrome thermal camera closeups of adhesive strips beside future welding spots. Sensor grayscale is linear: black is 20 C, white is 120 C. The illustrative readiness limit is 45 C with a 3 C ambiguity band. G = every strip is visible and its hottest area is below 42 C (grayscale 56 of 255). R = any strip has an area above 48 C (grayscale 71); wait for cooling. A = the hottest strip area is between 42 C and 48 C inclusive, or a strip is hidden, absent or uncertain. Ignore unrelated robot parts and background. Output exactly one letter G, A or R. Do not explain or think.",
-      "prompt_sha256": "b4b0fb09b60971e5d6fc161a5ba054b233f0dfd9d9216329140e43d74a2465fc",
       "ambiguity_band_c": 3.0
+    },
+    "panel_seated": {
+      "modality": "nir",
+      "camera_ids": [
+        "spot1",
+        "spot2",
+        "spot3"
+      ],
+      "prompt": "Inspect three NIR camera views of the inner trunk panel after installation and welding, in order spot1, spot2, spot3. Check whether the panel is correctly seated in its intended installation area and aligned at all visible panel-to-body contacts. G = the panel is present, correctly positioned and flush at the visible contacts, with no lifted edge or displaced corner. R = the panel is missing, visibly displaced, tilted, or has a lifted edge or corner. A = a required contact is hidden or the seating evidence is uncertain. Ignore unrelated body panels, robot tools and background. Output exactly one letter G, A or R. Do not explain or think.",
+      "prompt_sha256": "59f6ba51e43b4c4df2607249786124031b7863d996ef361c0b547adff9c9b054"
     },
     "weld": {
       "modality": "thermal",
@@ -59,9 +70,9 @@
         "spot2",
         "spot3"
       ],
+      "prompt": "Inspect three monochrome thermal camera closeups of the inner trunk panel-to-body weld contact regions, in order spot1, spot2, spot3. Sensor grayscale is linear: black is 20 C, white is 120 C. The illustrative release limit is 55 C with a 3 C ambiguity band. G = every weld contact region is visible and its hottest area is below 52 C (grayscale 82 of 255). R = any weld contact area is above 58 C (grayscale 97); wait for cooling. A = the hottest weld contact area is between 52 C and 58 C inclusive, a required region is hidden, or the evidence is uncertain. Inspect the contact regions even when cool welds have little contrast. Ignore unrelated robot parts and background. Output exactly one letter G, A or R. Do not explain or think.",
+      "prompt_sha256": "5b20f61aac17f4a933e91df7f03480b9d0fdda9f4e574c14ac070e490a4f8f67",
       "ready_below_c": 55.0,
-      "prompt": "Inspect three monochrome thermal camera closeups of completed weld spots on the same car body. Sensor grayscale is linear: black is 20 C, white is 120 C. The illustrative release limit is 55 C with a 3 C ambiguity band. G = every weld spot is visible and its hottest area is below 52 C (grayscale 82 of 255). R = any weld spot has an area above 58 C (grayscale 97); wait for cooling. A = the hottest weld area is between 52 C and 58 C inclusive, or a weld area is hidden, absent or uncertain. Ignore unrelated robot parts and background. Output exactly one letter G, A or R. Do not explain or think.",
-      "prompt_sha256": "54e331f492c6a3ff0ffae3fc9c6b2e11654c04b0faf14a2aad71928313577b21",
       "ambiguity_band_c": 3.0
     }
   }

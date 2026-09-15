@@ -6,6 +6,7 @@ class UCameraComponent;
 class USpotLightComponent;
 class UMaterialInstanceDynamic;
 class FDarkFactoryViewExtension;
+class FJsonObject;
 UCLASS()
 class DARKFACTORY_API ADarkFactoryPawn : public APawn {
     GENERATED_BODY()
@@ -31,6 +32,15 @@ public:
     const USpotLightComponent* GetObserverNIRIlluminator() const { return ObserverNIRIlluminator.Get(); }
     uint8 GetObserverViewLightingMask() const { return ObserverMode==1 ? 4u:1u; }
     bool IsThermalView() const { return bThermalView; }
+    // Observer-only preferences. Infrared modes suspend these effects.
+    void SetGraphicsOptions(bool DLSS,bool Lumen,bool HardwareRayTracing);
+    bool IsObserverDLSSEnabled() const;
+    bool IsObserverLumenEnabled() const;
+    bool IsObserverHardwareRayTracingEnabled() const;
+    FString GetGraphicsStatus() const;
+    bool IsGraphicsLegacyFixture() const { return bGraphicsLegacyFixture; }
+    TSharedRef<FJsonObject> BuildGraphicsMetadata() const;
+    void RecordGraphicsView(const FString& Upscaler,bool RayTracingAllowed);
     bool HasThermalMaterial() const { return ThermalMaterial != nullptr; }
     void ApplyNightVision(UMaterialInstanceDynamic* Material) const;
     bool IsNightVisionQuality() const { return bNightVisionQuality; }
@@ -48,6 +58,15 @@ private:
     // View channel 2 is observer-only; fixed NIR capture stays on channel 1.
     UPROPERTY() TObjectPtr<USpotLightComponent> ObserverNIRIlluminator;
     bool bObserverHeadlightEnabled = true;
+    bool bGraphicsInitialized=false,bGraphicsLegacyFixture=false;
+    bool bDLSSRequested=true,bLumenRequested=true,bHardwareRayTracingRequested=true;
+    bool bDLSSAvailable=false,bHardwareRayTracingAvailable=false;
+    float DLSSScreenPercentage=66.6667f;
+    FString DLSSSupportStatus=TEXT("not initialized"),LastObserverUpscaler=TEXT("none");
+    bool bLastViewRayTracing=false;
+    uint64 ObserverGraphicsViews=0;
+    void UpdateObserverGraphics();
+    void ToggleDLSS(); void ToggleLumen(); void ToggleHardwareRayTracing();
     void ToggleObserverHeadlight();
     void UpdateObserverLighting();
     UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> NightVisionMaterial;

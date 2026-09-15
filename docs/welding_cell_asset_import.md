@@ -1,6 +1,6 @@
 # Local welding-cell import and articulation
 
-Validated locally on 2026-09-12 with Unreal Engine 5.8. This pipeline replaces the procedural visuals with the supplied car-body welding cell when its prepared assets are available. It is a visual motion preview; manufacturing steps and inspection gates still need their own scenario definition.
+Originally validated on 2026-09-12 and updated for the two-bead panel scene on 2026-09-14 with Unreal Engine 5.8. This pipeline supplies the local geometry for both the repeating visual preview and the explicit `-Process` camera-gated inner trunk panel assembly. See [process setup](process_inspection.md) for the current scenario and model requirements.
 
 ## Local inputs and outputs
 
@@ -57,16 +57,24 @@ Generated local files are under `assets/derived/welding_cell/`:
 | `manifest.json` | Import node names and expected local bounds |
 | `scene.json` | Runtime mesh references, joint hierarchy, cameras and thermal profiles |
 | `grouping_report.json` | Component roles, source membership and conservation checks |
+| `panel_assembly.json` | Process-only panel/rack/tool layout and authored joint poses |
+| `panel_delta.fbx` / `panel_delta_manifest.json` | Incremental import for an already prepared installation |
 
 Unreal assets are saved under `/Game/WeldingCell/`. A material-only update uses the same import command with `-SkipMeshImport`. `-Mode raw` is an optional diagnostic import of the ten original material groups; it does not create the articulated runtime.
 
 ## Separated geometry and motion
 
-The prepared cell contains **76 mesh components**, including **29 separately addressable body-panel pieces**, **two complete carriage-holder assemblies**, and **24 transform joints across four robots**. Each robot has base yaw, shoulder, elbow, forearm roll, wrist and tool roll. Body pieces and holders are attached to the moving carriage. Body pieces can also be displaced, hidden or used in a chosen missing/loose-part scenario. The holder groups gather yellow supports and their wheel/drive hardware from multiple source material groups. `attachment: carriage` in the scene manifest declares their parenting. Their names identify extracted geometry; they are not verified manufacturing part labels.
+The prepared cell contains **91 source mesh components**, including **29 separately addressable body-panel pieces**, **two complete carriage-holder assemblies**, and **24 transform joints across four robots**. Each robot has base yaw, shoulder, elbow, forearm roll, wrist and tool roll. Body pieces and holders are attached to the moving carriage. Body pieces can also be displaced, hidden or used in a chosen missing/loose-part scenario. The holder groups gather yellow supports and their wheel/drive hardware from multiple source material groups. `attachment: carriage` in the scene manifest declares their parenting. Their names identify extracted geometry; they are not verified manufacturing part labels.
+
+`prepare_gripper_rack_bar.py` also copies the original blue rack H-bar (732 triangles) into one auxiliary mesh, preserving its UVs, normals and material. The standard prepared import includes this mesh; three GPU-rendered instances form the gripper frame. This separate copy does not alter source island assignments, triangle conservation or the original rack.
+
+Panel preparation additionally separates five stock panels, their rack, fence sections, robot pedestals and four side floor-fixture/deck groups while conserving all source triangles. The four floor groups increased the earlier 86-component layout to 90; they move outboard only in process mode to clear the relocated arms. Separating the rear-left pedestal raises the current source count to 91. `SM_AssemblyPedestal_R4` contains source `robots_tiles` island 7, with 92 triangles and source-local pivot (-353.013321, -291.005028, 44.850014205) cm. This transfers ownership from the residual tile background without duplicating or dropping source geometry. `panel_assembly.json` supplies the process-only layout and joint poses; [panel setup](process_scene.md#reproducing-the-local-assets) describes full and incremental imports.
+
+For `left-stations-swapped-v1`, R2 welds at the rear-left station, shifted 50 cm inward, and R4 inspects from the former welding station. `pedestal_offsets_cm` is ordered R1/R2/R4 separately from the four logical robot offsets. The source gun uses 0.7 scale at its native mating cap, without generated spacer geometry. A single fixed camera mount rotates 60 degrees about tool-frame Y; refitted joints retain its world lens targets. Source regroup conservation is checked independently of the new rendered and model checks, which are still pending. Historical import and scene reports below retain their earlier geometry scope.
 
 The actor loads meshes and validates the hierarchy before creating components. `scene.json` locations and pivots are parent-relative centimetres; rotations use Unreal pitch/yaw/roll in degrees. Axes are local to their joint's rest frame. The generated scene uses identity rest rotations. Mesh data is local to its assigned pivot, so a link's transform moves all of its grouped islands together.
 
-The runtime now uses a coordinated 22-second cycle with withdrawn arms, fast approach, small precision-welding movements and withdrawal. The body moves from an opaque entry tunnel, stops for welding, exits through another curtain, then is reused out of sight for the next body index. Space / Xbox View pauses the cycle and its physical effects. See [production-cycle implementation](welding_production_cycle.md).
+The separate visual-preview mode uses a coordinated 21-second cycle with withdrawn arms, fast approach, small precision-welding movements and withdrawal. The panel process instead follows image-gated phases; see [panel assembly](process_scene.md). The body moves from an opaque entry tunnel, stops for welding, exits through another curtain, then is reused out of sight for the next body index. Space / Xbox View pauses the cycle and its physical effects. See [production-cycle implementation](welding_production_cycle.md).
 
 Joint centres are reconstructed from source geometry, not industrial specifications; one source shoulder has a roughly 3.79 cm mating-centre offset. The four original rigid dress packs remain intact but hidden at runtime, replaced by five joint-anchored spline sections per robot. The carriage uses sparse shell colliders to push real hinged Chaos strips. Detailed visible meshes provide spark collision queries. This remains an authored demonstration trajectory without calibrated industrial IK or complete self-collision validation.
 
@@ -80,7 +88,7 @@ The observer retains free flight and visible, green/monochrome NIR and thermal p
 
 Imported thermal profiles assign illustrative source temperatures and emissivity per component. Twenty-eight warm robot castings now use authored mesh-local core-to-edge temperature fields that follow joint motion. Tools retain independent dynamic tip/housing cooling, and four car-weld surface patches heat and cool with each body. Spark/arc profiles provide separate cooling-particle temperatures; portals and curtains remain at ambient. **The imported bulk contact/radiation network and procedural thermal cases remain disabled.** The full heat-transfer network is available in `-Scene procedural`; applying it to the imported cell requires meaningful thickness, heat capacity, contacts and sources. A hollow car or disconnected material group must not be treated as a solid bounding-box thermal body. See [imported thermal fields](imported_thermal_fields.md) for the casting recipe, GPU kernel and validation status.
 
-The existing battery-tray model prompt, labels, inspection gates and dataset paths are disabled in imported mode. P/C, procedural case selection and legacy scenario changes cannot send these images to the old adapter or export incorrectly labelled training data. F9 remains a private thermal snapshot with imported-scene metadata. A production sequence, inspection region, anomaly states and modality-specific capture contract are the next scenario decisions.
+The existing battery-tray model prompt, labels, inspection gates and dataset paths are disabled in imported mode. P/C, procedural case selection and legacy scenario changes cannot send these images to the old adapter or export incorrectly labelled training data. F9 remains a private thermal snapshot with imported-scene metadata. Explicit `-Process` instead uses the compatible `automotive-panel-process-v3` host and its separate NIR/thermal dataset path. R4 captures three real arm poses per gate; [panel camera and training instructions](process_inspection.md) define the current inspection regions, stage prompts and split rules.
 
 ## Validation and limitations
 
@@ -138,3 +146,8 @@ Close the running demo/editor before importing. `-SkipMaterialBuild` reuses the 
 The reusable `verify_welding_export.py` checks the selected node set, triangle order and winding, corner positions, normals, UVs, local bounds, and original FBX hash against scan provenance. It also accepts a full prepared-FBX scan with `manifest.json`. It exits nonzero on failed checks. This is a geometry audit; Unreal material/package validation and the rendered cycle test remain separate.
 
 The 2026-09-12 holder delta round trip passed for all seven meshes / 666,328 triangles: position and UV error were exactly zero, maximum normal error was `5.96e-8`, and maximum local-bounds error was `8.08e-6 cm`. The full regrouping retained all 1,761,208 source triangles and 3,681 islands. No thresholds were relaxed: position/bounds tolerance is `0.0002 cm`, normal tolerance `0.000002`, and UV tolerance zero. These figures describe the SDK export before Unreal removes degenerate triangles.
+
+
+## Optional inspection camera
+
+The separate `assets/Camera/CameraExport.blend` conversion is documented in [Imported inspection camera](inspection_camera_asset.md). It creates two local camera meshes and baked PBR atlases without modifying the welding-cell source manifest or its conserved source assignments.

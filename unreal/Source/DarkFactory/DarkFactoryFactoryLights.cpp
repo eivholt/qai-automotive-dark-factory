@@ -9,7 +9,8 @@
 
 namespace {
 constexpr float StartupDurationSeconds=1.5f;
-constexpr float NominalTubeEmission=12.f;
+constexpr float RoofOutputScale=.9f;
+constexpr float NominalTubeEmission=12.f*RoofOutputScale;
 constexpr float StartDelays[]={0.f,.12f,.24f,.06f,.18f,.30f};
 const FLinearColor TubeColor(.82f,.91f,1.f);
 
@@ -77,7 +78,7 @@ bool ADarkFactoryFactoryLights::Initialize(bool ImportedScene) {
         return false;
     }
     bImportedScene=ImportedScene;
-    NominalBankLumens=ImportedScene ? 2000.f:800.f;
+    NominalBankLumens=(ImportedScene ? 2000.f:800.f)*RoofOutputScale;
     HousingMaterial=UMaterialInstanceDynamic::Create(HousingBase,this);
     HousingMaterial->SetVectorParameterValue(TEXT("BaseColor"),FLinearColor(.38f,.41f,.44f));
     HousingMaterial->SetScalarParameterValue(TEXT("Roughness"),.5f);

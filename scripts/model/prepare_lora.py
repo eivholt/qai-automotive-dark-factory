@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
-from dark_factory.gates import load_gate_contract
+from dark_factory.gates import load_gate_contract, CONTRACT_VERSION
 
 
 def episode_split(episode_id, salt):
@@ -32,7 +32,9 @@ def prepare(samples, root, output, contract, grouping, salt):
             raise ValueError("Each training example requires one explicit label")
         stage = sample["stage"]
         spec = contract["stages"][stage]
-        if sample.get("prompt_sha256", spec["prompt_sha256"]) != spec["prompt_sha256"]:
+        if sample.get("contract_version") != contract["version"]:
+            raise ValueError("Training capture contract version mismatch")
+        if sample.get("prompt_sha256") != spec["prompt_sha256"]:
             raise ValueError("Training capture prompt hash mismatch")
         if [im["camera_id"] for im in sample["images"]] != spec["camera_ids"]:
             raise ValueError("Training camera batch mismatch")
@@ -42,7 +44,8 @@ def prepare(samples, root, output, contract, grouping, salt):
             raise ValueError("Missing training camera image")
         images = [Path(os.path.relpath(path, (output / group).resolve())).as_posix() for path in source_images]
         result[(group, split)].append({"sample_id": sample["sample_id"], "episode_id": episode,
-            "stage": stage, "images": images, "prompt": spec["prompt"], "answer": label,
+            "stage": stage, "images": images, "camera_ids": spec["camera_ids"], "modality": spec["modality"], "split": split,
+            "prompt": spec["prompt"], "answer": label,
             "contract_version": contract["version"], "prompt_sha256": spec["prompt_sha256"]})
     output.mkdir(parents=True, exist_ok=True)
     counts = {}
@@ -63,7 +66,7 @@ def main():
     p.add_argument("--manifest", required=True)
     p.add_argument("--output", required=True, help="An ignored/private output directory")
     p.add_argument("--grouping", choices=["shared", "modality", "stage"], default="modality")
-    p.add_argument("--split-salt", default="automotive-process-v1")
+    p.add_argument("--split-salt", default=CONTRACT_VERSION)
     p.add_argument("--contract")
     args = p.parse_args()
     manifest = Path(args.manifest).resolve()

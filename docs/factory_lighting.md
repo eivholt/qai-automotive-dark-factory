@@ -4,7 +4,23 @@ Tab / Xbox Y cycles four observer views: dim visible, NIR, thermal, bright facto
 
 The headlamp emits only in dim visible mode. L changes its requested state outside bright mode and is ignored while the roof banks are on. Bright factory mode suppresses its emission while preserving that preference, so returning to dim visible restores the requested lamp state. This gives the observer separate controls for local light and general factory illumination.
 
-Six banks provide eighteen fluorescent-style tubes and six grouped lights. Each bank uses an instanced tube mesh, a housing mesh and one downward rect light: twelve mesh components and six unshadowed direct lights total. The imported cell uses 2,000 authored lumens per bank; the smaller procedural cell uses 800. All banks stop ticking once steady or off. These settings were adjusted against the renderer and are not measured factory illuminance. They illuminate visible channel 0. The fixture meshes are observer-only and hidden from fixed scene captures; they neither write thermal custom depth nor alter the sensor geometry. Fixed active-NIR illumination remains on its own channel, and the thermal camera continues to use authored surface-temperature profiles. Startup is a deterministic visual envelope; lamp temperatures and electrical behavior are outside this approximation. The lighting control does not enable imported-scene inference or training.
+With the roof banks off, visible illumination uses 70% of its former output:
+each nominal 80-lumen roof-window proxy emits 56 lumens, and the observer
+headlamp emits 1,050 instead of 1,500 lumens. Bright factory mode restores the
+window proxies to their nominal output and retains the existing fluorescent
+bank intensity. The active-NIR sources, thermal encoding, cabinet emissions
+and welding effects are unchanged. This is a light-output reduction; the
+tonemapped screenshot brightness does not scale linearly by exactly 30%.
+
+The September 15 reduction passes the rendered lighting fixture, 2,012 graphics
+checks across 32 states and 116 Python tests. Fixed/R4 sensor PNGs retain parity;
+all eight lighting-fixture sensor PNGs also match the previous baseline exactly.
+The repeated legacy run passes all nine suites. Its first run retained two
+observer-NIR cooling/reset screenshot failures that did not recur; the cause
+is not established. Evidence is private under `artifacts/dim-light-v1` and
+`artifacts/dim-light-legacy-v1/v2`; no threshold was relaxed. Unreal is closed.
+
+Six banks provide eighteen fluorescent-style tubes and six grouped lights. Each bank uses an instanced tube mesh, a housing mesh and one downward rect light: twelve mesh components and six unshadowed direct lights total. The imported cell uses 1,800 authored lumens per bank; the smaller procedural cell uses 720. Both the direct lights and visible tube emission are reduced by 10% from the original settings; the startup timing is unchanged. All banks stop ticking once steady or off. These settings were adjusted against the renderer and are not measured factory illuminance. They illuminate visible channel 0. The fixture meshes are observer-only and hidden from fixed scene captures; they neither write thermal custom depth nor alter the sensor geometry. Fixed active-NIR illumination remains on its own channel, and the thermal camera continues to use authored surface-temperature profiles. Startup is a deterministic visual envelope; lamp temperatures and electrical behavior are outside this approximation. The lighting control does not enable imported-scene inference or training.
 
 ## Native verification
 

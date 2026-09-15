@@ -627,8 +627,8 @@
       "anomaly_mean_delta_u8_min": 5.0,
       "anomaly_changed_fraction_min": 0.1,
       "changed_pixel_delta_u8_min": 3,
-      "intact_glue_mean_drift_u8_max": 3.0,
-      "glue_gap_intact_contrast_u8_min": 5.0,
+      "intact_sealant_mean_drift_u8_max": 3.0,
+      "sealant_gap_intact_contrast_u8_min": 5.0,
       "occlusion_mean_drop_u8_min": 10.0,
       "occlusion_ambient_mean_tolerance_c": 3.0,
       "occlusion_ambient_p95_tolerance_c": 5.0,
@@ -660,7 +660,7 @@
       "normal_exact_grayscale": true,
       "overheated_exact_grayscale": true,
       "heater_fault_exact_grayscale": true,
-      "glue_gap_exact_grayscale": true,
+      "sealant_gap_exact_grayscale": true,
       "light_on_exact_grayscale": true,
       "light_off_exact_grayscale": true,
       "occluded_exact_grayscale": true,
@@ -671,8 +671,8 @@
       "thermal_independent_of_visible_and_nir_lights": true,
       "overheated_has_expected_local_temperature_change": true,
       "heater_fault_has_expected_local_temperature_change": true,
-      "glue_gap_has_expected_local_temperature_change": true,
-      "glue_gap_preserves_intact_heated_glue": true,
+      "sealant_gap_has_expected_local_temperature_change": true,
+      "sealant_gap_preserves_intact_heated_sealant": true,
       "opaque_cover_blocks_hot_custom_depth_surface": true,
       "white_hot_observer_neutral": true,
       "black_hot_observer_neutral": true,
@@ -708,7 +708,7 @@
           256
         ]
       },
-      "glue_gap": {
+      "sealant_gap": {
         "sha256": "271813eabc28b217ebb0f3f49a9b99f1ac40322d815358f5ecf335f4be7244e5",
         "bytes": 32492,
         "size": [
@@ -830,7 +830,7 @@
         "max_channel_spread_u8": 0,
         "colored_pixel_fraction": 0.0
       },
-      "glue_gap": {
+      "sealant_gap": {
         "mean_u8": 15.61514,
         "stddev_u8": 15.18038,
         "p95_u8": 43,
@@ -946,17 +946,17 @@
         "mean_absolute_delta_u8": 98.35,
         "changed_fraction": 1.0
       },
-      "glue_gap_contrast": {
+      "sealant_gap_contrast": {
         "mean_signed_delta_u8": -49.4375,
         "mean_absolute_delta_u8": 49.4375,
         "changed_fraction": 1.0
       },
-      "glue_intact_control": {
+      "sealant_intact_control": {
         "mean_signed_delta_u8": 0.0,
         "mean_absolute_delta_u8": 0.0,
         "changed_fraction": 0.0
       },
-      "glue_gap_intact_contrast_u8": 49.5,
+      "sealant_gap_intact_contrast_u8": 49.5,
       "occlusion": {
         "mean_signed_delta_u8": -144.88889,
         "mean_absolute_delta_u8": 144.88889,
@@ -1137,13 +1137,13 @@
           422,
           123
         ],
-        "glue_gap": [
+        "sealant_gap": [
           105,
           77,
           109,
           81
         ],
-        "glue_intact": [
+        "sealant_intact": [
           116,
           83,
           120,
@@ -1169,13 +1169,13 @@
         422,
         123
       ],
-      "glue_gap": [
+      "sealant_gap": [
         105,
         77,
         109,
         81
       ],
-      "glue_intact": [
+      "sealant_intact": [
         116,
         83,
         120,
