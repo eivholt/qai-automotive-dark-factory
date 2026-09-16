@@ -6,6 +6,7 @@ the map opens. Explicit launcher flags still select legacy and offline fixtures.
 import json
 from pathlib import Path
 import unreal
+import df_authoring_config
 
 MAP = '/Game/Maps/DarkFactoryPanel'
 levels = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
@@ -30,16 +31,25 @@ if len(generators) > 1:
 preview = generators[0] if generators else actors.spawn_actor_from_class(preview_class, unreal.Vector())
 preview.set_actor_label('Dark Factory - current panel assembly preview')
 preview.set_folder_path('DarkFactory')
+recipe = df_authoring_config.load(Path(unreal.Paths.project_dir()) / 'Config/Authoring/preview.json')
+poses = (unreal.DarkFactoryEditorPose.AWAITING_PANEL,
+         unreal.DarkFactoryEditorPose.SEALANT_APPLIED,
+         unreal.DarkFactoryEditorPose.PANEL_PLACED)
+preview.set_editor_property('preview_pose', poses[df_authoring_config.POSES.index(recipe['pose'])])
 
 # Save an immediately useful viewport, independent of the user's Play camera.
 location = unreal.Vector(-1050, -1450, 800)
-rotation = unreal.Rotator(-20, 55, 0)
+rotation = unreal.Rotator(pitch=-20, yaw=55, roll=0)
 manifest = Path(__file__).resolve().parents[2] / 'assets/derived/welding_cell/scene.json'
 if manifest.exists():
     observer = json.loads(manifest.read_text(encoding='utf-8-sig'))['observer']
     location = unreal.Vector(*observer['location_cm'])
     target = unreal.Vector(*observer['look_at_cm'])
     rotation = unreal.MathLibrary.find_look_at_rotation(location, target)
+if recipe['viewport'] is not None:
+    location = unreal.Vector(*recipe['viewport']['location_cm'])
+    pitch, yaw, roll = recipe['viewport']['rotation_deg']
+    rotation = unreal.Rotator(pitch=pitch, yaw=yaw, roll=roll)
 editor.set_level_viewport_camera_info(location, rotation)
 # Commandlet generation has no live viewport client. Persist its initial view
 # in the map as well (LVT_Perspective is index 3), preserving later user views.

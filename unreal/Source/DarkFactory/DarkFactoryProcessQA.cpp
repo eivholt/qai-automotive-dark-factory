@@ -57,6 +57,36 @@ bool ADarkFactoryProcessController::RunPolicySmoke() {
     };
 
     {
+        FDarkFactoryInspectionReceipt Receipt; Receipt.Id=TEXT("receipt-policy"); Receipt.Body=TEXT("original-body");
+        Receipt.Stage=TEXT("adhesive"); InspectionReceipts.Add(Receipt);
+        State.Message=TEXT("Fresh evidence required");
+        CompleteInspectionReceipt(Receipt.Id,true,TEXT("G"),80,.99,.95,false);
+        Check(TEXT("replay_retains_actual_action_and_score"),InspectionReceipts[0].Action==State.Message && InspectionReceipts[0].Confidence==.99 && InspectionReceipts[0].Body==TEXT("original-body"));
+        State.Message=TEXT("Next unrelated action");
+        Check(TEXT("replay_is_not_live_state"),InspectionReceipts[0].Action!=State.Message);
+        FDarkFactoryInspectionReceipt Pending; Pending.Id=TEXT("cancelled-policy"); InspectionReceipts.Add(Pending);
+        ActiveRequestId=Pending.Id; CancelInspection();
+        Check(TEXT("replay_cancel_cannot_claim_acceptance"),InspectionReceipts.Last().bComplete && !InspectionReceipts.Last().bValid && InspectionReceipts.Last().Decision==TEXT("A"));
+        StepInspectionReplay(-1);
+        Check(TEXT("replay_navigation_does_not_change_control"),GetInspectionReceipt()->Id==Receipt.Id && State.Message==TEXT("Next unrelated action"));
+        InspectionReceipts.Reset(); ReplaySelection.Empty(); bInspectionReplay=false;
+    }
+
+    {
+        DarkFactoryEnhancements::FCoolingRecovery Recovery;
+        Check(TEXT("recovery_requires_two_rejects"),!Recovery.Observe(true,TEXT("R"),true) && Recovery.Observe(true,TEXT("R"),true));
+        Check(TEXT("recovery_does_not_retrigger"),!Recovery.Observe(true,TEXT("R"),true));
+        Recovery.Reset();
+        Check(TEXT("recovery_error_breaks_consensus"),!Recovery.Observe(true,TEXT("R"),true) && !Recovery.Observe(false,TEXT("R"),true) && !Recovery.Observe(true,TEXT("R"),true));
+        Check(TEXT("recovery_ambiguity_breaks_consensus"),!Recovery.Observe(true,TEXT("A"),true) && Recovery.ConsecutiveRejects==0);
+        Check(TEXT("recovery_never_uses_other_stages"),!Recovery.Observe(true,TEXT("R"),false) && !Recovery.Observe(true,TEXT("R"),false));
+        Check(TEXT("recovery_g_never_activates"),!Recovery.Observe(true,TEXT("G"),true) && Recovery.ConsecutiveRejects==0);
+        Check(TEXT("motion_ease_retains_endpoints"),DarkFactoryEnhancements::MotionEase(0)==0. && DarkFactoryEnhancements::MotionEase(1)==1.);
+        Check(TEXT("motion_ease_symmetric_midpoint"),FMath::IsNearlyEqual(DarkFactoryEnhancements::MotionEase(.5),.5));
+        bool Monotonic=true; for (int32 I=0;I<100;++I) Monotonic &= DarkFactoryEnhancements::MotionEase(I/100.)<=DarkFactoryEnhancements::MotionEase((I+1)/100.);
+        Check(TEXT("motion_ease_monotonic_no_overshoot"),Monotonic);
+    }
+    {
         TArray<FColor> Source; Source.Init(FColor(80,80,80,255),448*256);
         Check(TEXT("sensor_accepts_actual_grayscale_source"),HasGrayscaleSensorPixels(Source));
         Source[0]=FColor(80,81,80,255);

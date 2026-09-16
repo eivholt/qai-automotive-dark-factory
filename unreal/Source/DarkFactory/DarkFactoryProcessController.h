@@ -1,10 +1,12 @@
 #pragma once
+#include "DarkFactoryEnhancements.h"
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "DarkFactoryProcessTypes.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Async/Future.h"
 #include "DarkFactorySensorReadback.h"
+#include "DarkFactoryInspectionReceipt.h"
 #include "DarkFactoryProcessController.generated.h"
 class ADarkFactoryWorld;
 class ADarkFactoryWeldingCell;
@@ -31,6 +33,10 @@ public:
     void TogglePaused();
     const FDarkFactoryProcessStatus& GetStatus() const { return State; }
     UTextureRenderTarget2D* GetPreviewTexture(int32 Slot) const;
+    void ToggleInspectionReplay() { bInspectionReplay=!bInspectionReplay; ReplaySelection.Empty(); }
+    void StepInspectionReplay(int32 Direction);
+    bool IsInspectionReplayVisible() const { return bInspectionReplay; }
+    const FDarkFactoryInspectionReceipt* GetInspectionReceipt() const;
     TSharedRef<FJsonObject> BuildMetadata() const;
 private:
     FDarkFactoryProcessStatus State;
@@ -51,10 +57,16 @@ private:
     struct FPreviewStamp { FString Body,Stage; double At=0; };
     TArray<FPreviewStamp> PreviewStamps;
     TArray<TArray<uint8>> BatchImages;
+    UPROPERTY() TArray<FDarkFactoryInspectionReceipt> InspectionReceipts;
+    bool bInspectionReplay=false;
+    FString ReplaySelection;
+    void RetainInspectionReceipt();
+    void CompleteInspectionReceipt(const FString& Id,bool Valid,const FString& Code,float Latency,double Confidence,double Mass,bool Bound);
     TArray<TSharedPtr<FJsonValue>> BatchInspectionViews,InspectionCaptures;
     TSet<FString> SavedInspectionScreenshots;
     TSharedPtr<FJsonObject> PendingInspectionView;
     bool bCapturePoseReady=false,bSensorResourcesReady=false;
+    DarkFactoryEnhancements::FCoolingRecovery CoolingRecovery;
     double SensorAssetsIdleSince=0,SensorResourcesReadyAt=0;
     TArray<TSharedPtr<FJsonValue>> Events;
     TArray<TSharedPtr<FJsonValue>> ModelSmokeOutcomes,ModelSmokeThermalChecks;
@@ -69,6 +81,7 @@ private:
     double MinimumLabelMass=.5,MinimumConditionalProbability=.8;
     float CaptureNIRPowerScale=1.f;
     bool bCaptureActive=false,bReady=false,bCaptureQA=false,bModelQA=false,bPolicyQA=false,bPanelMotionQA=false;
+    bool bSealantCoverageCapture=false;
     TSharedPtr<FDarkFactoryPanelMotionQA> PanelMotionQA;
     void PanelMotionQATick(float DeltaSeconds);
     void PanelMotionQACaptureTick();

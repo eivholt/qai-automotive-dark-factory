@@ -57,7 +57,7 @@ private:
     UPROPERTY() TObjectPtr<USpotLightComponent> ObserverHeadlight;
     // View channel 2 is observer-only; fixed NIR capture stays on channel 1.
     UPROPERTY() TObjectPtr<USpotLightComponent> ObserverNIRIlluminator;
-    bool bObserverHeadlightEnabled = true;
+    bool bObserverHeadlightEnabled = false;
     bool bGraphicsInitialized=false,bGraphicsLegacyFixture=false;
     bool bDLSSRequested=true,bLumenRequested=true,bHardwareRayTracingRequested=true;
     bool bDLSSAvailable=false,bHardwareRayTracingAvailable=false;
@@ -94,6 +94,9 @@ private:
     void ControllerBookmark();
     void ToggleFactorySound();
     void ToggleColliderOverlay();
+    void ToggleInspectionReplay();
+    void PreviousInspectionReceipt();
+    void NextInspectionReceipt();
     void CancelObserverBookmark();
     float Forward = 0, Right = 0, Up = 0, Yaw = 0, Pitch = 0;
     void MoveForward(float V) { Forward = V; }

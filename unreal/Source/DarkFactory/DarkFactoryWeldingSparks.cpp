@@ -1,14 +1,50 @@
 #include "DarkFactoryWeldingSparks.h"
+#include "DarkFactoryEnhancements.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/PointLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
+#include "MeshDescription.h"
+#include "StaticMeshAttributes.h"
 #include "HAL/PlatformTime.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 
 namespace {
+UStaticMesh* MakeRoundedSparkMesh(UObject* Outer) {
+    // One shared 48-triangle ellipsoid, stretched along velocity by the GPU
+    // instances. Rounded droplets at rest, tapered streaks in flight. Opaque
+    // geometry keeps the same silhouette in visible, NIR and thermal depth.
+    FMeshDescription D; FStaticMeshAttributes A(D); A.Register();
+    auto Position=A.GetVertexPositions(); auto Normal=A.GetVertexInstanceNormals();
+    auto Tangent=A.GetVertexInstanceTangents(); auto Sign=A.GetVertexInstanceBinormalSigns();
+    auto UV=A.GetVertexInstanceUVs(); UV.SetNumChannels(1);
+    const auto Group=D.CreatePolygonGroup(); A.GetPolygonGroupMaterialSlotNames()[Group]=TEXT("Spark");
+    auto Point=[](int32 Ring,int32 Side) {
+        const float Phi=PI*Ring/4.f,Theta=2.f*PI*Side/8.f;
+        return FVector3f(FMath::Cos(Phi),FMath::Sin(Phi)*FMath::Cos(Theta),FMath::Sin(Phi)*FMath::Sin(Theta))*50.f;
+    };
+    auto Triangle=[&](FVector3f P,FVector3f Q,FVector3f R) {
+        if (FVector3f::DotProduct(FVector3f::CrossProduct(Q-P,R-P),P+Q+R)<0) Swap(Q,R);
+        TArray<FVertexInstanceID> Corners;
+        for (const FVector3f V:{P,Q,R}) {
+            auto ID=D.CreateVertex(); Position[ID]=V;
+            auto VI=D.CreateVertexInstance(ID); Corners.Add(VI); const auto N=V.GetSafeNormal();
+            Normal[VI]=N; Tangent[VI]=FVector3f::CrossProduct(FMath::Abs(N.Z)<.9f ? FVector3f(0,0,1):FVector3f(0,1,0),N).GetSafeNormal();
+            Sign[VI]=1; UV.Set(VI,0,FVector2f::ZeroVector);
+        }
+        D.CreateTriangle(Group,Corners);
+    };
+    for (int32 R=0;R<4;++R) for (int32 S=0;S<8;++S) {
+        if (R>0) Triangle(Point(R,S),Point(R+1,S),Point(R,S+1));
+        if (R<3) Triangle(Point(R,S+1),Point(R+1,S),Point(R+1,S+1));
+    }
+    auto* Mesh=NewObject<UStaticMesh>(Outer,NAME_None,RF_Transient);
+    Mesh->GetStaticMaterials().Add(FStaticMaterial(nullptr,TEXT("Spark")));
+    UStaticMesh::FBuildMeshDescriptionsParams Build; Build.bFastBuild=true; Build.bBuildSimpleCollision=false;
+    Mesh->BuildFromMeshDescriptions({&D},Build); return Mesh;
+}
 constexpr float FountainRatePerEmitter=240.f, FalloutRatePerEmitter=100.f;
 constexpr int32 BurstParticlesPerEvent=64;
 constexpr double PulsePeriod=1.05, PulseStagger=.11;
@@ -42,7 +78,7 @@ ADarkFactoryWeldingSparks::ADarkFactoryWeldingSparks() {
 }
 bool ADarkFactoryWeldingSparks::Initialize(ADarkFactoryWeldingCell* Cell) {
     if (!Cell || SourceCell.IsValid()) return false;
-    auto* ParticleMesh=LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube.Cube"));
+    auto* ParticleMesh=MakeRoundedSparkMesh(this);
     auto* ArcMesh=LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Sphere.Sphere"));
     auto* ParticleMaterial=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Materials/M_WeldingParticle.M_WeldingParticle"));
     auto* ArcMaterial=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Materials/M_WeldingArc.M_WeldingArc"));
@@ -170,7 +206,10 @@ void ADarkFactoryWeldingSparks::Step(float Dt,bool Emit) {
         if (E.PulseIndex<0 || E.SourceIntensity<=.01f) continue;
         if (E.PulseAgeSeconds<BurstEnd && LastBurstPulse[I]!=E.PulseIndex) {
             LastBurstPulse[I]=E.PulseIndex; ++BurstEvents;
-            for (int32 Grain=0;Grain<BurstParticlesPerEvent;++Grain) Spawn(E,ESparkMode::Burst);
+            const bool Restrained=SourceCell->IsProcessControlled() && DarkFactoryEnhancements::Enabled()
+                && !FParse::Param(FCommandLine::Get(),TEXT("DFDramaticWelding"));
+            const int32 BurstCount=Restrained ? FMath::Max(2,FMath::RoundToInt(BurstParticlesPerEvent*.20f)):BurstParticlesPerEvent;
+            for (int32 Grain=0;Grain<BurstCount;++Grain) Spawn(E,ESparkMode::Burst);
         }
         const float Rate=FountainRatePerEmitter*E.FountainWeight+FalloutRatePerEmitter*E.FalloutWeight;
         SpawnAccumulator[I]+=Dt*Rate*E.SourceIntensity;

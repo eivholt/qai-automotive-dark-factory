@@ -1,5 +1,6 @@
 #include "DarkFactoryThermalRig.h"
 #include "DarkFactoryGraphics.h"
+#include "DarkFactoryEnhancements.h"
 #include "DarkFactoryWorld.h"
 #include "DarkFactoryWeldingCell.h"
 #include "DarkFactoryThermalRadiometry.h"
@@ -440,6 +441,7 @@ void ADarkFactoryThermalRig::UpdateWeldHeatTransforms(int32 Index) {
         Temperature=FLinearColor(Patch.SurfaceC,0,0,0);
     }
     LUTEntries[(WeldHeatFirstRow+1)*LUTWidth+Index+1].G=Mesh ? S.WeldHeatPatches.Num():0;
+    LUTEntries[(WeldHeatFirstRow+1)*LUTWidth+Index+1].A=S.Emissivity;
 }
 void ADarkFactoryThermalRig::UpdateContactHeatTransforms(int32 Index) {
     const auto& S=Surfaces[Index]; const auto* Mesh=S.Mesh.Get();
@@ -576,12 +578,14 @@ void ADarkFactoryThermalRig::ApplyMaterial(UMaterialInstanceDynamic* Material,in
     Material->SetScalarParameterValue(TEXT("ThermalPalette"),Palette);
     Material->SetScalarParameterValue(TEXT("ThermalSpatialEnabled"),bSpatialFields ? 1.f:0.f);
     Material->SetScalarParameterValue(TEXT("ThermalTransferEnabled"),bHeatTransferEnabled ? 1.f:0.f);
+    Material->SetScalarParameterValue(TEXT("ThermalReflections"),0.f);
 }
 void ADarkFactoryThermalRig::ApplyObserverMaterial(UMaterialInstanceDynamic* Material,int32 Palette) const {
     ApplyMaterial(Material,Palette);
     if (!Material || !ThermalLUT) return;
     Material->SetScalarParameterValue(TEXT("ThermalMinC"),GetObserverMinC());
     Material->SetScalarParameterValue(TEXT("ThermalMaxC"),GetObserverMaxC());
+    Material->SetScalarParameterValue(TEXT("ThermalReflections"),DarkFactoryEnhancements::Enabled() && !FParse::Param(FCommandLine::Get(),TEXT("DFNoThermalReflections")) ? 1.f:0.f);
 }
 TSharedRef<FJsonObject> ADarkFactoryThermalRig::GetObserverDisplayMetadata() const {
     auto Data=MakeShared<FJsonObject>();

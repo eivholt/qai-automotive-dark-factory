@@ -269,6 +269,7 @@ void ADarkFactoryWorld::BeginPlay() {
     FParse::Value(FCommandLine::Get(), TEXT("DFMaxAge="), MaxResultAge);
     MaxResultAge = FMath::Clamp(MaxResultAge, 1.0, 120.0);
     bGraphicsQA=FParse::Param(FCommandLine::Get(),TEXT("DFGraphicsSmoke"));
+    bEquipmentHeatQA=FParse::Param(FCommandLine::Get(),TEXT("DFEquipmentHeatSmoke"));
     bCurtainQA=FParse::Param(FCommandLine::Get(),TEXT("DFCurtainSmoke"));
     bWeldingSmoke=FParse::Param(FCommandLine::Get(),TEXT("DFWeldingSmoke"));
     bRealismQA=FParse::Param(FCommandLine::Get(),TEXT("DFRealismSmoke"));
@@ -451,7 +452,7 @@ void ADarkFactoryWorld::BeginPlay() {
     AddTickPrerequisiteActor(FactoryLights);
     if (ThermalRig) ThermalRig->AddTickPrerequisiteActor(FactoryLights);
     if (bProcessEnabled) if (auto* PC=GetWorld()->GetFirstPlayerController()) if (auto* Observer=Cast<ADarkFactoryPawn>(PC->GetPawn())) {
-        int32 ReviewMode=UseMapDefaults ? 3:0; FString ReviewView;
+        int32 ReviewMode=0; FString ReviewView;
         FParse::Value(FCommandLine::Get(),TEXT("DFProcessObserverMode="),ReviewMode);
         FParse::Value(FCommandLine::Get(),TEXT("DFProcessView="),ReviewView);
         Observer->SetObserverMode(FMath::Clamp(ReviewMode,0,3));
@@ -1726,7 +1727,9 @@ void ADarkFactoryWorld::AutomationTick(double Now) {
             NextCapture=TNumericLimits<double>::Max();
             bThermalSmokePassed &= FFileHelper::SaveArrayToFile(LatestPng,*FPaths::Combine(OutputRoot,TEXT("nir_before.png")));
             Observer->SetObserverMode(2); Observer->SetThermalPalette(0);
-        } else if (SmokeStep==1) { Raw(TEXT("normal.png")); bThermalSmokePassed &= ThermalRig->SaveFieldSmoke(OutputRoot); bThermalSmokePassed &= ThermalRig->SaveTransferSmoke(OutputRoot); ThermalRig->SetCase(1); }
+        } else if (SmokeStep==1) { Raw(TEXT("normal.png")); bThermalSmokePassed &= ThermalRig->SaveFieldSmoke(OutputRoot); bThermalSmokePassed &= ThermalRig->SaveTransferSmoke(OutputRoot);
+            if (FParse::Param(FCommandLine::Get(),TEXT("DFThermalReflectionSmoke"))) bThermalSmokePassed &= ThermalRig->SaveReflectionSmoke(OutputRoot);
+            ThermalRig->SetCase(1); }
         else if (SmokeStep==2) { Raw(TEXT("overheated.png")); ThermalRig->SetCase(2); }
         else if (SmokeStep==3) { Raw(TEXT("heater_fault.png")); ThermalRig->SetCase(3); }
         else if (SmokeStep==4) { Raw(TEXT("sealant_gap.png")); ThermalRig->SetCase(1); }
@@ -1979,6 +1982,7 @@ void ADarkFactoryWorld::Tick(float DeltaSeconds) {
     Super::Tick(DeltaSeconds);
     const double Now=FPlatformTime::Seconds();
     if (bGraphicsQA) { GraphicsSmokeTick(Now); return; }
+    if (bEquipmentHeatQA) { EquipmentHeatSmokeTick(Now); return; }
     if (bCurtainQA) { CurtainSmokeTick(DeltaSeconds,Now); return; }
     PollSensorReadback();
     const bool bOfflineCapture=DatasetCount>0 || bSmoke || bNightVisionSmoke;

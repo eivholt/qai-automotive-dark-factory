@@ -22,6 +22,7 @@ public:
 private:
     UPROPERTY() TObjectPtr<USceneComponent> SceneRoot;
     UPROPERTY() TArray<TObjectPtr<UInstancedStaticMeshComponent>> Batches;
+    UPROPERTY() TArray<TObjectPtr<UInstancedStaticMeshComponent>> ContextBatches;
     UPROPERTY() TArray<TObjectPtr<UMaterialInstanceDynamic>> Materials;
     UPROPERTY() TObjectPtr<UStaticMesh> Cube;
     UPROPERTY() TObjectPtr<UStaticMesh> Cylinder;
@@ -42,4 +43,5 @@ private:
     void BuildFloor();
     void BuildServices();
     void BuildExtraction();
+    void BuildFactoryContext();
 };

@@ -1,0 +1,46 @@
+{
+  "version": "automotive-sealant-coverage-study-v1",
+  "model_family": "nvidia/Cosmos-Reason2-2B",
+  "image": {
+    "format": "PNG",
+    "width": 448,
+    "height": 256,
+    "bit_depth": 8,
+    "channels": "grayscale",
+    "visual_tokens_per_image": 112
+  },
+  "thermal_window_c": [
+    20.0,
+    120.0
+  ],
+  "labels": {
+    "G": "both visible sealant runs have acceptable coverage",
+    "A": "hold or insufficient evidence",
+    "R": "visible sealant gap, missing run, severe thinning or displacement"
+  },
+  "generation": {
+    "method": "single_next_token_logits",
+    "temperature": 0,
+    "enable_thinking": false,
+    "image_cache_entries": 0
+  },
+  "decision_policy": {
+    "minimum_label_mass": 0.5,
+    "minimum_conditional_probability": 0.98,
+    "consecutive_green": 2,
+    "max_reply_age_seconds": 8.0
+  },
+  "stages": {
+    "sealant_coverage": {
+      "modality": "nir",
+      "camera_ids": [
+        "spot1",
+        "spot2",
+        "spot3"
+      ],
+      "prompt": "Inspect the three independent NIR views of the exposed mounting frame before the trunk panel is placed. Two sealant runs should cover the front contact edge and both side contact edges; the rear edge is intentionally free. Check that each run is continuous, has a reasonably consistent width, and stays on its contact ledge. G: both runs visibly satisfy those requirements. R: a visible gap, missing run, severe thinning, or misplaced run. A: occlusion, poor visibility, or insufficient detail prevents checking the complete runs. Do not judge by the missing panel: it is expected during this inspection. Return exactly one letter: G, A, or R.",
+      "prompt_sha256": "3a158e8a043be8a1e92eafcdd224be2d78f1a857cf65866920005562c865e6f3"
+    }
+  },
+  "use": "offline_experiment_only"
+}

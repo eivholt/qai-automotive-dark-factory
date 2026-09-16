@@ -7,6 +7,11 @@ param(
     [ValidateRange(360,4320)][int]$Height = 1440,
     [ValidateRange(0,20000)][float]$RoofLightLumens = 80,
     [switch]$NoInference,
+    [switch]$Enhancements,
+    [switch]$NoThermalReflections,
+    [switch]$InspectionReplay,
+    [switch]$FaultRecovery,
+    [switch]$DramaticWelding,
     [switch]$NoDLSS,
     [switch]$NoLumen,
     [switch]$NoHardwareRayTracing,
@@ -18,6 +23,7 @@ param(
     [switch]$CurtainSmoke,
     [switch]$Process,
     [switch]$ProcessCapture,
+    [switch]$SealantCoverageCapture,
     [switch]$ProcessSmoke,
     [switch]$ProcessPolicySmoke,
     [ValidateRange(0,1024)][int]$ProcessEpisodes = 0,
@@ -166,12 +172,19 @@ if ($Process -or $ProcessCapture -or $ProcessSmoke -or $ProcessPolicySmoke) { $A
 if ($ProcessCapture) { $Arguments += '-DFProcessCapture' }
 if ($ProcessSmoke) { $Arguments += '-DFProcessSmoke' }
 if ($ProcessPolicySmoke) { $Arguments += '-DFProcessPolicySmoke' }
+if ($SealantCoverageCapture -and !$ProcessCapture) { throw 'SealantCoverageCapture requires ProcessCapture; it is an offline experiment.' }
+if ($SealantCoverageCapture) { $Arguments += '-DFSealantCoverageCapture' }
 if ($ProcessCapture) { $Arguments += "-DFProcessEpisodes=$ProcessEpisodes"; $Arguments += "-DFProcessDatasetSeed=$ProcessDatasetSeed" }
 if ($Process -or $ProcessCapture -or $ProcessSmoke -or $ProcessPolicySmoke) { $Arguments += '-ExecCmds=t.MaxFPS 60'; $Arguments += "-DFProcessObserverMode=$ProcessObserverMode"; $Arguments += "-DFProcessView=$ProcessView" }
 if ($RealismSmoke) { $Arguments += '-DFRealismSmoke' }
 if ($ColliderSmoke) { $Arguments += '-DFColliderSmoke' }
 if ($CabinetSmoke) { $Arguments += '-DFCabinetSmoke' }
 if ($NoInference) { $Arguments += '-DFNoInference' }
+if ($Enhancements) { $Arguments += '-DFEnhancements' }
+if ($NoThermalReflections) { $Arguments += '-DFNoThermalReflections' }
+if ($InspectionReplay) { $Arguments += '-DFInspectionReplay' }
+if ($FaultRecovery) { $Arguments += '-DFFaultRecovery' }
+if ($DramaticWelding) { $Arguments += '-DFDramaticWelding' }
 if ($NoDLSS) { $Arguments += '-DFNoDLSS' }
 if ($NoLumen) { $Arguments += '-DFNoLumen' }
 if ($NoHardwareRayTracing) { $Arguments += '-DFNoHardwareRayTracing' }

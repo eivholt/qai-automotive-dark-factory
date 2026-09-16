@@ -106,6 +106,10 @@ private:
     UPROPERTY() TObjectPtr<ADarkFactoryProcessController> ProcessController;
     bool bProcessEnabled=false;
     bool bGraphicsQA=false;
+    bool bEquipmentHeatQA=false;
+    void EquipmentHeatSmokeTick(double Now);
+    int32 EquipmentHeatStep=0;
+    TSharedPtr<FJsonObject> EquipmentHeatReport;
     TSharedPtr<FDarkFactoryGraphicsQA> GraphicsQA;
     void GraphicsSmokeTick(double Now);
     // Dedicated native Chaos fixture. No controller, inference or training path.

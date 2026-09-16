@@ -4,7 +4,8 @@
 #include "StaticMeshAttributes.h"
 
 UStaticMesh* MakeDarkFactorySealantMesh(UObject* Outer,UMaterialInterface* Material,
-    const TArray<FVector>& Points,const TArray<FVector>& Normals,FVector& Origin,double& ArcLength) {
+    const TArray<FVector>& Points,const TArray<FVector>& Normals,FVector& Origin,double& ArcLength,
+    double WidthScale,double GapStart,double GapEnd,double LateralOffset) {
     if (Points.Num()<2 || Normals.Num()!=Points.Num()) return nullptr;
     TArray<double> Distance; Distance.Add(0.);
     for (int32 I=1;I<Points.Num();++I) Distance.Add(Distance.Last()+FVector::Distance(Points[I-1],Points[I]));
@@ -24,11 +25,11 @@ UStaticMesh* MakeDarkFactorySealantMesh(UObject* Outer,UMaterialInterface* Mater
         const double End=FMath::Min(U,1.-U)*ArcLength;
         const double Taper=FMath::Sqrt(FMath::Clamp(End/1.6,0.,1.));
         const double Rib=1.+.035*FMath::Sin(U*ArcLength*4.3);
-        const double BeadHalfWidth=.9;
+        const double BeadHalfWidth=.9*FMath::Clamp(WidthScale,.1,2.);
         const double Width=BeadHalfWidth*Taper*Rib,Height=.2*Taper*Rib;
         for (int32 J=0;J<Sides;++J) {
             const double Angle=2.*PI*J/Sides,C=FMath::Cos(Angle),S=FMath::Sin(Angle);
-            Vertices.Add(Center+Side*(Width*C)+Up*(Height*(1.+S)));
+            Vertices.Add(Center+Side*(Width*C+LateralOffset)+Up*(Height*(1.+S)));
             FVector N=(Side*(C/BeadHalfWidth)+Up*(S/.2)).GetSafeNormal();
             if (End<1.6) N=(N+Forward*((U<.5 ? -1.:1.)*(1.-Taper)*3.)).GetSafeNormal();
             const FVector SurfaceTangent=(Forward-N*FVector::DotProduct(Forward,N)).GetSafeNormal();
@@ -55,6 +56,8 @@ UStaticMesh* MakeDarkFactorySealantMesh(UObject* Outer,UMaterialInterface* Mater
         D.CreateTriangle(Group,Corners);
     };
     for (int32 I=0;I<Rings-1;++I) for (int32 J=0;J<Sides;++J) {
+        const double U=(I+.5)/(Rings-1);
+        if (GapStart>=0 && U>=GapStart && U<=GapEnd) continue;
         const int32 A0=I*Sides+J,B=I*Sides+(J+1)%Sides,C=(I+1)*Sides+J,E=(I+1)*Sides+(J+1)%Sides;
         Triangle(A0,B,C); Triangle(B,E,C);
     }

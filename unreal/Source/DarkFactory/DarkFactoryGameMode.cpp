@@ -306,6 +306,7 @@ void ADarkFactoryHUD::DrawProcessStatus(const ADarkFactoryProcessController* Pro
 }
 void ADarkFactoryHUD::DrawProcessCaptures(const ADarkFactoryProcessController* Process,const ADarkFactoryWorld* World,float RightPanelX,float PanelWidth) {
     if (!Process || !World || !Canvas) return;
+    if (Process->IsInspectionReplayVisible()) { DrawInspectionReplay(Process,RightPanelX,PanelWidth); return; }
     const auto& State=Process->GetStatus();
     const bool NIR=State.Phase<=EDarkFactoryProcessPhase::PanelPlacement || State.Phase==EDarkFactoryProcessPhase::PanelSeated;
     const int32 Count=3;
@@ -316,7 +317,7 @@ void ADarkFactoryHUD::DrawProcessCaptures(const ADarkFactoryProcessController* P
     const FLinearColor Pale(.82f,.92f,.97f),Muted(.55f,.70f,.79f);
     DrawRect(FLinearColor(.008f,.015f,.024f,.88f),RightPanelX,Margin,PanelWidth,Header+Count*(Height+Extra)+Footer);
     DrawText(TEXT("Gate camera captures"),Pale,RightPanelX+10,Margin+9,GEngine->GetSmallFont(),1.f);
-    DrawText(State.bPaused ? TEXT("Paused / latest captured frames"):TEXT("Updates on inspection"),Muted,RightPanelX+10,Margin+31,GEngine->GetSmallFont(),.85f);
+    DrawText(State.bPaused ? TEXT("Paused / latest captured frames"):TEXT("Updates on inspection / F5: replay"),Muted,RightPanelX+10,Margin+31,GEngine->GetSmallFont(),.80f);
     float Y=Margin+Header;
     for (int32 I=0;I<Count;++I) {
         const FString Name=NIR ? FString::Printf(TEXT("R4 NIR / spot %d"),I+1):FString::Printf(TEXT("R4 thermal / spot %d / color"),I+1);

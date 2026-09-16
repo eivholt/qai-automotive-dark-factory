@@ -1,4 +1,5 @@
 #include "DarkFactoryWeldingCell.h"
+#include "DarkFactoryEnhancements.h"
 #include "DarkFactoryThermalRig.h"
 #include "DarkFactoryProcessTypes.h"
 #include "Components/SceneComponent.h"
@@ -352,7 +353,9 @@ TArray<FDarkFactoryWeldEmitter> ADarkFactoryWeldingCell::GetWeldEmitters() const
             E.SurfacePosition=CarriageRoot->GetComponentTransform().TransformPosition(PanelContacts[Spot]);
             E.SurfaceNormal=CarriageRoot->GetComponentTransform().TransformVectorNoScale(PanelContactNormals[Spot]).GetSafeNormal();
             E.WeldAgeSeconds=Age; E.WeldDurationSeconds=.5;
-            E.Intensity=static_cast<float>(Smooth(Age/.04)*Smooth((.5-Age)/.04)); Result.Add(E);
+            E.Intensity=static_cast<float>(Smooth(Age/.04)*Smooth((.5-Age)/.04));
+            if (DarkFactoryEnhancements::Enabled() && !FParse::Param(FCommandLine::Get(),TEXT("DFDramaticWelding"))) E.Intensity*=.3f;
+            Result.Add(E);
         }
         return Result;
     }
@@ -410,7 +413,9 @@ void ADarkFactoryWeldingCell::BuildCarriageCollision() {
 }
 void ADarkFactoryWeldingCell::BuildHoses(const TMap<FName,USceneComponent*>& Parents) {
     auto* Cylinder=LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+    auto* Sleeve=DarkFactoryEnhancements::Enabled() ? LoadObject<UStaticMesh>(nullptr,TEXT("/Game/FactoryContext/SM_HoseSleeve.SM_HoseSleeve")):nullptr;
     auto* Base=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Materials/M_Factory.M_Factory"));
+    if (auto* Finish=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Materials/M_IndustrialRubber.M_IndustrialRubber"))) Base=Finish;
     if (!Cylinder || !Base) return;
     auto* Material=UMaterialInstanceDynamic::Create(Base,this);
     Material->SetVectorParameterValue(TEXT("BaseColor"),FLinearColor(.025f,.026f,.028f));
@@ -433,11 +438,25 @@ void ADarkFactoryWeldingCell::BuildHoses(const TMap<FName,USceneComponent*>& Par
         for (int32 I=0;I<5;++I) {
             auto* Hose=NewObject<USplineMeshComponent>(this,*FString::Printf(TEXT("Hose_%s_%d"),*Prefix,I));
             Hose->SetMobility(EComponentMobility::Movable); Hose->SetupAttachment(SceneRoot);
-            Hose->SetStaticMesh(Cylinder); Hose->SetMaterial(0,Material); Hose->SetForwardAxis(ESplineMeshAxis::Z,false);
+            Hose->SetStaticMesh(Sleeve ? Sleeve:Cylinder); Hose->SetMaterial(0,Material); Hose->SetForwardAxis(ESplineMeshAxis::Z,false);
             Hose->SetStartScale(FVector2D(.055,.055),false); Hose->SetEndScale(FVector2D(.055,.055),false);
             Hose->SetSplineUpDir(FVector(0,1,0),false); Hose->SetCollisionEnabled(ECollisionEnabled::NoCollision);
             Hose->SetLightingChannels(true,true,false); Hose->RegisterComponent(); HoseComponents.Add(Hose); Rig.Sections.Add(Hose);
             FDarkFactoryImportedThermalSurface Surface; Surface.Mesh=Hose; Surface.TemperatureC=28; Surface.Emissivity=.94f; Surface.CoreEdgeDropC=0; ThermalSurfaces.Add(Surface);
+        }
+        if (Sleeve) {
+            auto* Metal=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Materials/M_IndustrialMetal.M_IndustrialMetal"));
+            auto* CollarMaterial=UMaterialInstanceDynamic::Create(Metal ? Metal:Base,this);
+            CollarMaterial->SetVectorParameterValue(TEXT("BaseColor"),FLinearColor(.30f,.33f,.36f));
+            CollarMaterial->SetScalarParameterValue(TEXT("Metallic"),.85f); CollarMaterial->SetScalarParameterValue(TEXT("Roughness"),.4f);
+            for (int32 I=0;I<6;++I) {
+                auto* Collar=NewObject<UStaticMeshComponent>(this,*FString::Printf(TEXT("HoseCollar_%s_%d"),*Prefix,I));
+                Collar->SetMobility(EComponentMobility::Movable); Collar->SetupAttachment(SceneRoot); Collar->SetStaticMesh(Cylinder);
+                Collar->SetMaterial(0,CollarMaterial); Collar->SetRelativeScale3D(FVector(.072,.072,.055));
+                Collar->SetCollisionEnabled(ECollisionEnabled::NoCollision); Collar->SetLightingChannels(true,true,false); Collar->RegisterComponent();
+                MeshComponents.Add(Collar); Rig.Collars.Add(Collar);
+                FPanelProfileShare Share; Share.Target=Collar; Share.Source=Rig.Sections[FMath::Min(I,4)].Get(); PanelProfileShares.Add(Share);
+            }
         }
         HoseRigs.Add(MoveTemp(Rig));
         for (const auto& Mesh:MeshComponents) if (Mesh && Mesh->GetName()==TEXT("SM_")+Prefix+TEXT("_dress_pack")) {
@@ -455,11 +474,24 @@ void ADarkFactoryWeldingCell::UpdateHoses() {
         for (const auto& Anchor:Rig.Anchors) if (auto* Joint=Anchor.Joint.Get()) P.Add(SceneRoot->GetComponentTransform().InverseTransformPosition(Joint->GetComponentTransform().TransformPosition(Anchor.LocalPosition)));
         if (P.Num()!=Rig.Anchors.Num()) continue;
         for (int32 I=0;I<Rig.Sections.Num();++I) if (auto* Section=Rig.Sections[I].Get()) {
-            const FVector StartTangent=I==0 ? P[1]-P[0] : (P[I+1]-P[I-1])*.5;
-            const FVector EndTangent=I+2>=P.Num() ? P.Last()-P[P.Num()-2] : (P[I+2]-P[I])*.5;
+            FVector StartTangent=I==0 ? P[1]-P[0] : (P[I+1]-P[I-1])*.5;
+            FVector EndTangent=I+2>=P.Num() ? P.Last()-P[P.Num()-2] : (P[I+2]-P[I])*.5;
+            if (bPanelAssembly && DarkFactoryEnhancements::Enabled()) {
+                const double Duration=PanelPhase==EDarkFactoryProcessPhase::PanelPlacement ? PanelPlacementSeconds:
+                    PanelPhase==EDarkFactoryProcessPhase::HolderRetract ? PanelRetractSeconds:0.;
+                const double Envelope=Duration>0 ? FMath::Square(FMath::Sin(PI*FMath::Clamp(PanelPhaseSeconds/Duration,0.,1.))):0.;
+                const FVector Flex(0,3.*Envelope*FMath::Sin(PanelPhaseSeconds*9.+I),-3.*Envelope);
+                // Hermite tangents add <1 cm sag/sway; anchors never slide.
+                StartTangent+=Flex; EndTangent-=Flex;
+            }
             Section->SetStartAndEnd(P[I],StartTangent,P[I+1],EndTangent,true);
         }
+        for (int32 I=0;I<Rig.Collars.Num();++I) if (auto* Collar=Rig.Collars[I].Get()) {
+            const FVector Direction=I==0 ? P[1]-P[0]:I==P.Num()-1 ? P.Last()-P[I-1]:(P[I+1]-P[I-1])*.5;
+            Collar->SetRelativeLocation(P[I]); Collar->SetRelativeRotation(FRotationMatrix::MakeFromZ(Direction).Rotator());
+        }
     }
+    UpdateGripperCompression();
 }
 double ADarkFactoryWeldingCell::EvaluateJointAngle(const FJointMotion& J,double Seconds) const {
     const double T=RobotCanonicalPhase(J.RobotIndex,Seconds);
@@ -714,6 +746,7 @@ bool ADarkFactoryWeldingCell::InitializeToolHeat() {
     return true;
 }
 void ADarkFactoryWeldingCell::BindThermalRig(ADarkFactoryThermalRig* Rig) {
+    InitializeEquipmentHeat();
     ToolThermalRig=Rig; BindPanelSharedProfiles(); UpdateToolHeat(ToolHeatSeconds); UpdateBodyWeldHeat(BodyWeldHeatSeconds); UpdateMotorHeat(MotorHeatSeconds,MotorIdleSeconds);
 }
 void ADarkFactoryWeldingCell::SetToolHeatTimeForQA(double Seconds) {
@@ -1057,6 +1090,7 @@ void ADarkFactoryWeldingCell::SetMotorHeatTimeForQA(double Seconds,double IdleSe
 }
 void ADarkFactoryWeldingCell::UpdateMotorHeat(double Seconds,double IdleSeconds) {
     TRACE_CPUPROFILER_EVENT_SCOPE(DarkFactory_UpdateMotorHeat);
+    UpdateEquipmentHeat();
     if (bProcessControlled) { UpdateProcessMotorHeat(); return; }
     MotorHeatSeconds=Seconds; MotorIdleSeconds=IdleSeconds;
     const int32 Step=FMath::Clamp(FMath::FloorToInt(FMath::Fmod(Seconds,GetTimingBankSeconds())/MotorDutyStep),0,MotorDutySteps-1);
@@ -1118,6 +1152,7 @@ void ADarkFactoryWeldingCell::UpdateProcessMotorHeat() {
 }
 TSharedRef<FJsonObject> ADarkFactoryWeldingCell::BuildMotorHeatMetadata() const {
     auto Result=MakeShared<FJsonObject>();
+    Result->SetObjectField(TEXT("equipment_heat"),BuildEquipmentHeatMetadata());
     Result->SetStringField(TEXT("model"),bProcessControlled ? TEXT("actual-process-joint-duty-thermal-v1"):TEXT("authored-joint-duty-thermal-v1"));
     Result->SetStringField(TEXT("scope"),TEXT("Casting-wide illustrative drive activity from angular travel; static holding torque, motor efficiency and physical heat transport are not modeled. No visible/NIR emission."));
     Result->SetBoolField(TEXT("offline_casting_heat_variation"),bProcessMotorCaptureVariation);
@@ -1357,6 +1392,23 @@ bool ADarkFactoryWeldingCell::InitializePanelAssembly() {
     FQuat HolderPanelRotation(HQ[0],HQ[1],HQ[2],HQ[3]);
     if (FMath::Abs(HolderPanelRotation.SizeSquared()-1.)>.00001) return false;
     HolderPanelRotation.Normalize();
+    if (DarkFactoryEnhancements::Enabled()) {
+        FString LoweringText; TSharedPtr<FJsonObject> Lowering;
+        if (FFileHelper::LoadFileToString(LoweringText,*FPaths::Combine(FPaths::GetPath(ManifestPath),TEXT("panel_lowering.json"))) &&
+            FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(LoweringText),Lowering) && Lowering) {
+            FString Hash,Recipe; const TArray<TSharedPtr<FJsonValue>>* Poses=nullptr;
+            if (!Lowering->TryGetStringField(TEXT("authoring_sha256"),Hash) || Hash!=PanelAuthoringSHA256 ||
+                !Lowering->TryGetStringField(TEXT("recipe"),Recipe) || Recipe!=TEXT("dense-top-down-compliant-v1") ||
+                !Lowering->TryGetArrayField(TEXT("poses"),Poses) || Poses->Num()!=51) return false;
+            for (const auto& Pose:*Poses) {
+                const TArray<TSharedPtr<FJsonValue>>* Angles=nullptr;
+                if (!Pose->TryGetArray(Angles) || Angles->Num()!=6) return false;
+                TArray<double> Row;
+                for (const auto& Angle:*Angles) { double A=0; if (!Angle->TryGetNumber(A) || !FMath::IsFinite(A) || FMath::Abs(A)>270) return false; Row.Add(A); }
+                PanelLoweringPoses.Add(MoveTemp(Row));
+            }
+        }
+    }
     struct FGripPadMount { FVector Anchor,Contact,Normal; double Diameter=0; };
     TArray<FGripPadMount> GripPads;
     const TArray<TSharedPtr<FJsonValue>>* GripPadValues=nullptr;
@@ -1581,8 +1633,11 @@ bool ADarkFactoryWeldingCell::InitializePanelAssembly() {
     for (int32 I:{PanelAdhesiveRobot,PanelHolderRobot}) if (auto* M=EmitterRigs[I].SourceTool.Get()) {
         M->SetVisibility(false); M->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     }
+    auto* MetalFinish=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Materials/M_IndustrialMetal.M_IndustrialMetal"));
+    auto* RubberFinish=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Materials/M_IndustrialRubber.M_IndustrialRubber"));
     auto Material=[&](const FLinearColor& Color,float Roughness,float Metallic) {
-        auto* MID=UMaterialInstanceDynamic::Create(ToolMaterial,this);
+        auto* Finish=Metallic>=.8f ? MetalFinish : (Metallic==0.f ? RubberFinish:nullptr);
+        auto* MID=UMaterialInstanceDynamic::Create(Finish ? Finish:ToolMaterial,this);
         MID->SetVectorParameterValue(TEXT("BaseColor"),Color); MID->SetScalarParameterValue(TEXT("Roughness"),Roughness);
         MID->SetScalarParameterValue(TEXT("Metallic"),Metallic); return MID;
     };
@@ -1639,8 +1694,10 @@ bool ADarkFactoryWeldingCell::InitializePanelAssembly() {
         const FVector Rod=Pad.Anchor-Back;
         Prop(*FString::Printf(TEXT("PanelGripperRod%d"),I),PanelHolderRobot,Cylinder,(Pad.Anchor+Back)*.5,
             FVector(4,4,Rod.Size()),Silver,FRotationMatrix::MakeFromZ(Rod).Rotator());
-        Prop(*FString::Printf(TEXT("PanelGripperPad%d"),I),PanelHolderRobot,Cylinder,Pad.Contact+Pad.Normal*1.5,
+        auto* Foot=Prop(*FString::Printf(TEXT("PanelGripperPad%d"),I),PanelHolderRobot,Cylinder,Pad.Contact+Pad.Normal*1.5,
             FVector(Pad.Diameter,Pad.Diameter,3),Rubber,FRotationMatrix::MakeFromZ(Pad.Normal).Rotator());
+        FGripCompression Compression; Compression.Mesh=Foot; Compression.Contact=Pad.Contact; Compression.Normal=Pad.Normal;
+        Compression.Diameter=Pad.Diameter; GripCompression.Add(Compression);
     }
     for (auto& Spot:BodyWeldSpots) { Spot.TemperatureC=Spot.HaloTemperatureC=20; Spot.Glow=Spot.WitnessStrength=0; }
     for (const auto& Binding:BodyWeldMaterials) for (const auto& W:Binding.Materials) if (auto* M=W.Get()) {
@@ -1655,6 +1712,24 @@ bool ADarkFactoryWeldingCell::InitializePanelAssembly() {
 }
 
 UStaticMeshComponent* ADarkFactoryWeldingCell::GetPanelBodyMesh() const { return FindSceneMesh(TEXT("SM_BodyPanel_0386")); }
+void ADarkFactoryWeldingCell::UpdateGripperCompression() {
+    if (!bPanelAssembly || !DarkFactoryEnhancements::Enabled()) return;
+    // Rubber bulges as vacuum/holding load builds, returning to exact authored
+    // dimensions at settled camera gates. The panel remains rigidly attached.
+    double Compression=1.;
+    if (PanelPhase==EDarkFactoryProcessPhase::PanelPlacement)
+        Compression=PanelPhaseSeconds<1.5 ? DarkFactoryEnhancements::MotionEase((PanelPhaseSeconds-1.25)/.25):
+            PanelPhaseSeconds<5.55 ? .65: .65+.35*DarkFactoryEnhancements::MotionEase((PanelPhaseSeconds-5.55)/.45);
+    else if (PanelPhase==EDarkFactoryProcessPhase::HolderRetract) Compression=1.-DarkFactoryEnhancements::MotionEase(PanelPhaseSeconds/.35);
+    else if (!bPanelHolderEngaged) Compression=0.;
+    for (const auto& Pad:GripCompression) if (auto* Mesh=Pad.Mesh.Get()) {
+        const double Height=FMath::Lerp(3.8,3.,Compression);
+        const double Width=Pad.Diameter*FMath::Lerp(.92,1.,Compression);
+        // Upper mounting plane stays fixed; the compliant lip extends downward.
+        Mesh->SetRelativeLocation(Pad.Contact+Pad.Normal*(3.-Height*.5));
+        Mesh->SetRelativeScale3D(FVector(Width,Width,Height)/100.);
+    }
+}
 FTransform ADarkFactoryWeldingCell::GetPanelSupplyTransform(int32 Slot) const {
     if (!PanelSupplyMeshes.IsValidIndex(Slot) || !PanelSupplyMeshes[Slot].IsValid()) return FTransform::Identity;
     return FTransform(PanelSupplyRotation,PanelSupplyMeshes[Slot]->GetRelativeLocation())*SceneRoot->GetComponentTransform();
@@ -1701,11 +1776,12 @@ double ADarkFactoryWeldingCell::PanelJointAngle(const FJointMotion& Joint) const
     if (J==INDEX_NONE || MotionIndex==INDEX_NONE) return Joint.RestAngle;
     const double T=PanelPhaseSeconds,Rest=Joint.RestAngle;
     auto Pose=[&](int32 P) { return PanelAssemblyPoses[P][J]; };
-    auto Blend=[&](double A,double B,double Alpha) { return A+FMath::UnwindDegrees(B-A)*Smooth(Alpha); };
+    auto Ease=[](double Alpha) { return DarkFactoryEnhancements::Enabled() ? DarkFactoryEnhancements::MotionEase(Alpha):Smooth(Alpha); };
+    auto Blend=[&](double A,double B,double Alpha) { return A+FMath::UnwindDegrees(B-A)*Ease(Alpha); };
     auto W=[&](int32 P) { return PanelWelderWaypoints[P][J]; };
     auto A=[&](int32 P) { return PanelAdhesiveWaypoints[P][J]; };
     auto H=[&](int32 P) { return PanelHolderWaypoints[P][J]; };
-    auto FrontTurn=[&](double From,double To,double Alpha) { return J==0 ? FMath::Lerp(From,To,Smooth(Alpha)):Blend(From,To,Alpha); };
+    auto FrontTurn=[&](double From,double To,double Alpha) { return J==0 ? FMath::Lerp(From,To,Ease(Alpha)):Blend(From,To,Alpha); };
     if (Joint.RobotIndex==PanelHolderRobot) {
         if (!bPanelHolderEngaged) return Rest;
         if (PanelPhase==EDarkFactoryProcessPhase::PanelPlacement) {
@@ -1721,6 +1797,10 @@ double ADarkFactoryWeldingCell::PanelJointAngle(const FJointMotion& Joint) const
             if (T<4.15) return Blend(H(2),H(3),(T-3.85)/.3);
             if (T<4.45) return Blend(H(3),H(4),(T-4.15)/.3);
             if (T<4.75) return Blend(H(4),H(5),(T-4.45)/.3);
+            if (T<6. && PanelLoweringPoses.Num()==51) {
+                const double U=FMath::Clamp((T-4.75)/1.25,0.,1.)*50.; const int32 K=FMath::Min(49,FMath::FloorToInt(U));
+                return FMath::Lerp(PanelLoweringPoses[K][J],PanelLoweringPoses[K+1][J],U-K);
+            }
             if (T<5.15) return Blend(H(5),H(6),(T-4.75)/.4);
             if (T<5.55) return Blend(H(6),H(7),(T-5.15)/.4);
             if (T<6.) return Blend(H(7),Pose(9),(T-5.55)/.45);
@@ -1834,6 +1914,7 @@ TSharedRef<FJsonObject> ADarkFactoryWeldingCell::GetPanelAssemblyMetadata() cons
     auto O=MakeShared<FJsonObject>(); O->SetBoolField(TEXT("enabled"),bPanelAssembly);
     O->SetStringField(TEXT("recipe"),TEXT("authored-panel-assembly-v1"));
     O->SetStringField(TEXT("motion_recipe"),PanelMotionRecipe);
+    O->SetStringField(TEXT("enhancement_lowering_recipe"),PanelLoweringPoses.Num()==51 ? TEXT("dense-top-down-compliant-v1"):TEXT("none"));
     O->SetNumberField(TEXT("pinch_angle_deg"),PinchCurrentAngle);
     O->SetNumberField(TEXT("pinch_part_count"),PinchParts.Num());
     TArray<TSharedPtr<FJsonValue>> PinchTipValues; FVector TipWorld[2];

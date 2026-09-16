@@ -468,8 +468,7 @@ def verify(directory):
             require(label+'_'+identity+'_three_bounded_leds', len(leds) == 3 and {obj(v).get('index') for v in leds} == {0, 1, 2}
                     and all(type(obj(v).get('enabled')) is bool and vector(obj(v).get('world_position_cm'))
                             and near(obj(v).get('emissive_strength'), 100. if obj(v).get('enabled') else 0.)
-                            and near(obj(v).get('local_light_lumens'), .45 if obj(v).get('enabled') else 0.) for v in leds)
-                    and all(obj(v).get('enabled') is True for v in leds if obj(v).get('index') in (1, 2)))
+                            and near(obj(v).get('local_light_lumens'), .45 if obj(v).get('enabled') else 0.) for v in leds))
     require('one_prop_per_robot_fixed_base', len({m.get('parent_mesh') for m in reference_mounts.values()}) == 4)
     for identity, history in positions.items():
         require(identity+'_prop_stays_fixed_during_joint_motion', len(history) > 1 and all(distance(history[0], p) < 1e-5 for p in history[1:]))
@@ -478,6 +477,9 @@ def verify(directory):
     require('decorative_amber_led_animation_changes', set(on_mounts) == set(off_mounts) == set(reference_mounts) and len(on_mounts) == 4
             and any(type(amber(on_mounts[i])) is bool and type(amber(off_mounts[i])) is bool and amber(on_mounts[i]) != amber(off_mounts[i]) for i in on_mounts))
     metrics['iq9_amber_states'] = {'on': {i: amber(m) for i, m in on_mounts.items()}, 'off': {i: amber(m) for i, m in off_mounts.items()}}
+    for led_index in (1, 2):
+        state = lambda m: next((obj(v).get('enabled') for v in rows(obj(m).get('leds')) if obj(v).get('index') == led_index), None)
+        require(f'decorative_green_{led_index}_animation_changes', any(state(on_mounts[i]) != state(off_mounts[i]) for i in on_mounts))
     closeups = rows(data.get('iq9_closeups'))
     require('four_prop_closeup_records', len(closeups) == 4)
     require('closeups_cover_all_mounted_props', {obj(obj(v).get('mount')).get('id') for v in closeups} == set(reference_mounts))

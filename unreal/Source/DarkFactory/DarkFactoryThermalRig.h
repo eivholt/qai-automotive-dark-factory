@@ -92,6 +92,7 @@ public:
     void SetHeatTransferEnabled(bool Enabled);
     bool HasHeatTransfer() const { return bHeatTransferEnabled; }
     bool SaveTransferSmoke(const FString& Directory);
+    bool SaveReflectionSmoke(const FString& Directory);
     void SetCoolingAge(float Seconds);
     float GetCoolingAge() const { return CoolingAgeSeconds; }
     bool SaveFieldSmoke(const FString& Directory);

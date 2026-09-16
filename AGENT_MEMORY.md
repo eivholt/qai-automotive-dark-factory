@@ -650,3 +650,328 @@ Cleanup validation: rebuilt with UE 5.8; all 116 Python tests and 34 launcher
 checks pass. No retained helper imports a removed draft. The staged publication
 audit contains only source, configuration and documentation. No new screenshots,
 purchased/generated assets, datasets or model weights are included.
+
+
+## Local Unreal MCP enabled (15 September 2026)
+
+Enabled bundled ModelContextProtocol and AllToolsets for Editor targets only,
+with local ignored EditorPerProjectUserSettings auto-start at 127.0.0.1:8000/mcp
+and a corresponding user-level Codex MCP entry. UE 5.8 build passed. Direct MCP
+initialize/discovery and read-only scene calls returned DarkFactoryPanel and
+18 actors including the generated preview cell. Private evidence is in
+artifacts/unreal-mcp-setup. The editor was left open for MCP access, with no
+Play session started; this launch caps editor FPS at 15. The current agent
+tool registry may need client reconnect/restart to expose the new tools.
+Keep durable scene edits in generators/config rather than transient preview
+children; MCP is editor authoring infrastructure, separate from Reason2.
+See docs/unreal_editor.md.
+
+
+## Persistent editor authoring layer (15 September 2026)
+
+DarkFactoryAuthoring is an Editor-only Python/toolset plugin. Its five MCP tools
+inspect/rebuild the production preview, persist a pose and viewport bookmark in
+tracked unreal/Config/Authoring/preview.json, and expose the source ownership
+guide in docs/authoring_structure.md. Map load and setup_editor_map.py apply this
+recipe; direct Details pose changes and generated-child transforms remain
+transient experiments. Geometry/motion still belongs in production builders and
+preparation scripts, not arbitrary serialized copies. Authoring rejects PIE and
+other maps; preview settings never choose model branches or sensor contracts.
+
+AllToolsets is now explicitly disabled. It pulled in Game Features and caused
+map-generation commandlets to exit with asset-manager errors. The authoring
+plugin enables only EditorToolset, AutomationTestToolset, SlateInspectorToolset,
+NiagaraToolsets and PhysicsToolsets alongside the MCP server/registry. With this
+configuration the UE 5.8 build and map-generation commandlet pass. Existing local
+MCP auto-start and Codex HTTP configuration remain on port 8000.
+
+Python discovery passes 121 tests, including recipe validation and atomic-write
+failure checks. Private MCP/QA evidence is in artifacts/unreal-mcp-authoring.
+The first rendered lifecycle pass checked 19 invariants successfully, but one
+screenshot was scheduled in the same tick as reload and captured an empty world;
+the final fixture separates these frames. The first-pass evidence is retained.
+See the final verification.json for the current rendered result. No model
+accuracy claim or adapter change accompanies this editor infrastructure work.
+
+Final authoring validation: 21 rendered lifecycle checks pass, including
+bookmark position/rotation roundtrip, saved-recipe precedence on reload, and
+PIE exclusion/restoration. Fixed Unreal Rotator positional-argument axis ordering
+by using named pitch/yaw/roll; retained the failed screenshots privately. All
+three final pose screenshots were inspected and shown in chat. Live MCP returned
+the source guide, persisted/restored a pose, rejected an invalid pose, and
+validated the restored AwaitingPanel preview after Play/Stop. The recipe is
+restored to AwaitingPanel with null bookmark. The editor remains open for MCP,
+with Play stopped. No commit/push was requested for this authoring work.
+## September 15: optional industrial finishes
+
+- Reuse private Isaac DigitalTwin Rubber_Black_Rough_A / Metal_Rough_A maps using scripts/assets/prepare_industrial_materials.py and setup_industrial_materials.py. Unity standard Asset Store AI-input/training restrictions ruled out the researched free packs.
+- Native materials add observer-visible microtexture to existing hoses, rubber pads/feed tube and metal tool hardware. Post-process UserFlags bit 8 is reserved for this finish; clear it on every scene capture. Preserve exact legacy parameters when off, unchanged thermal profiles and painted purchased assets. No extra geometry/tick work; 1024 texture cap. See docs/industrial_finishes.md.
+
+Final finish validation: UE 5.8 build, 121 Python tests, 2,012 graphics checks and
+all nine welding verifiers passed. Fixed/R4 NIR and thermal baseline PNG hashes
+match the prior dim-light fixture exactly. Hose/gripper before/after screenshots
+were inspected and shown in chat. Evidence is in artifacts/industrial-finish-graphics-v1,
+industrial-finish-legacy-v1 and industrial-finish-closeups. No new model score or
+GPU timing is claimed. Editor and demo were closed after these checks; the
+previous authoring entry's open-Editor status is historical.
+
+User clarified that runtime builds are compiled/run only on their computers;
+only tutorial/code/configuration are intended for publication. Do not blanket-ban
+Unity-compatible content: separately licensed assets or explicit author permission
+remain candidates. The researched standard-license packs were not imported;
+private/non-commercial use alone does not remove their AI-input/training clause.
+
+Documentation now has a current overview in docs/progress.md and a current
+validation table before historical results. Preserve the distinction between
+pre-frame development accuracy and later frame/Editor integration checks.
+
+## Approved enhancement backlog — 15 September 2026
+
+User asked to retain all ten suggestions and start items 1, 3, 6, 7 and 8:
+
+1. Fault-and-recovery sequences: visible faults, model holds, corrective actions
+   and fresh inspection before release. Never bypass model acceptance.
+2. Pre-placement sealant coverage inspection for continuity, width and position,
+   with targeted second application (future model-stage/contract work).
+3. Smooth robot acceleration, coordinated wrist motion and gentle final approach;
+   preserve settled inspection poses and add believable carrying/settling motion.
+4. Better hose assemblies: bundled cables, ribbed sleeves, clamps, strain relief
+   and bounded secondary movement.
+5. Physical panel seating: pad compression, initial tilt, progressive contact,
+   subtle squeeze-out and visually inspectable uneven-gap faults.
+6. Authentic pinch-weld squeeze/current/hold/release, localized discoloration and
+   an optional dramatic spark setting.
+7. Factory building: roof trusses, skylights, utilities, distant production and
+   loading context; start by searching the previous Isaac Sim assets. Favor
+   instancing and lightweight distant geometry.
+8. Surface-material pass: brushed sheet metal, stamping marks, wear at actual
+   fixture contacts, restrained floor grime and weld discoloration.
+9. Thermal reflections and material-dependent apparent temperature (future,
+   explicit sensor contract/revalidation work).
+10. Inspection replay/presentation mode showing real images, classification,
+    confidence, latency and resulting action; annotations remain observer-only.
+
+User reports Blender 5.2.2 installed. Verify the actual executable/version and
+use its headless Python API for asset preparation where useful; check whether a
+Blender MCP connection exists rather than assuming one is installed.
+
+First implementation pass: Blender 5.2.2 LTS is verified at
+C:/Program Files/Blender Foundation/Blender 5.2/blender.exe; background bpy works
+and was used to convert local Isaac rack USDs. No Blender MCP tool is connected.
+Blender is launched per job and does not need to stay open. The user explicitly
+asked this during implementation; continue with the headless API.
+
+See docs/enhancement_roadmap.md for opt-in -Enhancements and -FaultRecovery.
+Five observer-only context ISM batches add hall walls/trusses, open roof strips,
+an extended Isaac-textured floor and converted racks. No collision, lighting,
+GI/reflection or sensor geometry contribution is intended; material opacity uses
+observer UserFlags bit 8. Process motion optionally uses quintic travel easing
+with unchanged waypoints/end times and physical R4 poses. Pinch current/hold
+timings stay fixed; -DramaticWelding restores the existing expulsion intensity.
+Metal finish adds derivative-filtered directional grain.
+
+The first recovery is slow sealant cooling, not panel reseating: every third
+body starting at one has 8x passive cooling tau. Two fresh valid sealant R
+batches activate a local cooling proxy. A/errors/pause break rejection consensus;
+only existing two-fresh-G policy advances. Source fault state is never controller
+or model input. Cooling uses accumulated simulation time; it is an illustrative
+surface cooling envelope, not CFD/cure certification. Offline captures exclude
+the fault experiment. No new adapter or accuracy claim is implied.
+
+Final enhancement validation: UE 5.8 build, 121 Python tests and 100 native
+policy checks pass. Enhanced PanelMotionSmoke passes, including 3,271 pinch and
+56 mounting-frame checks. Graphics passes 2,012 checks; all four fixed/R4 sensor
+baseline hashes match the previous material-only revision exactly. Realism
+passes 681 checks, and all nine legacy welding verifiers pass. The initial
+realism verifier only lacked its expected runtime.log filename; its failed
+report is retained and the runner now copies the actual engine log to that name.
+
+Final actual-host recovery integration completes three bodies with 28 requests
+and all six thermal audits; body one activates cooling following two model R
+batches and waits for fresh G consensus. R4 telemetry passes 5,442 checks. No new
+held-out accuracy, adapter training or GPU timing is claimed. Private evidence
+is artifacts/enhancements-process-final, enhancements-motion-v1,
+enhancements-graphics-v1, enhancements-realism-v1 and enhancements-legacy-v1.
+The hall has five ISM batches/63 instances; screenshots in
+artifacts/factory-enhancements-closeups were reviewed and shown in chat.
+Blender, Editor and demo are stopped; the existing model service is unchanged.
+Use run.ps1 -Scene welding -Process -Enhancements -FaultRecovery -ProcessObserverMode 3
+to opt into this first pass. All ten ideas remain in the backlog; do not treat
+items 2/4/5/9/10 or full industrial robot dynamics as implemented.
+
+## Second enhancement pass — 16 September 2026
+
+The user asked to continue the remaining list. Items 2/4/5/9/10 now have the
+implementations described in docs/enhancement_second_pass.md, superseding the
+first-pass status above. They remain opt-in with -Enhancements.
+
+- Twenty spline sections use a Blender-generated corrugated sleeve; 24 collars
+  share adjacent hose thermal profiles. Authored process-clock sway preserves
+  anchors. Pads compress from 3.8 to 3 cm and broaden under load. The final
+  lowering uses 51 fitted R3 poses and a 0.6-degree tilt; prepare_panel_lowering.py
+  writes private panel_lowering.json, tied to panel authoring provenance, without
+  changing settled model poses. An initial direct wrist offset failed the
+  lateral-placement audit and was replaced; do not restore it or loosen limits.
+- F5 toggles actual-request replay, Page Up/Down browse eight retained requests.
+  Twenty-four GC-owned decoded textures are the bounded history. Store actual
+  request identity, scores/label mass, latency and resulting controller action;
+  never substitute mutable live targets or synthetic rationale. Cancelled or
+  mismatched requests cannot appear accepted. Live GPU preview behavior remains.
+- Observer-only thermal reflections use up to 24 screen-depth steps / 3 m and
+  one reflection bounce, stopping on opaque depth. Row15 alpha carries emissivity
+  without changing LUT size; an 11 um Planck proxy mixes reflected radiance.
+  All fixed/model materials explicitly disable it. -NoThermalReflections disables
+  observer reflections. This is a screen-space display approximation, not
+  calibrated 8–14 um reflection radiometry. Keep ThermalSurfaceEvaluation.ush
+  shared between direct and reflected visible-surface evaluation.
+- Separate offline automotive-sealant-coverage-study-v1 contract/capture/evaluator.
+  -ProcessCapture -SealantCoverageCapture creates eight physical fault cases per
+  whole-body episode. The production loader rejects this contract. Four episodes
+  produced 32 triplets / 96 PNGs; only 16 training-development triplets were scored
+  by the base model: median 60.0 ms, one source-label agreement, seven false G
+  against provisional source labels. No new LoRA trained and no live coverage
+  gate/reapplication enabled. Improve image observability and review labels
+  before training; validation/test episodes remain uninspected by the model.
+
+Additional bundled wiring, contact physics/squeeze-out and subtle new gap faults
+remain future work. Do not describe this pass as implementing those items fully.
+
+Final second-pass validation: UE 5.8 build, 124 Python tests, 104 native policy
+checks, 2,012 graphics isolation checks, corrected rendered panel motion,
+56 frame checks and 3,271 pinch checks passed. Thermal/radiometry/fields/transfer
+passed; the isolated reflection fixture had 2,344 reflected receiver pixels,
+zero reflected warmth from a hidden source and zero receiver variation at e=1.
+All nine legacy welding suites passed. Final actual-host run completed
+assembly/preassembled/assembly with 27 requests and six thermal acceptance
+checks; camera 5,248 and curtains 27 checks passed. Eight unique completed replay
+receipts each retained three images. These are development integration results,
+not new held-out accuracy. Evidence is under artifacts/enhancement-rest-*-final,
+enhancement-rest-motion-corrected, thermal-reflection-fixture-final,
+equipment-details-closeups and sealant-coverage-study-v1. Screenshots of equipment,
+placement, reflection A/B and actual replay were shown in chat. Unreal/Blender
+are stopped; the existing model service remains unchanged. Changes are not committed.
+
+## Replay key conflict fix — 16 September 2026
+
+F5 inherited Unreal's `viewmode shadercomplexity` debug binding, which consumed
+input before the pawn replay action. DefaultInput.ini now subtracts that binding
+and the inherited Page Up/Down debug-target commands. Keep F5 for replay and
+Space / Xbox View for simulation pause; these are independent. Restart to load
+input configuration; F3 restores lit rendering in an older running instance.
+No binary or content regeneration is needed for this configuration-only fix.
+A separate rendered no-inference game instance received actual window key events:
+F5 toggled replay to live, Space paused, F5 toggled replay while still paused,
+and F5 then Space returned to live/resumed with normal lit rendering throughout.
+Six private screenshots and the input harness are in artifacts/replay-key-fix;
+this is input/rendering validation, not model accuracy. Test instance was closed.
+README and enhancement guide now distinguish replay from pause explicitly.
+
+## Model service recovery — 16 September 2026
+
+The repo-specific WSL service had been launched without model arguments:
+health was ready but adapter was null and vision_patch_embedding was stock-conv3d.
+Windows and WSL both reached port 18191; Unreal repeatedly timed out and reported
+connection unavailable. Stopped only dark-factory-panel-model.service and
+restarted with shared960 primary, shared896 weld and --linear-patch-embedding.
+Health now reports both selected adapters and linear-nonoverlap-v1 on RTX 5090.
+The rendered enhanced recovery integration passed assembly/preassembled/assembly,
+all three departures and six thermal audits with no timeout/connection errors.
+Recorded decision-event latency median was 82 ms (15 samples, range 77–94 ms).
+Private evidence: artifacts/model-service-recovery-20260916. This is service and
+integration validation, not a new accuracy benchmark. Model service remains
+active with zero restarts; the automated Unreal instance exited. README now
+requires checking adapter identities and projection mode, not just ready status.
+
+## Softer roof lighting and equipment heat — 16 September 2026
+
+RoofOutputScale is now .6 (imported banks 1,200 lm, procedural 480 lm), one third
+below the previous .9 output. Tube emission scales with it. Bright observer
+Lumen exposure is -1.2 EV instead of -.7; dim and all infrared exposures remain
+unchanged. Update the graphics verifier's expected bright EV accordingly.
+
+Process-mode equipment heat uses prepare_equipment_heat.py and private
+assets/derived/welding_cell/equipment_heat.json. Four source motors are already
+owned by SM_CarriageHolder_Front/Rear, NOT SM_Background_robots_blue; convert fitted
+source points to holder-local pivots so heat moves with the motors. Five existing
+profiles (two holders, cabinet gray/black surfaces, LCD) use bounded existing GPU
+capsule fields; no new meshes, profiles, shader variants or LUT rows. Motor duty
+comes from actual carriage speed (500 cm/s reference), approaching 62 C with
+2.8 s response during movement and cooling toward 20 C with 24 s response when
+stopped. Start warm at26 C; pause and equal-clock seeks add no heat, residual heat
+persists between bodies, clock rewind resets. Cabinet exterior starts34 C and
+approaches38 C, up to44 C with carriage duty, tau18 s; LCD warmth is lower. These
+are illustrative external surface temperatures, no bulk solver or internal view.
+Legacy cycle/QA temperatures remain unchanged. Missing optional descriptor warns.
+
+The EquipmentHeat mode in verify_enhancements.ps1 checks rendered closeups and
+heat/pause/cooling/NIR parity. Its frozen fixture must publish the travelled
+carriage transform to the LUT before returning to the reference pose in the same
+frame, and prime NIR over actual rendered frames. Earlier v1-v3 diagnostics are
+retained privately; v4 passes with26 ->49.67 ->22.44 C motor core, stable paused
+heat and identical fixed-NIR PNGs. Cabinets reach37.91 C. Guides:
+docs/equipment_heat.md, docs/factory_lighting.md, docs/observer_graphics.md.
+
+Final equipment/lighting validation: UE 5.8 build and 124 Python tests pass;
+equipment-heat-v4 passes heat/pause/cooling and exact NIR parity; all 2,012 graphics
+isolation checks and nine legacy welding suites pass. Actual host integration
+in artifacts/equipment-heat-process-v1 completes assembly/preassembled/assembly,
+three departures and all six thermal audits. No ground truth sent to the model.
+No new model accuracy or GPU timing claim. Motor and cabinet thermal closeups
+were reviewed and shown in chat. Automated Unreal processes are closed; model
+service remains running. No commit or push was requested.
+
+## Spark shape, EVK blinking, camera support and dark startup — 16 September 2026
+
+Sparks now share a startup-built 48-triangle rounded mesh, stretched along velocity
+for tapered streaks and round at rest. Opaque GPU instances retain the same bounded
+pool, collision state, cooling, emissive fades and thermal depth; no material or
+shader change and no translucent sorting. Roof tubes keep their own geometry.
+EVK amber activity remains irregular; both green LEDs now blink (heartbeat and
+double pulse), staggered by robot. Use simulation clock and pinned QA time, keep
+stable positive-intensity light proxies with color/black changes; decorative only.
+The process inspection camera has a 4 cm rod plus two collars joining the wrist
+origin to the existing housing. No optical origin, mount or joint changes. The
+three non-colliding supports share the existing uniform housing thermal profile.
+Interactive launcher and Editor Play default to dark observer mode with headlamp
+off; Tab/Y cycle stays dark -> NIR -> thermal -> roof-lit -> dark. L opts into the
+headlamp in dark mode. Explicit -ProcessObserverMode overrides remain supported;
+legacy welding QA still explicitly enables the headlamp. Editor preview lighting
+is unchanged. These startup requirements supersede earlier bright-Play defaults.
+
+Validation for the visual refinement: UE 5.8 build and 124 Python tests pass;
+rendered motion passes all 63 checkpoints, with 3,271 pinch and 56 frame checks.
+All nine legacy suites pass in artifacts/visual-refinement-legacy-final, including
+new green LED animation checks and the two rendered pulse closeups. The graphics
+fixture passes 2,012 checks; frozen R4 NIR/thermal PNGs are byte-identical to the
+prior equipment-heat fixture at its reference inspection pose. The fixed overview
+images may change because they see the added support and blinking LEDs; observer
+mode/graphics isolation still passes. Actual key-event screenshots verify dark
+startup/headlamp off and Tab order 0/1/2/3/0, then explicit L activation.
+Actual host integration in artifacts/visual-refinement-process-v1 passes three
+assembly/preassembled/assembly departures, all six thermal audits and 5,248 camera
+checks, with no ground truth sent. No new held-out accuracy claim. Actual spark,
+LED, camera and startup renders were shown in chat. All Unreal instances are
+closed; the compatible model service remains running. No commit/push requested.
+
+## Live EVK LED clock correction — 16 September 2026
+
+User observed that EVK LEDs did not actually blink in panel process mode.
+GetMotionTime() is the legacy pose coordinate, held constant during many process
+phases, while GetEffectTime() selects continuous ProcessClock. IQ9 UpdateLeds now
+uses GetEffectTime(), preserving pinned QA, legacy timing and explicit pause.
+The previous pinned green/amber screenshots missed live clock progression.
+New IQ9Live fixture runs actual controller/prop ticks in a no-inference inspection
+hold, checks every LED toggles in both running intervals and remains unchanged
+while paused, then resumes. No manually set time or LED override is allowed.
+Private iq9-live-clock-v1 passes 481 samples and 119 state transitions with
+constant robot pose and natural process time; live green/amber screenshots saved.
+
+Live LED correction validation: UE 5.8 build, 124 Python tests, actual IQ9Live
+clock/pause/resume fixture, all nine legacy welding suites and all 2,012 graphics
+isolation checks pass. Evidence: artifacts/iq9-live-clock-{v1,legacy-v1,graphics-v1}.
+The live pulse screenshots were reviewed and shown in chat. Unreal test instances
+are closed; model service unchanged. Restart the demo to load the rebuilt DLL.
+
+The user subsequently requested stopping the model host. Stopped only
+dark-factory-panel-model.service; verified inactive/dead and no listener on
+port 18191. Leave it stopped until model execution is requested again.

@@ -28,10 +28,14 @@ public:
     // -1: seeded 1/5 preassembled; 0: missing; 1: preassembled. Offline override only.
     void BeginBody(int32 BodyIndex,double ClockSeconds,int32 PreassembledOverride=-1);
     void EndBody();
+    bool StartRecoveryCooling();
+    void StopRecoveryCooling();
+    bool IsRecoveryCooling() const { return RecoveryStarted>=0.; }
     void SetCaptureVariation(int32 Seed);
     void ApplyAssemblyFrame(EDarkFactoryProcessPhase Phase,double StageSeconds,double ClockSeconds,double Offset,bool Visible);
     static double GetPhaseDuration(EDarkFactoryProcessPhase Phase);
     bool PrepareCapture(const FString& Stage,int32 CaseIndex,int32 Seed,double& ClockOut);
+    bool PrepareSealantCoverageCapture(int32 CaseIndex,int32 Seed,double& ClockOut);
     void RequestInspectionView(const FString& Stage,int32 View,double ClockSeconds,bool Snap=false);
     bool IsInspectionViewSettled(int32 View) const;
     void GetInspectionCameraPose(const FString& Stage,int32 View,FVector& Location,FRotator& Rotation,float& FOV) const;
@@ -53,10 +57,15 @@ private:
     UPROPERTY() TObjectPtr<UStaticMeshComponent> IncomingPanel;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> HeldPanel;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> MountingFrame;
+    UPROPERTY() TObjectPtr<UStaticMeshComponent> RecoveryRotor;
+    UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> RecoveryIndicator;
+    bool bRecoveryExperiment=false;
+    double RecoveryStarted=-1.,RecoveryCoolingAge=0.;
     UPROPERTY() TArray<TObjectPtr<UStaticMeshComponent>> AdhesiveMeshes;
     UPROPERTY() TObjectPtr<USceneComponent> CameraMount;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> CameraHousing;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> CameraLens;
+    UPROPERTY() TArray<TObjectPtr<UStaticMeshComponent>> CameraSupports;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> CaptureOccluder;
     UPROPERTY() TArray<TObjectPtr<UMaterialInstanceDynamic>> PanelMaterials;
     UPROPERTY() TArray<TObjectPtr<UMaterialInstanceDynamic>> AdhesiveMaterials;

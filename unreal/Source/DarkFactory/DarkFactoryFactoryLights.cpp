@@ -9,7 +9,7 @@
 
 namespace {
 constexpr float StartupDurationSeconds=1.5f;
-constexpr float RoofOutputScale=.9f;
+constexpr float RoofOutputScale=.6f;
 constexpr float NominalTubeEmission=12.f*RoofOutputScale;
 constexpr float StartDelays[]={0.f,.12f,.24f,.06f,.18f,.30f};
 const FLinearColor TubeColor(.82f,.91f,1.f);

@@ -83,7 +83,7 @@ cl /nologo /EHsc /O2 /std:c++17 /MD /DFBXSDK_SHARED /I"$SDK/include" scripts\ass
         if ($LASTEXITCODE -ne 0) { throw 'Control cabinet placement preparation failed.' }
         # Regroup only derived islands before either FBX export, then solve the
         # process poses from the same custom output root and preserved source scan.
-        foreach ($PanelGenerator in @('prepare_panel_assembly.py', 'prepare_pinch_welder.py', 'prepare_panel_motion.py', 'prepare_panel_frame.py', 'prepare_gripper_rack_bar.py')) {
+        foreach ($PanelGenerator in @('prepare_panel_assembly.py', 'prepare_pinch_welder.py', 'prepare_panel_motion.py', 'prepare_panel_lowering.py', 'prepare_panel_frame.py', 'prepare_gripper_rack_bar.py', 'prepare_equipment_heat.py')) {
             if ($UseWSL) {
                 & wsl.exe -d $WslDistribution --cd $LinuxRepo -- $WslPython ("scripts/assets/" + $PanelGenerator) --root $LinuxOutput
             } else {

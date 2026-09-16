@@ -225,6 +225,16 @@ void ADarkFactoryWorld::RobotExpansionSmokeTick(double Now) {
             auto Row=MakeShared<FJsonObject>(); Row->SetStringField(TEXT("image"),File); Row->SetObjectField(TEXT("mount"),Mount);
             auto Rows=RobotExpansionReport->GetArrayField(TEXT("iq9_closeups")); Rows.Add(MakeShared<FJsonValueObject>(Row)); RobotExpansionReport->SetArrayField(TEXT("iq9_closeups"),Rows);
         } else Shot(File);
+    } else if (RobotExpansionStep<=32) {
+        if (RobotExpansionStep==29) {
+            const auto Mount=IQ9Props->BuildMetadata()->GetArrayField(TEXT("mounts"))[0]->AsObject();
+            const FVector Center=QAReadVector(Mount,TEXT("world_position_cm"));
+            Observer->SetActorLocation(Center+QAReadVector(Mount,TEXT("world_normal"))*45.+QAReadVector(Mount,TEXT("world_up"))*12.);
+            Observer->SetActorRotation((Center-Observer->GetActorLocation()).Rotation());
+            IQ9Props->SetLedTimeForQA(0.);
+        } else if (RobotExpansionStep==30) Shot(TEXT("iq9_led_green_pulse.png"));
+        else if (RobotExpansionStep==31) IQ9Props->SetLedTimeForQA(.90);
+        else Shot(TEXT("iq9_led_amber_pulse.png"));
     } else {
         bool NIRSame=true,ThermalSame=true;
         for (const TCHAR* Name:{TEXT("nir_home_off"),TEXT("nir_moved_on"),TEXT("visible_home")}) {

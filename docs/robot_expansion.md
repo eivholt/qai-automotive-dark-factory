@@ -16,9 +16,19 @@ R2 uses the original 0.7-scale gun directly on its native mating cap, without a 
 
 ## Four mounted IQ9 props
 
-Four small IQ9 EVK appearance props attach to the outward raised junction-box covers on the robots' fixed bases with mounting plates. They reuse the earlier project's privately supplied five-face photographic appearance. The enclosure dimensions are approximately 10.6 x 10.6 x 4.3 cm; this is a visual prop, not an electronics CAD reconstruction. Its fixed parent-relative position and rotation follow process-only base relocation while remaining stationary through arm-joint motion. The private mount recipe is `fixed-base-outward-junction-cover-v2`; stale upper-arm manifests are rejected. Each source cover is approximately 10.06 by 19.38 cm, and the 13 cm plate overhangs laterally by about 1.47 cm per side. R3 mounts 6 cm higher on that same cover to clear the stored panels; its plate has 2.81 cm of top overhang, with the lower support region on the flat cover. Sampled support and non-penetration rays establish an illustrative visual placement, not an engineered mounting specification.
+Four small IQ9 EVK appearance props attach to the outward raised junction-box covers on the robots' fixed bases without backing plates. They reuse the earlier project's privately supplied five-face photographic appearance. The enclosure dimensions are approximately 10.6 x 10.6 x 4.3 cm; this is a visual prop, not an electronics CAD reconstruction. Its fixed parent-relative position and rotation follow process-only base relocation while remaining stationary through arm-joint motion. The private mount recipe is `fixed-base-outward-junction-cover-v2`; stale upper-arm manifests are rejected. R3 mounts 6 cm higher on its cover to clear the stored panels. Placement remains an illustrative visual fit, not an engineered mounting specification.
 
-Each prop has two steady green LEDs and an authored irregular amber activity LED. The LEDs are decorative, not live EVK telemetry, inference status or actual network activity. Their twelve small local lights and twelve emissive points are bounded. The four props add 28 opaque thermal surfaces: illustrative 30 C enclosure/faces and 24 C mounting plates. They do not participate in a calibrated hardware thermal model. The imported scene still cannot send images to the old inspection prompt or generate four-module training labels.
+Each prop has an irregular amber activity blink, a green heartbeat (0.8 s on in a 1.6 s cycle), and a green double pulse. Robot offsets stagger the patterns. Animation follows the cell clock, freezes when motion is paused, and supports a pinned QA time. The LEDs are decorative, not live EVK telemetry, inference status or actual network activity. Their twelve small local lights and twelve emissive points are bounded. The four props retain 24 opaque thermal surfaces: illustrative 30 C enclosure/faces. LED animation changes optical emission, not assigned temperature. They do not participate in a calibrated hardware thermal model. The imported scene still cannot send images to the old inspection prompt or generate four-module training labels.
+
+Use `GetEffectTime()` for live LED animation. In process mode `GetMotionTime()`
+is an authored pose coordinate, often constant through inspection and work;
+it is not an elapsed clock. The effect clock advances during model holds and
+freezes on explicit pause. Legacy mode still uses its original motion clock.
+`verify_enhancements.ps1 -Mode IQ9Live -Output artifacts/<fresh-directory>` tests
+actual process ticks while held at the no-inference presence gate, then pause
+and resume. All twelve LEDs must visit both states in each running interval,
+with no clock pinning or manual time stepping. The earlier pinned-state
+screenshots did not test this live clock and missed the frozen-LED defect.
 
 Photographic textures, mounts, generated Unreal packages and closeups remain private under ignored asset/artifact directories. The repository retains reproducible code and tutorial instructions.
 

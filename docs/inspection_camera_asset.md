@@ -34,3 +34,7 @@ The generated geometry is enlarged uniformly by 1.5 and aligned to the existing 
 - The panel-motion fixture passed all 41 checkpoints. WeldingSmoke and all nine associated suites passed. Python discovery passed all 109 tests, and the native process-policy fixture passed 91 checks.
 
 Private evidence is under `artifacts/camera-import-v1`, `artifacts/camera-import-pilot-v1` `artifacts/camera-import-motion-v2`, `artifacts/camera-import-legacy-v1` and `artifacts/camera-import-live-v1`. Rebuild and repeat capture comparison when changing the model's size, placement, material lighting paths or mount. Never compensate for a prop change by independently aiming the hidden sensor.
+
+## Wrist support
+
+The process camera has a 4 cm diameter rigid support rod and two mounting collars connecting the wrist origin to the existing camera housing. The housing, lens optical origin, sensor transforms and arm trajectories stay fixed. These three non-colliding components share the housing thermal stencil/profile, adding no LUT rows. This is illustrative mounting hardware, not a kinematic recalibration.

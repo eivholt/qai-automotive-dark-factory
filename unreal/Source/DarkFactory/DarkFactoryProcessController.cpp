@@ -38,7 +38,7 @@
 namespace {
 constexpr int32 Width=448,Height=256;
 const TCHAR* CameraIds[]={TEXT("spot1"),TEXT("spot2"),TEXT("spot3")};
-bool IsNIRStage(const FString& Stage) { return Stage==TEXT("panel_presence") || Stage==TEXT("panel_seated"); }
+bool IsNIRStage(const FString& Stage) { return Stage==TEXT("panel_presence") || Stage==TEXT("panel_seated") || Stage==TEXT("sealant_coverage"); }
 int32 GateForPhase(EDarkFactoryProcessPhase Phase) {
     return Phase==EDarkFactoryProcessPhase::PanelPresence ? 0:Phase==EDarkFactoryProcessPhase::Adhesive ? 1:
         Phase==EDarkFactoryProcessPhase::PanelSeated ? 2:Phase==EDarkFactoryProcessPhase::WeldCooling ? 3:-1;
@@ -124,6 +124,9 @@ bool ADarkFactoryProcessController::Initialize(ADarkFactoryWorld* World,ADarkFac
     // Dedicated local experimentation endpoint; never silently fall back to the parcel bridge.
     if (!Endpoint.StartsWith(TEXT("http://127.0.0.1:")) && !Endpoint.StartsWith(TEXT("http://localhost:"))) return false;
     bCaptureQA=FParse::Param(FCommandLine::Get(),TEXT("DFProcessCapture"));
+    bInspectionReplay=FParse::Param(FCommandLine::Get(),TEXT("DFInspectionReplay"));
+    bSealantCoverageCapture=FParse::Param(FCommandLine::Get(),TEXT("DFSealantCoverageCapture"));
+    if (bSealantCoverageCapture && !bCaptureQA) return false;
     bModelQA=FParse::Param(FCommandLine::Get(),TEXT("DFProcessSmoke"));
     bPolicyQA=FParse::Param(FCommandLine::Get(),TEXT("DFProcessPolicySmoke"));
     bPanelMotionQA=FParse::Param(FCommandLine::Get(),TEXT("DFPanelMotionSmoke"));
@@ -191,6 +194,15 @@ bool ADarkFactoryProcessController::Initialize(ADarkFactoryWorld* World,ADarkFac
         !Policy->TryGetNumberField(TEXT("minimum_label_mass"),MinimumLabelMass) || !FMath::IsFinite(MinimumLabelMass) || MinimumLabelMass<.5 || MinimumLabelMass>1. ||
         !Policy->TryGetNumberField(TEXT("minimum_conditional_probability"),MinimumConditionalProbability) || !FMath::IsFinite(MinimumConditionalProbability) || MinimumConditionalProbability<.5 || MinimumConditionalProbability>1.) return false;
     auto* NIRParent=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Materials/M_WeldingNIRGrayscale.M_WeldingNIRGrayscale"));
+    if (bSealantCoverageCapture) {
+        TSharedPtr<FJsonObject> Study;
+        if (!FFileHelper::LoadFileToString(Text,*FPaths::Combine(FPaths::ProjectDir(),TEXT("../configs/sealant_coverage_experiment.json"))) ||
+            !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text),Study) || !Study ||
+            !String(Study,TEXT("version"),TEXT("automotive-sealant-coverage-study-v1"))) return false;
+        const auto Entry=Object(Object(Study,TEXT("stages")),TEXT("sealant_coverage")); FString Hash;
+        if (!Entry || !Entry->TryGetStringField(TEXT("prompt_sha256"),Hash) || Hash.Len()!=64) return false;
+        PromptHashes.Add(TEXT("sealant_coverage"),Hash); bModelRequestsEnabled=false;
+    }
     auto* ThermalParent=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Materials/M_PP_Thermal.M_PP_Thermal"));
     if (!NIRParent || !ThermalParent) return false;
     PreviewStamps.SetNum(6);
@@ -255,11 +267,13 @@ UTextureRenderTarget2D* ADarkFactoryProcessController::GetPreviewTexture(int32 S
     return PreviewStamps[Slot].Stage==Expected ? Targets[Slot].Get():nullptr;
 }
 FString ADarkFactoryProcessController::StageName() const {
+    if (bSealantCoverageCapture) return TEXT("sealant_coverage");
     static const TCHAR* Stages[]={TEXT("panel_presence"),TEXT("adhesive"),TEXT("panel_seated"),TEXT("weld")};
     return State.ActiveGate>=0 && State.ActiveGate<4 ? Stages[State.ActiveGate]:FString();
 }
 void ADarkFactoryProcessController::BeginBody() {
     CancelInspection();
+    CoolingRecovery.Reset();
     ++State.BodySequence; State.BodyId=FGuid::NewGuid().ToString(EGuidFormats::Digits);
     for (auto& Gate:State.Gates) Gate=EDarkFactoryGateState::Pending;
     for (auto& Step:State.Steps) Step=EDarkFactoryStepState::Pending;
@@ -271,6 +285,8 @@ void ADarkFactoryProcessController::BeginBody() {
 }
 void ADarkFactoryProcessController::EnterPhase(EDarkFactoryProcessPhase Phase) {
     CancelInspection();
+    CoolingRecovery.Reset();
+    if (Phase!=EDarkFactoryProcessPhase::Adhesive) ProcessScene->StopRecoveryCooling();
     const int32 Previous=static_cast<int32>(State.Phase);
     if (State.Steps[Previous]!=EDarkFactoryStepState::Pending && State.Steps[Previous]!=EDarkFactoryStepState::Skipped)
         State.Steps[Previous]=EDarkFactoryStepState::Complete;
@@ -311,6 +327,14 @@ void ADarkFactoryProcessController::Tick(float DeltaSeconds) {
         Offset=FMath::Lerp(0.,ADarkFactoryProcessScene::CarriageTravelCm,double(FMath::SmoothStep(0.f,1.f,State.PhaseProgress)));
     WeldingCell->SetAnimationEnabled(true);
     ProcessScene->ApplyAssemblyFrame(State.Phase,State.StageSeconds,State.ClockSeconds,Offset,true);
+    if (State.Phase==EDarkFactoryProcessPhase::Welding && DarkFactoryEnhancements::Enabled()) {
+        State.Message=TEXT("Pinch gun moving between contacts");
+        for (int32 I=0;I<ADarkFactoryWeldingCell::PanelWeldCount;++I) {
+            const double Age=State.StageSeconds-ADarkFactoryWeldingCell::PanelWeldStartSeconds(I);
+            if (Age>=-.15 && Age<.70) State.Message=FString::Printf(TEXT("Spot %d / 6: %s"),I+1,
+                Age<0 ? TEXT("electrode squeeze"):Age<.5 ? TEXT("current pulse"):Age<.58 ? TEXT("pressure hold"):TEXT("electrode release"));
+        }
+    }
     // Actions finish their authored motion before the next step receives a frame.
     // Camera gates never advance from a clock or scene ground-truth value.
     if (State.ActiveGate>=0 || Duration<=0 || State.StageSeconds<Duration) return;
@@ -336,6 +360,7 @@ void ADarkFactoryProcessController::Tick(float DeltaSeconds) {
 void ADarkFactoryProcessController::TogglePaused() {
     if (!bReady || bCaptureQA) return;
     State.bPaused=!State.bPaused; CancelInspection();
+    CoolingRecovery.Reset();
     WeldingCell->SetAnimationEnabled(!State.bPaused);
     State.ConsecutivePasses=0; State.ConsensusCode.Empty();
     if (State.ActiveGate>=0) State.Gates[State.ActiveGate]=EDarkFactoryGateState::Waiting;
@@ -343,6 +368,9 @@ void ADarkFactoryProcessController::TogglePaused() {
     NextInspection=FPlatformTime::Seconds()+.4; RecordEvent(TEXT("pause"));
 }
 void ADarkFactoryProcessController::CancelInspection() {
+    for (auto& Receipt:InspectionReceipts) if (Receipt.Id==ActiveRequestId && !Receipt.bComplete) {
+        Receipt.bComplete=true; Receipt.bValid=false; Receipt.Action=TEXT("Cancelled / discarded; no acceptance");
+    }
     if (Request.IsValid()) { Request->OnProcessRequestComplete().Unbind(); Request->CancelRequest(); Request.Reset(); }
     for (const auto& Light:NIRLights) if (Light) Light->SetVisibility(false);
     Readback.Cancel(); bCaptureActive=false; State.bRequestPending=false; ActiveRequestId.Empty();
@@ -551,6 +579,13 @@ void ADarkFactoryProcessController::SubmitBatch() {
             Row->SetNumberField(TEXT("dataset_seed"),QASeed);
             Row->SetStringField(TEXT("capture_recipe"),TEXT("panel-three-edge-contact-episodes-v12"));
         }
+        if (bSealantCoverageCapture) {
+            Row->SetStringField(TEXT("contract_version"),TEXT("automotive-sealant-coverage-study-v1"));
+            Row->SetStringField(TEXT("view_recipe"),TEXT("rigid-arm-preplacement-sealant-nir-v1"));
+            Row->SetStringField(TEXT("capture_recipe"),TEXT("sealant-coverage-episodes-v1"));
+            Row->SetStringField(TEXT("use"),TEXT("offline_experiment_only"));
+            Row->RemoveField(TEXT("thermal_recipe"));
+        }
         const FString Line=Json(Row)+LINE_TERMINATOR;
         if (!FFileHelper::SaveStringToFile(Line,*FPaths::Combine(OutputRoot,TEXT("manifest.jsonl")),FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM,&IFileManager::Get(),FILEWRITE_Append)) {
             bReady=false; UE_LOG(LogTemp,Error,TEXT("DF_PROCESS_CAPTURE_MANIFEST_WRITE_FAILED")); FPlatformMisc::RequestExitWithStatus(false,1); return;
@@ -567,7 +602,7 @@ void ADarkFactoryProcessController::SubmitBatch() {
         auto Image=MakeShared<FJsonObject>(); Image->SetStringField(TEXT("camera_id"),CameraIds[I]);
         Image->SetStringField(TEXT("png_base64"),FBase64::Encode(BatchImages[I])); Images.Add(MakeShared<FJsonValueObject>(Image));
     }
-    Payload->SetArrayField(TEXT("images"),Images); BatchImages.Reset();
+    Payload->SetArrayField(TEXT("images"),Images); RetainInspectionReceipt(); BatchImages.Reset();
     // Bounded QA-only replay evidence: four latest image-only requests. No
     // labels/temperatures are added, and interactive production does no disk IO.
     if (bModelQA) FFileHelper::SaveStringToFile(Json(Payload),*FPaths::Combine(OutputRoot,TEXT("qa_latest_")+CaptureStage+TEXT("_request.json")),FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
@@ -582,6 +617,7 @@ void ADarkFactoryProcessController::SubmitBatch() {
         FString Decision=TEXT("A"),Reason=TEXT("Model connection unavailable"),Backend=TEXT("Reason2 host GPU"); bool Valid=false;
         const double Age=FPlatformTime::Seconds()-Self->BatchStarted;
         float Latency=(FPlatformTime::Seconds()-Self->RequestStarted)*1000.f;
+        double Confidence=-1,Mass=-1; bool Bound=false;
         if (Success && Response.IsValid() && Response->GetResponseCode()==200 && Response->GetContentLength()<65536 && Age<Self->MaxCaptureAgeSeconds) {
             TSharedPtr<FJsonObject> Result;
             if (FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Response->GetContentAsString()),Result) && Result) {
@@ -612,6 +648,15 @@ void ADarkFactoryProcessController::SubmitBatch() {
                 }
                 Valid &= PolicyMatches;
                 if (Valid) {
+                    const TSharedPtr<FJsonObject>* Scores=nullptr;
+                    Bound=ScoringMethod==TEXT("gar-unmasked-topk-intervals-v1");
+                    if (Result->TryGetObjectField(Bound ? TEXT("conditional_label_lower_bounds"):TEXT("conditional_label_scores"),Scores) && Scores)
+                        (*Scores)->TryGetNumberField(Decision,Confidence);
+                    Result->TryGetNumberField(Bound ? TEXT("label_mass_lower_bound"):TEXT("label_mass"),Mass);
+                    if (!FMath::IsFinite(Confidence) || Confidence<0 || Confidence>1) Confidence=-1;
+                    if (!FMath::IsFinite(Mass) || Mass<0 || Mass>1) Mass=-1;
+                }
+                if (Valid) {
                     Self->LastModel.Empty(); Self->LastAdapter.Empty(); Self->LastBackendAlias.Empty(); Self->LastScoringMethod=ScoringMethod;
                     Result->TryGetStringField(TEXT("backend_alias"),Self->LastBackendAlias);
                     Result->TryGetStringField(TEXT("model"),Self->LastModel);
@@ -622,13 +667,17 @@ void ADarkFactoryProcessController::SubmitBatch() {
             }
         } else if (Age>=Self->MaxCaptureAgeSeconds) Reason=TEXT("Stale model result discarded");
         Self->ActiveRequestId.Empty(); Self->ApplyDecision(Decision,Valid,Reason,Latency,Backend);
+        Self->CompleteInspectionReceipt(Id,Valid,Decision,Latency,Confidence,Mass,Bound);
     });
     if (Request->ProcessRequest()) ++ModelRequestsSubmitted;
-    else { Request.Reset(); State.bRequestPending=false; ApplyDecision(TEXT("A"),false,TEXT("Cannot start model request"),0,State.Backend); }
+    else { Request.Reset(); State.bRequestPending=false; ApplyDecision(TEXT("A"),false,TEXT("Cannot start model request"),0,State.Backend);
+        CompleteInspectionReceipt(Id,false,TEXT("A"),0,-1,-1,false); ActiveRequestId.Empty(); }
 }
 void ADarkFactoryProcessController::ApplyDecision(const FString& Code,bool Valid,const FString& Reason,float Latency,const FString& Backend) {
     if (State.ActiveGate<0 || State.bPaused) return;
     Valid &= Code==TEXT("G") || Code==TEXT("A") || Code==TEXT("R");
+    if (CoolingRecovery.Observe(Valid,Code,State.Phase==EDarkFactoryProcessPhase::Adhesive)
+        && ProcessScene->StartRecoveryCooling()) RecordEvent(TEXT("model_rejections_activated_local_cooling"));
     State.Decision=Valid ? Code:TEXT("A"); State.LastLatencyMs=Latency; State.Backend=Backend;
     State.bRequestPending=false; NextInspection=FPlatformTime::Seconds()+.75;
     const int32 Step=static_cast<int32>(State.Phase);
@@ -671,6 +720,7 @@ void ADarkFactoryProcessController::ApplyDecision(const FString& Code,bool Valid
         State.Steps[Step]=SeatingException ? EDarkFactoryStepState::Exception:EDarkFactoryStepState::Hold;
         State.Message=SeatingException ? TEXT("Panel seating exception; holder remains engaged and motion is held"):
             Code==TEXT("R") ? TEXT("Thermal area remains hot; holding and reinspecting"):TEXT("Insufficient visual evidence; holding and reinspecting");
+        if (ProcessScene->IsRecoveryCooling()) State.Message=TEXT("Local cooling active after model rejection; holding for two fresh G scans");
     }
     RecordEvent(TEXT("decision"));
 }
@@ -759,6 +809,17 @@ TSharedRef<FJsonObject> ADarkFactoryProcessController::BuildMetadata() const {
     Report->SetArrayField(TEXT("inspection_captures"),InspectionCaptures);
     if (WeldingCell.IsValid()) Report->SetObjectField(TEXT("inspection_scan"),WeldingCell->GetInspectionScanMetadata());
     Report->SetNumberField(TEXT("model_http_requests"),static_cast<double>(ModelRequestsSubmitted));
+    TArray<TSharedPtr<FJsonValue>> Receipts;
+    for (const auto& Receipt:InspectionReceipts) {
+        auto Row=MakeShared<FJsonObject>(); Row->SetStringField(TEXT("request_id"),Receipt.Id);
+        Row->SetStringField(TEXT("body_id"),Receipt.Body); Row->SetStringField(TEXT("stage"),Receipt.Stage);
+        Row->SetStringField(TEXT("decision"),Receipt.Decision); Row->SetStringField(TEXT("action"),Receipt.Action);
+        Row->SetBoolField(TEXT("valid"),Receipt.bValid); Row->SetBoolField(TEXT("complete"),Receipt.bComplete);
+        Row->SetNumberField(TEXT("images"),Receipt.Images.Num()); Row->SetNumberField(TEXT("latency_ms"),Receipt.LatencyMs);
+        Row->SetNumberField(TEXT("conditional_score"),Receipt.Confidence); Row->SetNumberField(TEXT("label_mass"),Receipt.LabelMass);
+        Receipts.Add(MakeShared<FJsonValueObject>(Row));
+    }
+    Report->SetArrayField(TEXT("observer_inspection_receipts"),Receipts);
     Report->SetBoolField(TEXT("sensor_resources_ready"),bSensorResourcesReady);
     Report->SetNumberField(TEXT("sensor_startup_wait_seconds"),SensorResourcesReadyAt>0 ? SensorResourcesReadyAt-SessionStarted:0.);
     Report->SetNumberField(TEXT("ground_truth_fields_sent_to_model"),0); Report->SetNumberField(TEXT("legacy_bridge_requests"),0);
@@ -802,7 +863,11 @@ void ADarkFactoryProcessController::CaptureQATick() {
     else if (Kind==4) { State.Phase=EDarkFactoryProcessPhase::PanelSeated; CaseIndex=Episode%4; }
     else { State.Phase=EDarkFactoryProcessPhase::WeldCooling; CaseIndex=Kind-5; }
     State.ActiveGate=GateForPhase(State.Phase);
-    if (!ProcessScene->PrepareCapture(StageName(),CaseIndex,QASeed*6151+Episode*71+Kind,State.ClockSeconds)) {
+    if (bSealantCoverageCapture) { State.Phase=EDarkFactoryProcessPhase::PanelPresence; State.ActiveGate=0; }
+    const bool Prepared=bSealantCoverageCapture
+        ? ProcessScene->PrepareSealantCoverageCapture(Kind,QASeed*6151+Episode*71+Kind,State.ClockSeconds)
+        : ProcessScene->PrepareCapture(StageName(),CaseIndex,QASeed*6151+Episode*71+Kind,State.ClockSeconds);
+    if (!Prepared) {
         bReady=false; UE_LOG(LogTemp,Error,TEXT("DF_PANEL_CAPTURE_PREPARATION_FAILED case=%d"),CaptureCase);
         FPlatformMisc::RequestExitWithStatus(false,1); return;
     }

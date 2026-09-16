@@ -1,0 +1,21 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "1.0",
+  "FriendlyName": "Dark Factory Authoring",
+  "Description": "Persistent preview recipes and project-specific MCP tools; production builders own scene geometry.",
+  "Category": "Editor",
+  "EditorOnly": true,
+  "CanContainContent": true,
+  "EnabledByDefault": false,
+  "Plugins": [
+    {"Name": "PythonScriptPlugin", "Enabled": true},
+    {"Name": "ToolsetRegistry", "Enabled": true},
+    {"Name": "ModelContextProtocol", "Enabled": true},
+    {"Name": "EditorToolset", "Enabled": true},
+    {"Name": "AutomationTestToolset", "Enabled": true},
+    {"Name": "SlateInspectorToolset", "Enabled": true},
+    {"Name": "NiagaraToolsets", "Enabled": true},
+    {"Name": "PhysicsToolsets", "Enabled": true}
+  ]
+}

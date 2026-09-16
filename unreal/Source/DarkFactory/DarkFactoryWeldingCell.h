@@ -67,6 +67,7 @@ public:
     // Explicit model-gated process mode; legacy preview/QA retains its original cycle.
     void SetProcessControlled(bool Enabled);
     void SetProcessMotorCaptureVariation(int32 Seed);
+    TSharedRef<FJsonObject> BuildEquipmentHeatMetadata() const;
     bool IsProcessControlled() const { return bProcessControlled; }
     void BeginProcessBody(int32 BodyIndex,double ClockSeconds);
     void SetProcessFrame(double PoseSeconds,double ClockSeconds,double CarriageOffsetCm,bool Visible,bool PermitWelding,double InspectionExtension=1.);
@@ -185,6 +186,18 @@ private:
     bool InitializeMotorHeat();
     void UpdateMotorHeat(double Seconds,double IdleSeconds=0);
     void UpdateProcessMotorHeat();
+    void InitializeEquipmentHeat();
+    void UpdateEquipmentHeat();
+    struct FEquipmentHeatSegment { FVector Start,End; float Radius=1; };
+    struct FEquipmentHeatGroup {
+        TWeakObjectPtr<UStaticMeshComponent> Mesh;
+        FString Role;
+        TArray<FEquipmentHeatSegment> Segments;
+    };
+    TArray<FEquipmentHeatGroup> EquipmentHeatGroups;
+    double EquipmentHeatClock=-1,EquipmentPreviousOffset=0;
+    float CarriageMotorC=26,CabinetSurfaceC=34,CarriageDriveActivity=0;
+    bool bEquipmentPreviousVisible=false;
     double EvaluateMotorTemperature(const FMotorHeatRig& Rig,double Seconds,double IdleSeconds=0) const;
     bool CheckMotorHeatModel();
     TArray<FMotorHeatRig> MotorHeatRigs;
@@ -209,7 +222,8 @@ private:
     void BuildRobotHeatCurves();
     double EvaluateToolTemperature(int32 RobotIndex,const FToolHeatCurve& Curve,double Seconds) const;
     struct FHoseAnchor { TWeakObjectPtr<USceneComponent> Joint; FVector LocalPosition = FVector::ZeroVector; };
-    struct FHoseRig { TArray<FHoseAnchor> Anchors; TArray<TWeakObjectPtr<USplineMeshComponent>> Sections; };
+    struct FHoseRig { TArray<FHoseAnchor> Anchors; TArray<TWeakObjectPtr<USplineMeshComponent>> Sections;
+        TArray<TWeakObjectPtr<UStaticMeshComponent>> Collars; };
     struct FBodyWeldSpot {
         FString Id;
         TWeakObjectPtr<UStaticMeshComponent> Mesh;
@@ -280,11 +294,15 @@ private:
     FTransform PinchMount;
     double PinchClampAngle=0,PinchOpenAngle=14,PinchCurrentAngle=14;
     void UpdatePinchGun();
+    void UpdateGripperCompression();
+    struct FGripCompression { TWeakObjectPtr<UStaticMeshComponent> Mesh; FVector Contact,Normal; double Diameter=8; };
+    TArray<FGripCompression> GripCompression;
     void BindPanelSharedProfiles();
     double InspectionTargetAngle(int32 Spot,int32 Joint) const;
     TArray<TWeakObjectPtr<UStaticMeshComponent>> PanelSupplyMeshes;
     FTransform PanelHeldOffset,PanelInspectionMount;
     TArray<TArray<double>> PanelAssemblyPoses;
+    TArray<TArray<double>> PanelLoweringPoses;
     TArray<TArray<double>> PanelWelderWaypoints,PanelAdhesiveWaypoints,PanelHolderWaypoints,PanelWeldCrossPoses,PanelWeldPoses;
     TArray<TArray<double>> PanelInspectionPoses,PanelNIRInspectionPoses,PanelAdhesiveInspectionPoses;
     TArray<TArray<double>> PanelAdhesiveStrokePoses,PanelAdhesivePathProgress;

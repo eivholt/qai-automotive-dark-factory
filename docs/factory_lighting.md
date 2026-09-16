@@ -2,6 +2,10 @@
 
 Tab / Xbox Y cycles four observer views: dim visible, NIR, thermal, bright factory, then dim visible again. Bright factory mode switches on the overhead fluorescent-style banks. They start at different times, briefly flicker, and settle to steady illumination after about 1.5 seconds. Returning to another mode switches the banks off; entering bright factory again restarts the sequence.
 
+Interactive launcher and Editor Play start in dim visible mode with the headlamp
+off. L opts into the headlamp; roof lighting remains the last Tab/Y state. An
+explicit `-ProcessObserverMode` selection overrides the starting view.
+
 The headlamp emits only in dim visible mode. L changes its requested state outside bright mode and is ignored while the roof banks are on. Bright factory mode suppresses its emission while preserving that preference, so returning to dim visible restores the requested lamp state. This gives the observer separate controls for local light and general factory illumination.
 
 With the roof banks off, visible illumination uses 70% of its former output:
@@ -20,7 +24,7 @@ observer-NIR cooling/reset screenshot failures that did not recur; the cause
 is not established. Evidence is private under `artifacts/dim-light-v1` and
 `artifacts/dim-light-legacy-v1/v2`; no threshold was relaxed. Unreal is closed.
 
-Six banks provide eighteen fluorescent-style tubes and six grouped lights. Each bank uses an instanced tube mesh, a housing mesh and one downward rect light: twelve mesh components and six unshadowed direct lights total. The imported cell uses 1,800 authored lumens per bank; the smaller procedural cell uses 720. Both the direct lights and visible tube emission are reduced by 10% from the original settings; the startup timing is unchanged. All banks stop ticking once steady or off. These settings were adjusted against the renderer and are not measured factory illuminance. They illuminate visible channel 0. The fixture meshes are observer-only and hidden from fixed scene captures; they neither write thermal custom depth nor alter the sensor geometry. Fixed active-NIR illumination remains on its own channel, and the thermal camera continues to use authored surface-temperature profiles. Startup is a deterministic visual envelope; lamp temperatures and electrical behavior are outside this approximation. The lighting control does not enable imported-scene inference or training.
+Six banks provide eighteen fluorescent-style tubes and six grouped lights. Each bank uses an instanced tube mesh, a housing mesh and one downward rect light: twelve mesh components and six unshadowed direct lights total. The imported cell uses 1,200 authored lumens per bank; the smaller procedural cell uses 480. Both the direct lights and visible tube emission are at 60% of the original settings (one third lower than the previous revision); the startup timing is unchanged. All banks stop ticking once steady or off. These settings were adjusted against the renderer and are not measured factory illuminance. They illuminate visible channel 0. The fixture meshes are observer-only and hidden from fixed scene captures; they neither write thermal custom depth nor alter the sensor geometry. Fixed active-NIR illumination remains on its own channel, and the thermal camera continues to use authored surface-temperature profiles. Startup is a deterministic visual envelope; lamp temperatures and electrical behavior are outside this approximation. The lighting control does not enable imported-scene inference or training.
 
 ## Native verification
 

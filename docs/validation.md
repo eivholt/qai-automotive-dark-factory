@@ -1,8 +1,73 @@
 # Validation and evidence
 
-This page separates the current six-weld refinement from historical two-bead panel-v3 results from the earlier procedural starter reports. Numbers below are recorded local results from 14 September 2026; updating this documentation does not rerun the fixtures or retrain the model. Private images, datasets, weights, runtime packages and detailed artifact reports are not distributed in this repository.
+This page separates current implementation checks from historical model results.
+Updating documentation does not rerun fixtures or retrain the model. Private
+images, datasets, weights, runtime packages and detailed reports are not distributed.
+See [current progress](progress.md) and [model provenance](model_classification.md).
 
-## Current six-weld refinement
+## Second enhancement pass — 16 September 2026
+
+The UE 5.8 build and 124 Python tests pass. The new coverage-contract isolation
+tests reject production/study crossover and prompt/policy drift. Rendered
+graphics isolation retains 2,012 checks. Thermal radiometry, fields and transport
+checks pass after the shared surface-evaluation refactor. The additional
+reflection fixture measures 2,344 warmed receiver pixels, zero when the emitter
+is hidden, and zero receiver variation at emissivity one.
+
+The initial wrist tilt failed the lateral placement audit. The replacement
+51-pose fitted path passes the rendered motion fixture, all 56 mounting-frame
+checks and 3,271 pinch checks without relaxing tolerances. Evidence is private
+under `artifacts/enhancement-rest-motion-corrected` and
+`artifacts/thermal-reflection-fixture-final`.
+
+The final actual-host run with enhanced equipment/replay and corrected lowering
+completed three bodies, 27 requests and six thermal acceptance audits; R4 telemetry
+passed 5,248 checks and live curtains 27 checks. The 104-check policy suite and
+all nine legacy welding suites also pass. Eight complete, unique replay receipts
+each retain three images. The
+separate coverage feasibility study was unsuccessful (seven false G responses
+against provisional labels in 16 development examples), so no new live gate is
+enabled. See [implementation details and remaining work](enhancement_second_pass.md).
+
+Final evidence: `artifacts/enhancement-rest-process-final`,
+`enhancement-rest-policy-final`, `enhancement-rest-legacy-final`,
+`equipment-details-closeups` and the motion/thermal directories above. Actual
+equipment, placement, reflection and replay screenshots were reviewed and shown
+in chat. Blender and Unreal were stopped afterward. No new held-out model
+accuracy or calibrated thermal-reflection performance is claimed.
+
+## Earlier implementation checks — 15 September 2026
+
+The later opt-in enhancement pass also passed 100 native policy checks,
+3,271 pinch checks, 56 mounting-frame checks, 681 realism checks and the nine
+legacy welding suites. Its final actual-host cooling-recovery run completed
+three bodies with 28 requests and six thermal acceptance audits; R4 telemetry
+passed 5,442 checks. Graphics retained all 2,012 checks and four identical
+baseline sensor hashes. See the [enhancement roadmap](enhancement_roadmap.md)
+for the explicit switches and private evidence locations.
+
+| Evidence | Recorded result | Scope |
+| --- | --- | --- |
+| Latest material revision | UE 5.8 build and 121 Python tests passed | Build/contracts; no new model evaluation |
+| Persistent Editor authoring | 21 rendered lifecycle checks passed | Pose/bookmark persistence, reload and Play/Stop isolation; live MCP calls verified |
+| Observer graphics | 2,012 checks passed | Fixed/R4 sensor parity across observer graphics modes |
+| Before/after material baseline | Four sensor PNG hashes match the earlier dim-light fixture | Fixed NIR/thermal and R4 NIR/thermal preservation across the change |
+| Imported welding | Native WeldingSmoke and nine follow-up suites passed | Motion, effects, cooling, thermal fields and lighting |
+| Material close-ups | Hose and gripper A/B captures reviewed | Visible finish; no measured frame-time improvement |
+| Permanent-frame model integration | Three bodies and six thermal audits in 180.24 s | Existing adapters, not independent accuracy |
+| Subsequent Editor process integration | Three bodies, 23 requests and six thermal audits in 179.24 s | Actual model-controlled sequence with Editor-era scene |
+
+Private recent evidence is under `artifacts/unreal-mcp-authoring`,
+`artifacts/industrial-finish-graphics-v1`, `artifacts/industrial-finish-legacy-v1`
+and `artifacts/industrial-finish-closeups`. Earlier Editor evidence is under
+`artifacts/editor-workflow-v1` and `artifacts/editor-process-v1`.
+
+Current host routing is shared960 for presence/sealant/seating and shared896 for
+weld. Its 191/192 development decisions predate the permanent mounting frame;
+no new held-out result is claimed for the final scene. Historical scores below
+must not be used as current-geometry accuracy or IQ9 performance evidence.
+
+## Historical six-weld refinement
 
 The Unreal build and 109 Python tests pass. Native policy passes 91 checks without model requests. Motion QA captures 38 checkpoints, including all six weld pulses, plate-free EVKs and the corrected NIR withdrawal. Camera/PNG QA passes 127,778 checks; thermal QA checks 1,404 targets across train/validation, including every weld pair. A final 8-episode capture keeps all 192 PNGs byte-identical after the withdrawal route change. Procedural thermal/spatial/transfer checks, nine legacy welding suites and 681 realism checks pass. Selected shared448 at 0.98 confidence scores 95/96 development decisions, with zero false G and one cool-weld hold. The actual three-body run passes all six thermal audits, 5,636 camera checks and 27 live-curtain checks. Read the [current model guide](model_classification.md) for provenance and timing.
 
@@ -145,3 +210,19 @@ All four local mock bridge reactions (G/A/R/disconnected) also pass with both ca
 The spatial update passes 55 additional GPU field checks and all 42 thermal regressions. The normal-case body centre is approximately 8.4 °C warmer than both sampled edges. From cooling age 15 to 45 seconds the rib loses about 74% of its heat excess above ambient, versus 12% for the body, while powered heaters remain unchanged. Object-local samples remain stable after translation and rotation. [Spatial evidence](thermal_fields_validation.json) records the actual images, ID-filtered measurements and source hashes. NIR visual and asynchronous readback regressions and all 34 Python tests also pass. No calibrated thermal accuracy or GPU speedup claim is made.
 
 All four local mock bridge reactions also pass with spatial thermal fields active, with no synchronous live readbacks or CPU preview uploads. This validates existing NIR transport/reactions, not thermal model accuracy.
+
+## Roof lighting and equipment heat — 16 September 2026
+
+UE 5.8 build and 124 Python tests passed. The focused rendered
+`artifacts/equipment-heat-v4` fixture verifies motor core heating from 26 to
+49.67 C, exact pause retention, cooling to 22.44 C after 60 seconds stopped,
+localized cabinet heat and byte-identical fixed NIR images. Motor/cabinet
+closeups and the lower-output roof view were visually reviewed.
+`equipment-heat-graphics-v1` passes 2,012 checks; `equipment-heat-legacy-v1`
+passes all nine welding suites including factory lighting and motor heat.
+`equipment-heat-process-v1` completes three actual-model departures and all six
+thermal audits. This is integration evidence, not new held-out accuracy.
+
+## Rounded sparks, EVK blinking, camera support and dark startup
+
+UE 5.8 build and 124 Python tests passed. Rendered panel motion passed 63 checkpoints; pinch/frame checks passed 3,271/56. All nine welding suites passed, including green LED animation and rendered green/amber pulse closeups. Graphics isolation passed all 2,012 checks. Actual input verified dark startup with headlamp off, Tab order 0/1/2/3/0 and L activation. The host-model integration passed assembly/preassembled/assembly with three departures, six thermal acceptance audits and 5,248 camera checks. This is integration evidence, not a new held-out accuracy result. Private evidence: `artifacts/visual-refinement-{motion-v1,legacy-final,graphics-v1,startup,process-v1}`. Screenshots were reviewed and shown in chat; Unreal was closed afterwards.

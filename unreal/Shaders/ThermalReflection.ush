@@ -1,0 +1,56 @@
+// Observer-only, one-bounce screen-space LWIR appearance experiment.
+// First visible depth crossing stops the ray, including unregistered blockers.
+// A miss contributes the existing ambient reflection. No hidden/off-screen heat.
+float3 Dx=ddx(WorldPositionCm), Dy=ddy(WorldPositionCm);
+if (ThermalReflections > 0.5 && VisibleId > 0.0)
+{
+    float Emissivity=saturate(ThermalLUT.Load(int3((int)VisibleId,15,0)).a);
+    float Reflectivity=1.0-Emissivity;
+    if (Reflectivity > 0.035)
+    {
+        float3 N=normalize(cross(Dx,Dy));
+        float3 V=normalize(CameraPositionCm-WorldPositionCm);
+        N*=dot(N,V)<0.0 ? -1.0:1.0;
+        float3 Ray=reflect(-V,N);
+        float3 Start=TranslatedPositionCm+N*0.6;
+        float PreviousDistance=0.0;
+        [loop] for (int Step=1;Step<=24;++Step)
+        {
+            float Distance=Step*Step*0.52; // 0.5 cm to 3 m, denser near contact
+            float3 P=Start+Ray*Distance;
+            float4 Clip=mul(float4(P,1),View.TranslatedWorldToClip);
+            if (Clip.w<=0.0) break;
+            float2 Screen=Clip.xy/Clip.w;
+            if (any(abs(Screen)>=0.985)) break;
+            float2 UV=Screen*View.ScreenPositionScaleBias.xy+View.ScreenPositionScaleBias.wz;
+            float Depth=SceneTextureLookup(UV,1,false).r;
+            float Behind=Clip.w-Depth;
+            if (Behind>=0.0)
+            {
+                // Reject disocclusion and coarse-ray jumps across deep surfaces.
+                if (Behind<max(1.0,(Distance-PreviousDistance)*1.2))
+                {
+                    float HitDepth=SceneTextureLookup(UV,13,false).r;
+                    float HitId=SceneTextureLookup(UV,25,false).r;
+                    float3 HitWorld=CameraPositionCm+(WorldPositionCm-CameraPositionCm+N*0.6+Ray*Distance)*(Depth/Clip.w);
+                    float HitVisible=0;
+                    float ReflectedC=SurfaceEvaluation.Evaluate(ThermalLUT,HitWorld,HitId,Depth,HitDepth,ThermalAmbientC,ThermalDepthToleranceCm,ThermalSpatialEnabled,ThermalTransferEnabled,HitVisible);
+                    if (HitVisible>0 && HitVisible!=VisibleId)
+                    {
+                        // Closed-form 11 um Planck proxy. This display path is
+                        // not the model's calibrated 8–14 um band-integrated LUT.
+                        float C2=14387.77/11.0;
+                        float L=rcp(exp(C2/max(ApparentC+273.15,1.0))-1.0);
+                        float Incoming=rcp(exp(C2/max(ReflectedC+273.15,1.0))-1.0);
+                        float Ambient=rcp(exp(C2/max(ThermalAmbientC+273.15,1.0))-1.0);
+                        float EdgeFade=saturate((0.985-max(abs(Screen.x),abs(Screen.y)))*20.0);
+                        L=max(1e-8,L+Reflectivity*EdgeFade*(Incoming-Ambient));
+                        ApparentC=C2/log(1.0+rcp(L))-273.15;
+                    }
+                }
+                break;
+            }
+            PreviousDistance=Distance;
+        }
+    }
+}

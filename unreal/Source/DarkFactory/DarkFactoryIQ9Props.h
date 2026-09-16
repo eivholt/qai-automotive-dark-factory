@@ -10,6 +10,7 @@ class UMaterialInstanceDynamic;
 class UPointLightComponent;
 class UStaticMesh;
 class UStaticMeshComponent;
+struct FDarkFactoryLedClockQA;
 
 /** Prior local IQ9 EVK appearance reused as four fixed-base junction-cover props, not live EVK telemetry. */
 UCLASS()
@@ -46,8 +47,11 @@ private:
     TArray<bool> LedStates;
     bool bInitialized=false,bEnabled=true;
     double LedTimeOverride=-1,AppliedLedSeconds=0;
+    bool bLiveClockSmoke=false;
+    TSharedPtr<FDarkFactoryLedClockQA> LedClockQA;
     FString SourceManifest;
     UStaticMeshComponent* AddMesh(const FString& Name,USceneComponent* Parent,UStaticMesh* Mesh,
         UMaterialInterface* Material,const FVector& Position,const FRotator& Rotation,const FVector& Scale,bool Shadow);
     void UpdateLeds();
+    void LiveClockSmokeTick();
 };

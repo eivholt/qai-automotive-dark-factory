@@ -148,6 +148,9 @@ def thermal_fallback():
 def rebuild_thermal(path, source_name, is_ui, fallback):
     common = (SHADER_ROOT / 'ThermalCommon.ush').read_text(encoding='utf-8-sig')
     body = (SHADER_ROOT / source_name).read_text(encoding='utf-8-sig')
+    if source_name == 'ThermalPostProcess.usf':
+        common += '\n' + (SHADER_ROOT / 'ThermalSurfaceEvaluation.ush').read_text()
+        body = body.replace('// REFLECTION_BLOCK', (SHADER_ROOT / 'ThermalReflection.ush').read_text())
     if 'struct FDarkFactoryThermal' not in common or 'return Thermal.Palette' not in body:
         raise RuntimeError(f'Thermal shader sources missing or incomplete: {source_name}')
     code = common + '\n' + body
@@ -171,8 +174,9 @@ def rebuild_thermal(path, source_name, is_ui, fallback):
         'ThermalSpatialEnabled': 1.0,
         'ThermalTransferEnabled': 1.0,
         'ThermalDebugIds': 0.0,
+        'ThermalReflections': 0.0,
     }
-    names = (['SensorImage', 'UV'] if is_ui else ['SceneDepthCm', 'SurfaceDepthCm', 'SurfaceId', 'ThermalLUT', 'WorldPositionCm']) + list(defaults)
+    names = (['SensorImage', 'UV'] if is_ui else ['SceneDepthCm', 'SurfaceDepthCm', 'SurfaceId', 'ThermalLUT', 'WorldPositionCm', 'CameraPositionCm', 'TranslatedPositionCm']) + list(defaults)
     inputs = []
     for name in names:
         entry = unreal.CustomInput()
@@ -193,6 +197,11 @@ def rebuild_thermal(path, source_name, is_ui, fallback):
         # material; Unreal handles viewport offsets and resolution differences.
         world = expression(material, unreal.MaterialExpressionWorldPosition, -850, 380)
         connect(world, 'XYZ', custom, 'WorldPositionCm')
+        camera = expression(material, unreal.MaterialExpressionCameraPositionWS, -850, 500)
+        connect(camera, '', custom, 'CameraPositionCm')
+        translated = expression(material, unreal.MaterialExpressionWorldPosition, -850, 620)
+        translated.set_editor_property('world_position_shader_offset', unreal.WorldPositionIncludedOffsets.WPT_CAMERA_RELATIVE)
+        connect(translated, 'XYZ', custom, 'TranslatedPositionCm')
         for index, (name, texture_id) in enumerate((
             ('SceneDepthCm', unreal.SceneTextureId.PPI_SCENE_DEPTH),
             ('SurfaceDepthCm', unreal.SceneTextureId.PPI_CUSTOM_DEPTH),
@@ -255,6 +264,9 @@ rebuild_thermal('/Game/Materials/M_UI_Thermal', 'ThermalSensorUI.usf', is_ui=Tru
 # Keep effects independently reproducible without importing this entire generator.
 runpy.run_path(str(Path(__file__).with_name('setup_panel_sealant.py')), run_name='__main__')
 runpy.run_path(str(Path(__file__).with_name('setup_panel_tool_material.py')), run_name='__main__')
+runpy.run_path(str(Path(__file__).with_name('setup_industrial_materials.py')), run_name='__main__')
+runpy.run_path(str(Path(__file__).with_name('setup_factory_context.py')), run_name='__main__')
+runpy.run_path(str(Path(__file__).with_name('setup_hose_sleeve.py')), run_name='__main__')
 runpy.run_path(str(Path(__file__).with_name('setup_welding_effects.py')), run_name='__main__')
 runpy.run_path(str(Path(__file__).with_name('setup_welding_smoke.py')), run_name='__main__')
 runpy.run_path(str(Path(__file__).with_name('setup_welding_nir.py')), run_name='__main__')
@@ -283,5 +295,3 @@ if not assets.does_asset_exist(MAP):
     levels.save_current_level()
 unreal.log('DF_CONTENT_READY: factory assets, night-vision and thermal materials ready')
 runpy.run_path(str(Path(__file__).with_name('setup_editor_map.py')), run_name='__main__')
-
-

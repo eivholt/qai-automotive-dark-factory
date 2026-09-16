@@ -12,6 +12,21 @@
   ],
   "Plugins": [
     {
+      "Name": "DarkFactoryAuthoring",
+      "Enabled": true,
+      "TargetAllowList": ["Editor"]
+    },
+    {
+      "Name": "ModelContextProtocol",
+      "Enabled": true,
+      "TargetAllowList": ["Editor"]
+    },
+    {
+      "Name": "AllToolsets",
+      "Enabled": false,
+      "TargetAllowList": ["Editor"]
+    },
+    {
       "Name": "PythonScriptPlugin",
       "Enabled": true
     },

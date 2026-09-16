@@ -1,0 +1,17 @@
+// Observer-visible finish only. Bit 8 is cleared on every scene capture.
+// Legacy values remain exact, including the flat tangent-space normal.
+if ((View.PostVolumeUserFlags & 256) == 0)
+{
+    NormalOut = float3(0, 0, 1);
+    RoughnessOut = Roughness;
+    return BaseColor;
+}
+NormalOut = normalize(float3(SurfaceNormal.xy * 0.45, SurfaceNormal.z));
+RoughnessOut = clamp(Roughness * (0.65 + 0.45 * ORM.g), 0.16, 0.98);
+// Sub-pixel filtered machining grain on metallic fittings; no frame noise.
+float phase = UV.x * 420.0;
+float resolved = saturate(1.0 - fwidth(phase) * 0.35);
+float brushed = sin(phase) * resolved * saturate(Metallic);
+RoughnessOut = clamp(RoughnessOut + brushed * 0.055, 0.16, 0.98);
+// Retain authored rubber/metal tint; texture adds subtle material variation.
+return BaseColor * lerp(0.72, 1.18, saturate(Albedo)) * (1.0 + brushed * 0.025);

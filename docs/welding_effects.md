@@ -81,3 +81,7 @@ The recorded spark actor live-tick sample covered 1,021 calls, with 0.890 ms mea
 The same render passed the existing tool-cooling 129, body-heat 352, imported-field 1,459, factory-lighting 2,269, choreography 348 and motor-heat 1,071 checks. Separate procedural regressions also passed: exact async/reference PNG parity with stale-capture rejection, 20 night-vision image checks, and mock G/A/R/error handling with asynchronous capture. Their report is `artifacts/procedural-regression-v4/summary.json`. Private reports and comparison images are under `artifacts/welding-effects-v4`, including `welding_effects_validation.json`, `production_validation.json`, `welding-phases-comparison.jpg` and `welding-smoke-comparison.jpg`.
 
 Purchased assets, generated Unreal packages, screenshots and detailed diagnostics remain private; this repository publishes code and tutorial material only.
+
+## Rounded spark geometry
+
+Spark instances use one startup-built 48-triangle rounded mesh instead of cubes. Velocity stretch produces tapered streaks, and resting particles become round droplets. The bounded particle pool, temperature bins, collision sweeps, cooling and emissive fades are unchanged. Rendering stays opaque and GPU-instanced, preserving consistent visible/NIR/thermal silhouettes without translucent sorting. Roof fixtures retain their existing meshes and shared emissive material.

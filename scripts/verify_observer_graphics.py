@@ -52,7 +52,7 @@ def verify(directory: Path) -> dict:
         check(name+"_actual_nvidia_upscaler", ("DLSS" in sample.get("actual_temporal_upscaler", "")) is dlss)
         check(name+"_lumen_effective", sample.get("lumen_enabled") is lumen)
         exposure = sample.get("observer_exposure_ev")
-        check(name+"_observer_only_exposure", type(exposure) in (int, float) and math.isfinite(exposure) and abs(exposure - (-.7 if mode == 3 and lumen else 0)) < 1e-5)
+        check(name+"_observer_only_exposure", type(exposure) in (int, float) and math.isfinite(exposure) and abs(exposure - (-1.2 if mode == 3 and lumen else 0)) < 1e-5)
         check(name+"_hwrt_effective", sample.get("hardware_rt_enabled") is rt)
         check(name+"_actual_raytracing_view", sample.get("actual_view_ray_tracing_allowed") is rt)
         pct = sample.get("screen_percentage")

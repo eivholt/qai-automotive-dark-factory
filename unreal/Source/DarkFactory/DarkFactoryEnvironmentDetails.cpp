@@ -1,4 +1,5 @@
 #include "DarkFactoryEnvironmentDetails.h"
+#include "DarkFactoryEnhancements.h"
 #include "DarkFactoryWeldingCell.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Dom/JsonObject.h"
@@ -193,6 +194,7 @@ bool ADarkFactoryEnvironmentDetails::Initialize(ADarkFactoryWeldingCell* Cell) {
         FFeature Feature; Feature.Name=Name; Features.Add(Feature);
     }
     BuildFloor(); BuildServices(); BuildExtraction();
+    if (DarkFactoryEnhancements::Enabled()) BuildFactoryContext();
     bInitialized=bFinite && TotalInstances>0;
     SetActorHiddenInGame(true); // Root enables live/new QA only; legacy captures stay unchanged.
     UE_LOG(LogTemp,Display,TEXT("DF_ENVIRONMENT_DETAILS_READY valid=%d instances=%d batches=%d"),bInitialized,TotalInstances,Batches.Num());
@@ -202,10 +204,39 @@ void ADarkFactoryEnvironmentDetails::SetEnabled(bool Enabled) {
     if (!bInitialized || bEnabled==Enabled) return;
     bEnabled=Enabled; SetActorHiddenInGame(!Enabled);
     for (const auto& Mesh:Batches) Mesh->SetVisibility(Enabled);
+    for (const auto& Mesh:ContextBatches) Mesh->SetVisibility(Enabled);
+}
+void ADarkFactoryEnvironmentDetails::BuildFactoryContext() {
+    const TCHAR* Names[]={TEXT("Shell"),TEXT("Roof"),TEXT("Floor"),TEXT("RackFrame"),TEXT("RackShelf")};
+    const TCHAR* Finishes[]={TEXT("Wall"),TEXT("Roof"),TEXT("Floor"),TEXT("Rack"),TEXT("Rack")};
+    for (int32 I=0;I<5;++I) {
+        const FString Name=FString(TEXT("SM_Context"))+Names[I];
+        auto* Shape=LoadObject<UStaticMesh>(nullptr,*FString::Printf(TEXT("/Game/FactoryContext/%s.%s"),*Name,*Name));
+        auto* Finish=LoadObject<UMaterialInterface>(nullptr,*FString::Printf(TEXT("/Game/FactoryContext/M_Context%s.M_Context%s"),Finishes[I],Finishes[I]));
+        if (!Shape || !Finish) continue; // Optional local assets; preserve code-only checkouts.
+        auto* Part=NewObject<UInstancedStaticMeshComponent>(this,*Name);
+        Part->SetupAttachment(SceneRoot); Part->SetMobility(EComponentMobility::Movable);
+        Part->SetStaticMesh(Shape);
+        for (int32 Slot=0;Slot<FMath::Max(1,Shape->GetStaticMaterials().Num());++Slot) Part->SetMaterial(Slot,Finish);
+        Part->SetCollisionEnabled(ECollisionEnabled::NoCollision); Part->SetCanEverAffectNavigation(false);
+        Part->SetCastShadow(false); Part->SetCastHiddenShadow(false);
+        Part->SetAffectDynamicIndirectLighting(false); Part->SetAffectDistanceFieldLighting(false);
+        Part->SetVisibleInRayTracing(false); Part->SetEmissiveLightSource(false);
+        Part->bVisibleInReflectionCaptures=false; Part->bVisibleInRealTimeSkyCaptures=false; Part->bVisibleInReflections=false;
+        Part->SetRenderCustomDepth(false); Part->SetLightingChannels(true,false,false);
+        AddInstanceComponent(Part); Part->RegisterComponent(); ContextBatches.Add(Part);
+        if (I<3) Part->AddInstance(FTransform(FVector(0,0,FloorZ-1.)));
+        else for (int32 Side:{-1,1}) for (int32 Bay=0;Bay<6;++Bay) {
+            const FVector Origin(Side*1850.,-1800.+Bay*600.,FloorZ);
+            if (I==3) for (int32 End:{-1,1}) Part->AddInstance(FTransform(FRotator(0,90,0),Origin+FVector(0,End*200.,0)));
+            else for (int32 Level=0;Level<3;++Level) Part->AddInstance(FTransform(FRotator(0,90,0),Origin+FVector(0,0,60.+Level*100.)));
+        }
+    }
 }
 TSharedRef<FJsonObject> ADarkFactoryEnvironmentDetails::BuildMetadata() const {
     auto Meta=MakeShared<FJsonObject>();
     Meta->SetStringField(TEXT("model"),TEXT("factory-environment-details-v1"));
+    Meta->SetNumberField(TEXT("observer_context_batches"),ContextBatches.Num());
     Meta->SetBoolField(TEXT("initialized"),bInitialized); Meta->SetBoolField(TEXT("enabled"),bEnabled);
     Meta->SetBoolField(TEXT("finite_state"),bFinite); Meta->SetNumberField(TEXT("feature_count"),Features.Num());
     Meta->SetNumberField(TEXT("instance_count"),TotalInstances); Meta->SetNumberField(TEXT("instance_budget"),MaximumInstances);

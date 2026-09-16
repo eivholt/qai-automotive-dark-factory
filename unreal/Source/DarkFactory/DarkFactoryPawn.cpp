@@ -9,6 +9,7 @@
 #endif
 #include "DarkFactoryWorld.h"
 #include "DarkFactoryGameMode.h"
+#include "DarkFactoryProcessController.h"
 #include "DarkFactoryThermalRig.h"
 #include "DarkFactorySoundscape.h"
 #include "Camera/CameraComponent.h"
@@ -32,6 +33,7 @@ public:
     virtual int32 GetPriority() const override { return -100; }
     virtual void SetupView(FSceneViewFamily& Family, FSceneView& View) override {
         if (View.bIsSceneCapture) {
+            View.FinalPostProcessSettings.UserFlags &= ~256;
             View.bAllowRayTracing=false; View.bSceneCaptureUsesRayTracing=false;
             View.FinalPostProcessSettings.DynamicGlobalIlluminationMethod=EDynamicGlobalIlluminationMethod::None;
             View.FinalPostProcessSettings.ReflectionMethod=EReflectionMethod::None;
@@ -195,7 +197,7 @@ void ADarkFactoryPawn::BeginPlay() {
     bGraphicsInitialized=true;
     UpdateObserverGraphics();
     // Calibration captures begin with no observer light; welding QA explicitly tests it.
-    SetObserverHeadlightEnabled(!bAutomation || FParse::Param(FCommandLine::Get(),TEXT("DFWeldingSmoke")));
+    SetObserverHeadlightEnabled(FParse::Param(FCommandLine::Get(),TEXT("DFWeldingSmoke")));
     auto ReadSetting=[&](const TCHAR* Name, float& Value, float Minimum, float Maximum) {
         GConfig->GetFloat(TEXT("DarkFactory.NightVision"),Name,Value,GGameIni);
         FParse::Value(FCommandLine::Get(),*(FString(TEXT("DFNV"))+Name+TEXT("=")),Value);
@@ -376,6 +378,9 @@ void ADarkFactoryPawn::ToggleColliderOverlay() {
     if (auto* PC=Cast<APlayerController>(GetController())) if (auto* HUD=Cast<ADarkFactoryHUD>(PC->GetHUD())) HUD->CycleColliderOverlay();
 }
 void ADarkFactoryPawn::ToggleWeldingMotion() { if (auto* W=Cell(GetWorld())) W->ToggleWeldingAnimation(); }
+void ADarkFactoryPawn::ToggleInspectionReplay() { if (auto* W=Cell(GetWorld())) if (auto* P=W->GetProcessController()) P->ToggleInspectionReplay(); }
+void ADarkFactoryPawn::PreviousInspectionReceipt() { if (auto* W=Cell(GetWorld())) if (auto* P=W->GetProcessController()) P->StepInspectionReplay(-1); }
+void ADarkFactoryPawn::NextInspectionReceipt() { if (auto* W=Cell(GetWorld())) if (auto* P=W->GetProcessController()) P->StepInspectionReplay(1); }
 void ADarkFactoryPawn::Normal() { if(auto* W=Cell(GetWorld())) W->SetScenario(0); }
 void ADarkFactoryPawn::Missing() { if(auto* W=Cell(GetWorld())) W->SetScenario(1); }
 void ADarkFactoryPawn::Misaligned() { if(auto* W=Cell(GetWorld())) W->SetScenario(2); }
@@ -434,6 +439,9 @@ void ADarkFactoryPawn::SetupPlayerInputComponent(UInputComponent* Input) {
     Input->BindKey(EKeys::F7,IE_Pressed,this,&ADarkFactoryPawn::ToggleLumen);
     Input->BindKey(EKeys::F11,IE_Pressed,this,&ADarkFactoryPawn::ToggleHardwareRayTracing);
     Input->BindKey(EKeys::F8,IE_Pressed,this,&ADarkFactoryPawn::ToggleColliderOverlay);
+    Input->BindKey(EKeys::F5,IE_Pressed,this,&ADarkFactoryPawn::ToggleInspectionReplay);
+    Input->BindKey(EKeys::PageUp,IE_Pressed,this,&ADarkFactoryPawn::PreviousInspectionReceipt);
+    Input->BindKey(EKeys::PageDown,IE_Pressed,this,&ADarkFactoryPawn::NextInspectionReceipt);
     Input->BindKey(EKeys::Gamepad_LeftThumbstick,IE_Pressed,this,&ADarkFactoryPawn::ToggleColliderOverlay);
     Input->BindKey(EKeys::SpaceBar,IE_Pressed,this,&ADarkFactoryPawn::ToggleWeldingMotion);
     Input->BindKey(EKeys::Gamepad_Special_Left,IE_Pressed,this,&ADarkFactoryPawn::ToggleWeldingMotion);
@@ -480,7 +488,10 @@ void ADarkFactoryPawn::UpdateObserverGraphics() {
     // Existing bright-floor exposure was authored for direct light only. Keep
     // the added indirect illumination from clipping white panels; sensor and
     // legacy exposure settings are independent and remain unchanged.
-    Camera->PostProcessSettings.AutoExposureBias=ObserverMode==3 && Lumen && !bGraphicsLegacyFixture ? -.7f:0.f;
+    Camera->PostProcessSettings.AutoExposureBias=ObserverMode==3 && Lumen && !bGraphicsLegacyFixture ? -1.2f:0.f;
+    Camera->PostProcessSettings.bOverride_UserFlags=true;
+    const bool Finish=(ObserverMode==0 || ObserverMode==3) && !bGraphicsLegacyFixture && !FParse::Param(FCommandLine::Get(),TEXT("DFNoIndustrialFinish"));
+    Camera->PostProcessSettings.UserFlags=(Camera->PostProcessSettings.UserFlags & ~256) | (Finish ? 256:0);
 
 #if WITH_DF_DLSS
     if (bDLSSAvailable) UDLSSLibrary::EnableDLSS(DLSS);

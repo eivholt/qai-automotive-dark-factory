@@ -139,7 +139,9 @@ bool ADarkFactoryIQ9Props::Initialize(ADarkFactoryWeldingCell* Cell,const FStrin
         }
         Mounts.Add(Mount);
     }
-    bInitialized=true; UpdateLeds();
+    bInitialized=true;
+    bLiveClockSmoke=FParse::Param(FCommandLine::Get(),TEXT("DFIQ9LiveSmoke"));
+    UpdateLeds();
     UE_LOG(LogTemp,Display,TEXT("DF_IQ9_PROPS_READY mounts=%d thermal_profiles=%d"),Mounts.Num(),ThermalSurfaces.Num());
     return true;
 }
@@ -157,17 +159,25 @@ void ADarkFactoryIQ9Props::SetLedTimeForQA(double Seconds) {
 }
 void ADarkFactoryIQ9Props::UpdateLeds() {
     if (!bInitialized) return;
-    AppliedLedSeconds=LedTimeOverride>=0 ? LedTimeOverride:(SourceCell.IsValid() ? SourceCell->GetMotionTime():0);
+    // Process pose time is held at authored keyframes. The effect clock advances
+    // during inspection holds and freezes only when the simulation is paused.
+    AppliedLedSeconds=LedTimeOverride>=0 ? LedTimeOverride:(SourceCell.IsValid() ? SourceCell->GetEffectTime():0);
     for (int32 M=0;M<Mounts.Num();++M) for (int32 L=0;L<3;++L) {
         const int32 I=Mounts[M].FirstLed+L;
-        const bool On=bEnabled && (L>0 || AmberOn(AppliedLedSeconds,M));
+        const double Phase=FMath::Fmod(FMath::Max(0.,AppliedLedSeconds)+M*.173,1.6);
+        const bool Pulse=L==0 ? AmberOn(AppliedLedSeconds,M):L==1 ? Phase<.8:
+            (Phase<.18 || (Phase>=.32 && Phase<.58));
+        const bool On=bEnabled && Pulse;
         if (LedStates[I]==On) continue;
         LedStates[I]=On;
         LedMaterials[I]->SetScalarParameterValue(TEXT("LedStrength"),On ? LedStrength:0);
         LedLights[I]->SetLightColor(On ? LedColors[L]:FLinearColor::Black);
     }
 }
-void ADarkFactoryIQ9Props::Tick(float DeltaSeconds) { Super::Tick(DeltaSeconds); UpdateLeds(); }
+void ADarkFactoryIQ9Props::Tick(float DeltaSeconds) {
+    Super::Tick(DeltaSeconds); UpdateLeds();
+    if (bLiveClockSmoke) LiveClockSmokeTick();
+}
 TSharedRef<FJsonObject> ADarkFactoryIQ9Props::BuildMetadata() const {
     auto Result=MakeShared<FJsonObject>();
     Result->SetStringField(TEXT("model"),TEXT("iq9-evk-direct-base-props-v3"));
@@ -206,7 +216,7 @@ TSharedRef<FJsonObject> ADarkFactoryIQ9Props::BuildMetadata() const {
         for (int32 L=0;L<3;++L) {
             const int32 I=M.FirstLed+L; auto Led=MakeShared<FJsonObject>();
             Led->SetNumberField(TEXT("index"),L); Led->SetBoolField(TEXT("enabled"),LedStates[I]);
-            Led->SetStringField(TEXT("kind"),L==0 ? TEXT("decorative amber activity"):TEXT("steady green power/link"));
+            Led->SetStringField(TEXT("kind"),L==0 ? TEXT("decorative amber activity"):L==1 ? TEXT("green heartbeat"):TEXT("green link double pulse"));
             Led->SetArrayField(TEXT("world_position_cm"),Vec(LedMeshes[I]->GetComponentLocation()));
             Led->SetArrayField(TEXT("color"),Vec(FVector(LedColors[L].R,LedColors[L].G,LedColors[L].B)));
             Led->SetNumberField(TEXT("emissive_strength"),LedStates[I] ? LedStrength:0);

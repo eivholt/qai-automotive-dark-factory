@@ -66,6 +66,7 @@ private:
     void DrawProductionStatus(const ADarkFactoryWeldingCell* Cell,float RightPanelX);
     void DrawProcessStatus(const ADarkFactoryProcessController* Process,float RightPanelX);
     void DrawProcessCaptures(const ADarkFactoryProcessController* Process,const ADarkFactoryWorld* World,float RightPanelX,float PanelWidth);
+    void DrawInspectionReplay(const ADarkFactoryProcessController* Process,float RightPanelX,float PanelWidth);
     void InitializeThermalScales(UMaterialInterface* Parent);
     void DrawThermalScale(int32 Palette,float MinC,float MaxC,float X,float Y,float Width,float Scale=1.f);
     void DrawObserverThermalScale(const ADarkFactoryThermalRig* Thermal,float X,float Y,float Width,float Scale=1.f);

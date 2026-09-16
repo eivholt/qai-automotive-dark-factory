@@ -2,6 +2,46 @@
 
 An Unreal Engine factory-inspection demo with **NVIDIA Cosmos-Reason2-2B**, host GPU experiments ahead of Qualcomm IQ9 EVK deployment, independent Xbox-controller navigation, and separate NIR and thermal camera views.
 
+## Current progress — 16 September 2026
+
+The demo now includes a permanent panel mounting frame, top-down placement,
+three-edge sealant application, animated pinch welding and four model inspection
+stages. Editor preview and Play share the production scene builders; local MCP
+tools persist preview poses and viewport bookmarks. Optional Isaac-derived rubber
+and metal finishes enhance hoses, suction pads and tool hardware in the visible
+observer view without changing sensor images.
+
+Roof lighting is softer, and process-mode carriage motors now warm with travel
+and cool at rest. Control cabinets show localized electronics and vent warmth
+in thermal views. See [equipment heat](docs/equipment_heat.md).
+
+The latest UE 5.8 build, 124 Python tests, 2,012 graphics checks and nine welding
+regression suites passed. Editor authoring passed 21 rendered lifecycle checks.
+The earlier 191/192 development model result predates the permanent frame; IQ9
+deployment and new held-out validation of the final scene remain pending.
+See the [progress overview](docs/progress.md) and [validation record](docs/validation.md).
+
+Only tutorial, source code and configuration are intended for publication.
+Runtime builds, purchased assets, generated content, training images and model
+weights remain on the user's computers.
+
+## Current assembly scene
+
+The optional [enhancement first pass](docs/enhancement_roadmap.md) adds a factory
+hall and Isaac racks, smoother process travel, restrained pinch-weld effects,
+brushed tool finishes and a model-triggered cooling recovery experiment. Launch
+with `-Process -Enhancements -FaultRecovery` on the prepared
+installation. These switches leave the default and legacy fixtures unchanged.
+
+The [second pass](docs/enhancement_second_pass.md) adds corrugated hose sleeves and
+collars, pad compression, gentle final seating tilt, observer-only GPU thermal
+reflections and an actual-inspection replay panel. With `-Enhancements`, press
+**F5** for replay and **Page Up/Down** for history; **Space / Xbox View** pauses
+and resumes the simulation independently. `-NoThermalReflections` disables
+the new display effect. A separate offline sealant-coverage experiment is also
+available; its base-model results are inadequate for a live gate, so placement
+and reapplication are not controlled by that experiment.
+
 The current automotive demo assembles an inner trunk panel using four articulated robots. Arm A applies two continuous purple sealant runs along the front and both side contacts, leaving the rear edge free. Arm B picks up and holds the panel. Arm C/R2 uses the original gun at 70% scale, with two animated electrodes that open, clamp across the panel/frame joint, weld and release. R4 inspects with one rigid NIR/thermal camera. The fence is hidden, side fixtures are moved clear of the arms, and the panel rack restocks when the body departs. Purchased geometry, generated content, datasets and model weights remain local/private. See [pinch welding and sealant](docs/pinch_welder_and_sealant.md).
 
 The optional [imported inspection camera](docs/inspection_camera_asset.md) replaces R4's simple prop with the locally supplied Blender camera, preserving its physical lens and sensor framing.
@@ -51,24 +91,35 @@ First check `http://127.0.0.1:18191/health` and reuse a healthy compatible host.
 wsl.exe bash scripts/model/start_host_service.sh --port 18191 --adapter checkpoints/panel-contact-shared-960-v7 --weld-adapter checkpoints/panel-contact-shared-896-v6 --linear-patch-embedding
 ```
 
-This starts the WSL systemd user service `dark-factory-panel-model.service`, which survives closing its launch terminal or Codex for the current WSL session. It is not configured to start after a Windows reboot or WSL shutdown. The launcher accepts `DF_MODEL_PYTHON`, `DF_BASE_MODEL` and `PYTHONPATH` environment overrides and refuses an existing unit or occupied port. Wait for model loading, then check readiness and launch the bright observer view:
+This starts the WSL systemd user service `dark-factory-panel-model.service`, which survives closing its launch terminal or Codex for the current WSL session. It is not configured to start after a Windows reboot or WSL shutdown. The launcher accepts `DF_MODEL_PYTHON`, `DF_BASE_MODEL` and `PYTHONPATH` environment overrides and refuses an existing unit or occupied port. Wait for model loading, then check readiness and launch the demo (dark observer, headlamp off):
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:18191/health
-.\unreal\Scripts\run.ps1 -Scene welding -Process -ProcessObserverMode 3 -ProcessEndpoint http://127.0.0.1:18191/v1/inspect
+.\unreal\Scripts\run.ps1 -Scene welding -Process -ProcessEndpoint http://127.0.0.1:18191/v1/inspect
 ```
 
 Interactive launches default to a **borderless 2560 × 1440 window**. Override
 the size with `-Width 1920 -Height 1080`. Automated capture and smoke fixtures
 retain their established 1600 × 900 default.
 V-sync is enabled for interactive launches; the existing 60 FPS cap is retained.
+The observer starts dark with the headlamp off. **Tab / Xbox Y** cycles dark,
+NIR, thermal, then roof-lit factory. **L** enables the headlamp in dark mode;
+an explicit `-ProcessObserverMode 3` still starts with roof lighting.
 
 For OBS, use **Window Capture → Windows 10 (1903 and up)** with the
 `DarkFactory` window and **Client Area** enabled, then **Transform → Fit to
 Screen**. This captures the borderless DX12 window at 2560 × 1440 while keeping
 DLSS/Lumen enabled. See [OBS capture setup](docs/observer_graphics.md#obs-capture).
 
-The health response must report `ready` and `automotive-panel-process-v3`; the model guide records the selected adapter identity. If the compatible server is already running, reuse it. `-Process -NoInference` allows exploration with model gates held. Use `-Scene welding` without `-Process` for the separate repeating visual preview. Escape quits the demo. An unavailable host holds the process; it does not mean the saved training was lost. Inspect or explicitly stop this service with:
+The health response must report `ready`, `automotive-panel-process-v3`, adapters
+`panel-contact-shared-960-v7` (primary) and `panel-contact-shared-896-v6` (weld),
+and `vision_patch_embedding: linear-nonoverlap-v1`. A base-only host also reports
+`ready`, but `adapter: null` and `stock-conv3d` indicate that the required launch
+arguments were omitted; this configuration can time out during inspection.
+Stop that service with the command below, then rerun the complete model launch
+command above. Reuse an already compatible server.
+
+`-Process -NoInference` allows exploration with model gates held. Use `-Scene welding` without `-Process` for the separate repeating visual preview. Escape quits the demo. An unavailable host holds the process; it does not mean the saved training was lost. Inspect or explicitly stop this service with:
 
 ```powershell
 wsl.exe systemctl --user status dark-factory-panel-model.service
@@ -85,14 +136,17 @@ The foreground alternative remains `bash scripts/model/start_host.sh` with the s
 
 Open `unreal/DarkFactory.uproject`. The startup map is now
 `/Game/Maps/DarkFactoryPanel`, which displays the current assembly cell before
-Play. Press **Play** to run the current panel process in the bright observer
-view, using the same host endpoint on port 18191 described above.
+Play. Press **Play** to run the current panel process in dark observer mode with the headlamp off, using the same host endpoint on port 18191 described above.
 
 The Outliner contains **Dark Factory - current panel assembly preview**. Select
 it to change the preview pose or use **Refresh Preview** after an asset reimport.
 The preview is regenerated from the production scene builders; edit those
 sources for lasting layout changes. See the [Editor workflow](docs/unreal_editor.md)
-for map regeneration, Play/Stop behavior and troubleshooting.
+for map regeneration, Play/Stop behavior and troubleshooting. The editor-only
+DarkFactoryAuthoring MCP tools persist preview poses and viewport bookmarks in
+`unreal/Config/Authoring/preview.json`, rebuild the preview, and validate its
+isolation. The [authoring source map](docs/authoring_structure.md) identifies
+the production source for lasting geometry, motion and material changes.
 
 ## Quick start on Windows
 
@@ -282,6 +336,7 @@ For the CPU suite and procedural rendering references:
 - [Existing implementations and performance techniques](docs/night_vision_implementations.md)
 - [Rendered night-vision QA](docs/night_vision_qa.md)
 - [Scenario and asset selection](docs/scenario_design.md)
+- [Optional industrial rubber and metal finishes](docs/industrial_finishes.md)
 - [Validation evidence](docs/validation.md)
 - [Precursor: IQ9 Physics Reasoning](https://github.com/eivholt/qai-physics-reasoning/blob/main/docs/isaac_sim_conveyor_reason2_tutorial.md)
 

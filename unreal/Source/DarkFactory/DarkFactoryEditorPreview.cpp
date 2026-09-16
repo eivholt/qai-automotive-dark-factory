@@ -135,6 +135,7 @@ bool ADarkFactoryEditorPreview::RefreshPreview() {
     PP.bOverride_AutoExposureMethod=true; PP.AutoExposureMethod=AEM_Manual;
     PP.bOverride_AutoExposureApplyPhysicalCameraExposure=true; PP.AutoExposureApplyPhysicalCameraExposure=false;
     PP.bOverride_AutoExposureBias=true; PP.AutoExposureBias=-.7f;
+    PP.bOverride_UserFlags=true; PP.UserFlags=256;
     for (AActor* Actor:PreviewActors) if (Actor) {
         Actor->SetActorTickEnabled(false);
         TInlineComponentArray<UPrimitiveComponent*> Primitives(Actor);

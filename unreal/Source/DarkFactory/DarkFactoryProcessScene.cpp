@@ -1,4 +1,5 @@
 #include "DarkFactoryProcessScene.h"
+#include "DarkFactoryEnhancements.h"
 #include "DarkFactoryThermalRig.h"
 #include "DarkFactoryThermalRadiometry.h"
 #include "DarkFactorySealantMesh.h"
@@ -119,6 +120,21 @@ bool ADarkFactoryProcessScene::Initialize(ADarkFactoryWeldingCell* InCell,int32 
         UE_LOG(LogTemp,Warning,TEXT("DF_INSPECTION_CAMERA_PROP primitive-fallback; run import_inspection_camera.py"));
     }
     Surface(CameraHousing,28,.93f); Surface(CameraLens,27,.86f);
+    // Rigid wrist-to-housing support. Keep the calibrated mount and optical
+    // origin untouched; this only fills the visible gap behind the camera.
+    const FVector Wrist=CameraMount->GetRelativeTransform().InverseTransformPosition(FVector::ZeroVector);
+    const FVector HousingAnchor(0,0,0),Axis=(HousingAnchor-Wrist).GetSafeNormal();
+    auto* SupportMaterial=Material(FLinearColor(.16,.19,.22),.36f);
+    auto Support=[&](const TCHAR* Name,FVector Center,double Diameter,double Length) {
+        auto* Part=Mesh(Name,Cylinder,SupportMaterial,CameraMount);
+        Part->SetRelativeLocation(Center);
+        Part->SetRelativeRotation(FRotationMatrix::MakeFromZ(Axis).Rotator());
+        Part->SetRelativeScale3D(FVector(Diameter/100.,Diameter/100.,Length/100.));
+        Part->SetCollisionEnabled(ECollisionEnabled::NoCollision); CameraSupports.Add(Part);
+    };
+    Support(TEXT("InspectionCameraSupportRod"),(Wrist+HousingAnchor)*.5,4.,FVector::Distance(Wrist,HousingAnchor)+2.);
+    Support(TEXT("InspectionCameraWristCollar"),Wrist,8.,3.);
+    Support(TEXT("InspectionCameraHousingCollar"),HousingAnchor-Axis*7.,7.,2.);
     // Offline loss-of-evidence examples use an actual opaque optical cover,
     // excluded from live simulation, rather than painting labels onto images.
     CaptureOccluder=Mesh(TEXT("OfflineInspectionLensCover"),Cube,Material(FLinearColor(.015,.018,.02),.8f),CameraMount);
@@ -136,6 +152,19 @@ bool ADarkFactoryProcessScene::Initialize(ADarkFactoryWeldingCell* InCell,int32 
     // Append so panel/bead/camera profile indices remain stable. The fixed LUT
     // already has room; no extra pass or texture allocation is needed.
     Surface(MountingFrame,23.f,.74f);
+    bRecoveryExperiment=FParse::Param(FCommandLine::Get(),TEXT("DFFaultRecovery")) && !FParse::Param(FCommandLine::Get(),TEXT("DFProcessCapture"));
+    if (bRecoveryExperiment) {
+        auto* Shape=LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube.Cube"));
+        auto* RecoveryBase=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Materials/M_Factory.M_Factory"));
+        RecoveryIndicator=UMaterialInstanceDynamic::Create(RecoveryBase,this);
+        RecoveryIndicator->SetVectorParameterValue(TEXT("BaseColor"),FLinearColor(.03,.08,.11));
+        auto* Housing=Mesh(TEXT("RecoveryCoolingBlower"),Shape,RecoveryIndicator,SceneRoot);
+        Housing->SetRelativeLocation(FVector(180,-285,115)); Housing->SetRelativeScale3D(FVector(.50,.45,.55));
+        auto* Stand=Mesh(TEXT("RecoveryCoolingStand"),Shape,RecoveryIndicator,SceneRoot);
+        Stand->SetRelativeLocation(FVector(180,-285,46.9)); Stand->SetRelativeScale3D(FVector(.12,.16,.811));
+        RecoveryRotor=Mesh(TEXT("RecoveryCoolingRotor"),Shape,RecoveryIndicator,SceneRoot);
+        RecoveryRotor->SetRelativeLocation(FVector(153,-285,115)); RecoveryRotor->SetRelativeScale3D(FVector(.035,.40,.055));
+    }
     bInitialized=true; UpdatePanelVisibility();
     UE_LOG(LogTemp,Display,TEXT("DF_PANEL_PROCESS_SCENE_READY panel=SM_BodyPanel_0386 stock=5 adhesive=2 thermal_additions=%d"),ThermalSurfaces.Num());
     return true;
@@ -143,6 +172,7 @@ bool ADarkFactoryProcessScene::Initialize(ADarkFactoryWeldingCell* InCell,int32 
 void ADarkFactoryProcessScene::BeginBody(int32 BodyIndex,double ClockSeconds,int32 PreassembledOverride) {
     if (!bInitialized) return;
     BodySequence=FMath::Max(0,BodyIndex); BodyBirthSeconds=Clock=LastClock=ClockSeconds;
+    RecoveryStarted=-1.; RecoveryCoolingAge=0.;
     bBodyActive=true; bBodyVisible=true; bPanelPicked=bPanelWelded=bOfflinePrepared=bOccluded=bMisaligned=false;
     CaptureExpectedDecision.Empty(); CaptureVisibilityRays.Reset(); InspectionExtension=0; LastStageSeconds=0; CurrentPhase=EDarkFactoryProcessPhase::Arriving;
     const uint32 BodySeed=static_cast<uint32>(RandomSeed)^(static_cast<uint32>(BodySequence)*196613u+0x28f6c419u);
@@ -158,6 +188,9 @@ void ADarkFactoryProcessScene::BeginBody(int32 BodyIndex,double ClockSeconds,int
     for (int32 I=0;I<ADarkFactoryWeldingCell::PanelWeldCount;++I) {
         if (AdhesiveC.IsValidIndex(I)) {
             AdhesiveInitialC[I]=Random.FRandRange(76.f,108.f); AdhesiveTau[I]=Random.FRandRange(7.f,22.f)*AdhesiveCoolingTimeScale;
+            // Explicit experiment: every third body has slow passive cooling.
+            // This source state is never read by the controller or model payload.
+            if (bRecoveryExperiment && BodySequence%3==1) AdhesiveTau[I]*=8.f;
             AdhesiveDeposited[I]=bPreassembled ? ClockSeconds:-1.; AdhesiveProgress[I]=bPreassembled ? 1.:0.;
             AdhesiveC[I]=bPreassembled ? AdhesiveInitialC[I]:20;
         }
@@ -170,6 +203,11 @@ void ADarkFactoryProcessScene::BeginBody(int32 BodyIndex,double ClockSeconds,int
 void ADarkFactoryProcessScene::EndBody() {
     bBodyActive=bBodyVisible=false; bOccluded=false; UpdatePanelVisibility();
 }
+bool ADarkFactoryProcessScene::StartRecoveryCooling() {
+    if (!bRecoveryExperiment || RecoveryStarted>=0 || CurrentPhase!=EDarkFactoryProcessPhase::Adhesive) return false;
+    RecoveryStarted=Clock; return true;
+}
+void ADarkFactoryProcessScene::StopRecoveryCooling() { RecoveryStarted=-1.; }
 void ADarkFactoryProcessScene::SetCaptureVariation(int32 Seed) {
     bCaptureVariation=true; CaptureVariationSeed=Seed;
     if (Cell) Cell->SetProcessMotorCaptureVariation(Seed);
@@ -189,6 +227,9 @@ void ADarkFactoryProcessScene::ApplyAssemblyFrame(EDarkFactoryProcessPhase Phase
     if (!bInitialized || !FMath::IsFinite(ClockSeconds)) return;
     using P=EDarkFactoryProcessPhase;
     const double Dt=FMath::Max(0.,ClockSeconds-LastClock);
+    if (RecoveryStarted>=0) RecoveryCoolingAge+=Dt;
+    if (RecoveryRotor) RecoveryRotor->SetRelativeRotation(FRotator(0,0,RecoveryCoolingAge*720.));
+    if (RecoveryIndicator) RecoveryIndicator->SetVectorParameterValue(TEXT("BaseColor"),RecoveryStarted>=0 ? FLinearColor(.04,.5,.65):FLinearColor(.03,.08,.11));
     Clock=LastClock=ClockSeconds; LastStageSeconds=StageSeconds; CurrentPhase=Phase; bBodyVisible=Show;
     const double Target=Inspecting(Phase) ? 1.:0.;
     const double Step=Dt/(Target>InspectionExtension ? InspectionDeploySeconds:InspectionWithdrawSeconds);
@@ -244,6 +285,11 @@ void ADarkFactoryProcessScene::UpdateTemperatureFields() {
         if (!bOfflinePrepared) {
             const double SourceAtContact=AdhesiveDeposited[I]<0 ? 20.:20.+(AdhesiveInitialC[I]-20.)*FMath::Exp(-FMath::Max(0.,ContactStarted-AdhesiveDeposited[I])/AdhesiveTau[I]);
             ContactSurfaceC[I]=ContactStarted<0 ? 23.f:FMath::Max(23.,DarkFactoryContactHeat::SurfaceC(SourceAtContact,AdhesiveTau[I],Clock-ContactStarted));
+            if (RecoveryCoolingAge>0) {
+                const double Cooling=FMath::Exp(-RecoveryCoolingAge/6.);
+                AdhesiveC[I]=20.f+(AdhesiveC[I]-20.f)*Cooling;
+                ContactSurfaceC[I]=23.f+(ContactSurfaceC[I]-23.f)*Cooling;
+            }
         }
         ThermalSurfaces[2+I].TemperatureC=AdhesiveC[I];
         AdhesiveMaterials[I]->SetScalarParameterValue(TEXT("DepositProgress"),AdhesiveProgress[I]);
@@ -299,10 +345,14 @@ void ADarkFactoryProcessScene::UpdateTemperatureFields() {
 }
 void ADarkFactoryProcessScene::BindThermalRig(ADarkFactoryThermalRig* Rig) {
     ThermalRig=Rig;
+    // Reuse the uniform camera-housing profile: no new sensor LUT IDs.
+    for (const auto& Part:CameraSupports) if (Part && CameraHousing) {
+        Part->SetRenderCustomDepth(true); Part->SetCustomDepthStencilValue(CameraHousing->CustomDepthStencilValue);
+    }
     UpdateTemperatureFields();
 }
 void ADarkFactoryProcessScene::RequestInspectionView(const FString& Stage,int32 View,double ClockSeconds,bool Snap) {
-    InspectionStage=Stage; Cell->RequestInspectionSpot(View,ClockSeconds,Snap,Stage==TEXT("panel_presence") || Stage==TEXT("panel_seated"),Stage==TEXT("adhesive"));
+    InspectionStage=Stage; Cell->RequestInspectionSpot(View,ClockSeconds,Snap,Stage==TEXT("panel_presence") || Stage==TEXT("panel_seated"),Stage==TEXT("adhesive") || Stage==TEXT("sealant_coverage"));
     if (Snap) {
         InspectionExtension=1.; Cell->SetPanelMotionState(CurrentPhase,LastStageSeconds,bPanelPicked);
         Cell->SetProcessFrame(0.,Clock,0.,true,false,1.); UpdatePanelVisibility();
@@ -414,6 +464,28 @@ bool ADarkFactoryProcessScene::PrepareCapture(const FString& Stage,int32 CaseInd
     RequestInspectionView(Stage,0,Clock,true); UpdateTemperatureFields(); UpdatePanelVisibility(); return true;
 }
 float ADarkFactoryProcessScene::GetMaximumAdhesiveC() const { float Max=20; for (float T:AdhesiveC) Max=FMath::Max(Max,T); return Max; }
+bool ADarkFactoryProcessScene::PrepareSealantCoverageCapture(int32 CaseIndex,int32 Seed,double& ClockOut) {
+    // Offline geometry experiment only. Never add these labels to live requests.
+    if (!FParse::Param(FCommandLine::Get(),TEXT("DFSealantCoverageCapture")) ||
+        !FParse::Param(FCommandLine::Get(),TEXT("DFProcessCapture")) || CaseIndex<0 || CaseIndex>7 ||
+        !PrepareCapture(TEXT("panel_presence"),0,Seed,ClockOut)) return false;
+    FRandomStream Random(Seed);
+    const double GapStart=Random.FRandRange(.25,.65);
+    for (int32 I=0;I<2;++I) {
+        TArray<FVector> Points,Normals; if (!Cell->GetPanelAdhesivePath(I,Points,Normals)) return false;
+        const bool Gap=CaseIndex==I+1;
+        const double Width=CaseIndex==3 && I==Seed%2 ? .3:1.;
+        const double Offset=CaseIndex==4 && I==Seed%2 ? 5.:0.;
+        FVector Origin; double Length=0;
+        auto* Mesh=MakeDarkFactorySealantMesh(this,AdhesiveMaterials[I],Points,Normals,Origin,Length,Width,Gap ? GapStart:-1.,Gap ? GapStart+.14:-1.,Offset);
+        if (!Mesh) return false;
+        AdhesiveMeshes[I]->SetStaticMesh(Mesh); AdhesiveMeshes[I]->SetRelativeLocation(Origin);
+        AdhesiveDeposited[I]=(CaseIndex==5+I) ? -1.:90.; AdhesiveProgress[I]=1.;
+    }
+    bOccluded=CaseIndex==7;
+    CaptureExpectedDecision=CaseIndex==0 ? TEXT("G"):CaseIndex==7 ? TEXT("A"):TEXT("R");
+    RequestInspectionView(TEXT("sealant_coverage"),0,Clock,true); UpdateTemperatureFields(); UpdatePanelVisibility(); return true;
+}
 float ADarkFactoryProcessScene::GetMaximumSealantContactApparentC() const {
     float Max=23; for (float T:ContactSurfaceC) Max=FMath::Max(Max,T);
     return DarkFactoryThermal::ApparentTemperatureC(Max,.74,20.);
@@ -424,6 +496,9 @@ float ADarkFactoryProcessScene::GetMaximumWeldC() const {
 TSharedRef<FJsonObject> ADarkFactoryProcessScene::BuildMetadata() const {
     auto O=MakeShared<FJsonObject>(); O->SetStringField(TEXT("schema"),TEXT("darkfactory-panel-process-scene-v3"));
     O->SetStringField(TEXT("scope"),TEXT("Private physical labels and authored temperatures; never model input"));
+    O->SetBoolField(TEXT("cooling_recovery_experiment"),bRecoveryExperiment);
+    O->SetBoolField(TEXT("cooling_recovery_active"),RecoveryStarted>=0.);
+    O->SetNumberField(TEXT("cooling_recovery_age_seconds"),RecoveryCoolingAge);
     O->SetNumberField(TEXT("body_index"),BodySequence); O->SetNumberField(TEXT("clock_seconds"),Clock);
     O->SetNumberField(TEXT("body_age_seconds"),FMath::Max(0.,Clock-BodyBirthSeconds)); O->SetNumberField(TEXT("seed"),RandomSeed);
     O->SetBoolField(TEXT("preassembled"),bPreassembled); O->SetNumberField(TEXT("preassembled_probability"),.2);
