@@ -315,6 +315,8 @@ def make_handler(classifier):
             self.connection.settimeout(15)
 
         def send_json(self, status, payload):
+            # An explicitly selected edge runtime must never masquerade as host CUDA.
+            payload["source"] = getattr(classifier, "source", "host_gpu")
             body = json.dumps(payload, allow_nan=False).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
@@ -331,7 +333,7 @@ def make_handler(classifier):
                 "model": classifier.model_name, "adapter": classifier.adapter, "backend_alias": getattr(classifier, "model_alias", None), "scoring_method": classifier.scoring_method,
                 "contract_version": classifier.contract["version"], "stages": classifier.contract["stages"],
                 "decision_policy": classifier.contract["decision_policy"], "message_layout": MESSAGE_LAYOUT,
-                "gpu": classifier.gpu_name, "dtype": "bfloat16", "mock": False,
+                "gpu": classifier.gpu_name, "dtype": getattr(classifier, "dtype", "bfloat16"), "mock": False,
                 "model_config_sha256": classifier.model_config_sha256,
                 "vision_patch_embedding": getattr(classifier, "vision_patch_embedding", "llamacpp-native"),
                 "stage_backend_aliases": getattr(classifier, "stage_backend_aliases", None),

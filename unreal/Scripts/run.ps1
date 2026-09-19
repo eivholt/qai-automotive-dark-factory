@@ -31,6 +31,9 @@ param(
     [ValidateSet('overview','cabinet','inspection')][string]$ProcessView = 'overview',
     [ValidateRange(0,3)][int]$ProcessObserverMode = 0,
     [string]$ProcessEndpoint = 'http://127.0.0.1:18191/v1/inspect',
+    [ValidateSet('host_gpu','evk_hexagon')][string]$ProcessModelSource = 'host_gpu',
+    [ValidateSet('flow','agent')][string]$ProcessControl = 'flow',
+    [string]$AgentEndpoint = 'http://127.0.0.1:18193/v1/chat/completions',
     [switch]$RealismSmoke,
     [switch]$ColliderSmoke,
     [switch]$CabinetSmoke,
@@ -55,8 +58,9 @@ function Get-DarkFactoryProcessOutput {
 function Assert-DarkFactoryProcessReport {
     param(
         [Parameter(Mandatory)][string]$ReportPath,
-        [Parameter(Mandatory)][ValidateSet('model','policy')][string]$Mode,
-        [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{32}$')][string]$SessionId
+        [Parameter(Mandatory)][ValidateSet('model','policy','agent')][string]$Mode,
+        [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{32}$')][string]$SessionId,
+        [ValidateSet('host_gpu','evk_hexagon')][string]$ModelSource = 'host_gpu'
     )
     $Require = {
         param([bool]$Condition, [string]$Reason)
@@ -79,6 +83,17 @@ function Assert-DarkFactoryProcessReport {
     & $Require ($Report -is [pscustomobject]) 'native report must be a JSON object'
     & $Require ($Report.session_id -is [string] -and $Report.session_id -ceq $SessionId) 'session_id does not match this launch (stale report or native binary needs rebuilding)'
     & $Require ($Report.passed -is [bool] -and $Report.passed) 'native checks did not pass'
+    & $Require (& $EqualNumber $Report.execution_policy.required_consensus_batches 1) 'native report must use the fixed one-batch policy'
+    if ($Mode -eq 'agent') {
+        & $Require ($Report.control_mode -ceq 'agent' -and $Report.source -ceq $ModelSource -and $Report.contract_version -ceq 'automotive-panel-process-v3' -and $Report.model_smoke -is [bool] -and $Report.model_smoke) 'wrong live agent mode or source'
+        & $Require ($Report.agent.schema -ceq 'darkfactory-live-agent-v1' -and $Report.agent.recipe_vetoes_enabled -is [bool] -and -not $Report.agent.recipe_vetoes_enabled) 'agent recipe vetoes must be disabled'
+        & $Require ((& $EqualNumber $Report.completed_bodies 3) -and $Report.agent.outcomes -is [array] -and $Report.agent.outcomes.Count -eq 3) 'three live agent departures are required'
+        & $Require ((& $EqualNumber $Report.agent.audit_failures 0) -and (& $EqualNumber $Report.agent.rejected_calls 0) -and $Report.agent.held -is [bool] -and -not $Report.agent.held) 'independent agent audit failed or executor rejected calls'
+        & $Require ($Report.agent.requests -gt 0 -and $Report.model_http_requests -gt 0 -and $Report.agent.audits -is [array] -and $Report.agent.audits.Count -gt 0) 'actual agent/vision requests and action audits are required'
+        & $Require ((& $EqualNumber $Report.ground_truth_fields_sent_to_model 0) -and (& $EqualNumber $Report.legacy_bridge_requests 0)) 'unexpected model evidence fields'
+        foreach ($Audit in $Report.agent.audits) { & $Require ($Audit.failures -is [array] -and $Audit.failures.Count -eq 0) 'action audit contains a failure or has no result' }
+        return
+    }
     if ($Mode -eq 'policy') {
         & $Require ($Report.source -ceq 'policy_test' -and $Report.schema -ceq 'darkfactory-process-policy-smoke-v1' -and $Report.contract_version -ceq 'automotive-panel-process-v3') 'wrong native report mode or schema'
         & $Require ($Report.model_accuracy_evidence -is [bool] -and -not $Report.model_accuracy_evidence) 'policy checks must not claim model accuracy'
@@ -93,7 +108,8 @@ function Assert-DarkFactoryProcessReport {
         }
         return
     }
-    & $Require ($Report.source -ceq 'host_gpu' -and $Report.contract_version -ceq 'automotive-panel-process-v3' -and $Report.model_smoke -is [bool] -and $Report.model_smoke) 'wrong native report mode or source'
+    & $Require ($Report.source -ceq $ModelSource -and $Report.contract_version -ceq 'automotive-panel-process-v3' -and $Report.model_smoke -is [bool] -and $Report.model_smoke) 'wrong native report mode or source'
+    & $Require (& $EqualNumber $Report.decision_policy.consecutive_green 1) 'model reply must advertise the fixed one-batch policy'
     & $Require ((& $EqualNumber $Report.completed_bodies 3) -and (& $EqualNumber $Report.passed_bodies 3)) 'three-body panel fixture did not finish with three departures'
     & $Require ($Report.body_outcomes_correct -is [bool] -and $Report.body_outcomes_correct -and $Report.thermal_limits_respected -is [bool] -and $Report.thermal_limits_respected) 'body destinations or thermal readiness failed'
     & $Require ((& $EqualNumber $Report.ground_truth_fields_sent_to_model 0) -and (& $EqualNumber $Report.legacy_bridge_requests 0)) 'unexpected ground-truth or legacy bridge use'
@@ -138,6 +154,10 @@ function Assert-DarkFactoryCurtainReport {
 }
 
 $ErrorActionPreference = 'Stop'
+if ($ProcessControl -eq 'agent') {
+    if ($NoInference -or $ProcessCapture -or $ProcessPolicySmoke -or $GraphicsSmoke -or $CurtainSmoke) { throw 'Live agent control requires actual inference and is separate from offline/policy/graphics/physics fixtures.' }
+    $Process = $true
+}
 if ($GraphicsSmoke -and ($CurtainSmoke -or $ProcessCapture -or $ProcessSmoke -or $ProcessPolicySmoke -or $WeldingSmoke -or $RealismSmoke -or $ColliderSmoke -or $CabinetSmoke -or $Smoke -or $NightVisionSmoke -or $ThermalSmoke -or $ModalityScreenshots -or $ReadbackSmoke -or $BridgeSmoke -or $Dataset -gt 0 -or $Plan)) { throw 'GraphicsSmoke is a separate frozen process rendering fixture.' }
 if ($GraphicsSmoke) { $Process = $true; $NoInference = $true; $Scene = 'welding' }
 
@@ -168,7 +188,8 @@ $Arguments += "-DFWeldingRoofLightLumens=$WeldingRoofLightLumens"
 if ($SceneManifest) { $Arguments += "-DFSceneManifest=$([IO.Path]::GetFullPath($SceneManifest))" }
 if ($WeldingSmoke) { $Arguments += '-DFWeldingSmoke' }
 if ($CurtainSmoke) { $Arguments += '-DFCurtainSmoke'; $Arguments += ('-ExecCmds=r.SetRes {0}x{1}w,t.MaxFPS 60' -f $Width,$Height); $Arguments += '-ForceRes' }
-if ($Process -or $ProcessCapture -or $ProcessSmoke -or $ProcessPolicySmoke) { $Arguments += '-DFProcess'; $Arguments += "-DFProcessEndpoint=$ProcessEndpoint" }
+if ($Process -or $ProcessCapture -or $ProcessSmoke -or $ProcessPolicySmoke) { $Arguments += '-DFProcess'; $Arguments += "-DFProcessEndpoint=$ProcessEndpoint"; $Arguments += "-DFProcessModelSource=$ProcessModelSource" }
+if ($ProcessControl -eq 'agent') { $Arguments += '-DFProcessControl=agent'; $Arguments += "-DFAgentEndpoint=$AgentEndpoint" }
 if ($ProcessCapture) { $Arguments += '-DFProcessCapture' }
 if ($ProcessSmoke) { $Arguments += '-DFProcessSmoke' }
 if ($ProcessPolicySmoke) { $Arguments += '-DFProcessPolicySmoke' }
@@ -204,7 +225,7 @@ if ($ProcessSmoke -or $ProcessPolicySmoke) {
     $ProcessRunOutput = Get-DarkFactoryProcessOutput -RequestedOutput $Output -ProjectPath $Project
     [IO.Directory]::CreateDirectory($ProcessRunOutput) | Out-Null
     $ProcessReportName = if ($ProcessPolicySmoke) { 'process_policy.json' } else { 'process_runtime.json' }
-    $ProcessCheckMode = if ($ProcessPolicySmoke) { 'policy' } else { 'model' }
+    $ProcessCheckMode = if ($ProcessPolicySmoke) { 'policy' } elseif ($ProcessControl -eq 'agent') { 'agent' } else { 'model' }
     $ProcessReportPath = Join-Path $ProcessRunOutput $ProcessReportName
     # Native writes the fixed report names. Preserve earlier evidence before a
     # deliberate directory reuse; the new nonce, not a file timestamp, proves freshness.
@@ -241,7 +262,7 @@ if ($SimulationExitCode -ne 0) { throw "Simulation exited with code $SimulationE
 if ($ProcessSmoke -or $ProcessPolicySmoke) {
     # UE can record RequestExitWithStatus(1) yet return Windows exit code 0.
     # Require the actual native verdict and this launch's identity as well.
-    Assert-DarkFactoryProcessReport -ReportPath $ProcessReportPath -Mode $ProcessCheckMode -SessionId $ProcessRunId
+    Assert-DarkFactoryProcessReport -ReportPath $ProcessReportPath -Mode $ProcessCheckMode -SessionId $ProcessRunId -ModelSource $ProcessModelSource
     Write-Host "Process $ProcessCheckMode smoke passed: $ProcessReportPath"
 }
 

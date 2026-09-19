@@ -68,8 +68,8 @@ def load_gate_contract(path: str | Path | None = None) -> dict:
         value = policy[k]
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not .5 <= value <= 1:
             raise ProtocolError("Invalid classifier abstention setting")
-    if type(policy["consecutive_green"]) is not int or policy["consecutive_green"] != 2:
-        raise ProtocolError("Process v3 requires two fresh green observations")
+    if type(policy["consecutive_green"]) is not int or policy["consecutive_green"] != 1:
+        raise ProtocolError("Process v3 requires one fresh three-camera batch")
     age = policy["max_reply_age_seconds"]
     if isinstance(age, bool) or not isinstance(age, (int, float)) or not math.isfinite(age) or not 1 <= age <= 60:
         raise ProtocolError("Process reply age must be finite and between 1 and 60 seconds")
@@ -167,7 +167,7 @@ def select_decision(scores: dict[str, float], label_mass: float, policy: dict) -
 
 
 class GateLatch:
-    """Client-side replay/staleness protection and independent fresh-frame consensus."""
+    """Client-side replay/staleness protection and fresh three-camera batch validation."""
     def __init__(self, contract: dict):
         self.contract = contract
         self.key = None

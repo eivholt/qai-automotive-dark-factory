@@ -33,6 +33,8 @@ function Save-Fixture {
     return $Path
 }
 $Model = [pscustomobject]@{
+    execution_policy=[pscustomobject]@{required_consensus_batches=1}
+    decision_policy=[pscustomobject]@{consecutive_green=1}
     session_id=$Session; passed=$true; source='host_gpu'; contract_version='automotive-panel-process-v3'; model_smoke=$true
     completed_bodies=3; passed_bodies=3; body_outcomes_correct=$true; thermal_limits_respected=$true
     ground_truth_fields_sent_to_model=0; legacy_bridge_requests=0
@@ -47,6 +49,7 @@ $Model = [pscustomobject]@{
     }})
 }
 $Policy = [pscustomobject]@{
+    execution_policy=[pscustomobject]@{required_consensus_batches=1}
     session_id=$Session; passed=$true; source='policy_test'; schema='darkfactory-process-policy-smoke-v1'; contract_version='automotive-panel-process-v3'
     model_accuracy_evidence=$false; http_requests_submitted=0; checks_count=2
     checks=@([pscustomobject]@{name='synthetic-policy-a';passed=$true}, [pscustomobject]@{name='synthetic-policy-b';passed=$true})
@@ -56,7 +59,22 @@ $PolicyJson = $Policy | ConvertTo-Json -Depth 12
 $ModelPath = Save-Fixture 'valid-model' $Model
 $PolicyPath = Save-Fixture 'valid-policy' $Policy
 Check 'valid_synthetic_model' { Assert-DarkFactoryProcessReport $ModelPath model $Session }
+$EdgeModel = $ModelJson | ConvertFrom-Json
+$EdgeModel.source = 'evk_hexagon'
+$EdgePath = Save-Fixture 'valid-edge-model' $EdgeModel
+Check 'explicit_edge_source' { Assert-DarkFactoryProcessReport $EdgePath model $Session -ModelSource evk_hexagon }
+Check 'edge_cannot_masquerade_as_host' { Assert-DarkFactoryProcessReport $EdgePath model $Session } $false
+Check 'host_cannot_masquerade_as_edge' { Assert-DarkFactoryProcessReport $ModelPath model $Session -ModelSource evk_hexagon } $false
 Check 'valid_synthetic_policy' { Assert-DarkFactoryProcessReport $PolicyPath policy $Session }
+foreach ($Mode in @('model','policy')) {
+    $Old = $(if ($Mode -eq 'model') { $ModelJson } else { $PolicyJson }) | ConvertFrom-Json
+    $Old.execution_policy.required_consensus_batches=2
+    $OldPath=Save-Fixture ("old-two-batch-$Mode") $Old
+    Check ("reject_two_batch_$Mode") { Assert-DarkFactoryProcessReport $OldPath $Mode $Session } $false
+}
+Check 'consensus_switch_removed' {
+    if (@($Ast.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'ProcessConsensusBatches' }).Count) { throw 'Removed switch still exposed' }
+}
 $OtherSession = [Guid]::NewGuid().ToString('N')
 Check 'stale_model_report' { Assert-DarkFactoryProcessReport $ModelPath model $OtherSession } $false
 Check 'stale_policy_report' { Assert-DarkFactoryProcessReport $PolicyPath policy $OtherSession } $false
@@ -72,6 +90,8 @@ Check 'failed_report_overrides_zero_engine_exit' {
     Assert-DarkFactoryProcessReport $FailedPath model $Session
 } $false
 $ModelMutations = @(
+    @('wrong_consensus', {param($r) $r.execution_policy.required_consensus_batches=2}),
+    @('changed_model_contract', {param($r) $r.decision_policy.consecutive_green=2}),
     @('string_passed', {param($r) $r.passed='true'}),
     @('wrong_source', {param($r) $r.source='policy_test'}),
     @('wrong_mode', {param($r) $r.model_smoke=$false}),
@@ -113,6 +133,31 @@ foreach ($Mutation in $PolicyMutations) {
     Check ('reject_policy_' + $Mutation[0]) { Assert-DarkFactoryProcessReport $Path policy $Session } $false
 }
 $Project = Join-Path $Repository 'unreal\DarkFactory.uproject'
+$AgentFixture = $ModelJson | ConvertFrom-Json
+$AgentFixture | Add-Member control_mode 'agent'
+$AgentFixture | Add-Member model_http_requests 10
+$AgentFixture | Add-Member agent ([pscustomobject]@{
+    schema='darkfactory-live-agent-v1'; recipe_vetoes_enabled=$false; requests=20; rejected_calls=0; audit_failures=0; held=$false
+    outcomes=@([pscustomobject]@{body_sequence=1},[pscustomobject]@{body_sequence=2},[pscustomobject]@{body_sequence=3})
+    audits=@([pscustomobject]@{action='send_forward'; failures=@()})
+})
+$AgentJson = $AgentFixture | ConvertTo-Json -Depth 12
+Check 'accept_live_agent_report' { Assert-DarkFactoryProcessReport (Save-Fixture 'agent-good' $AgentFixture) agent $Session }
+foreach ($Mutation in @(
+    @('veto_enabled',{param($r) $r.agent.recipe_vetoes_enabled=$true}),
+    @('missing_audits',{param($r) $r.agent.audits=$null}),
+    @('bad_action_with_zero_counter',{param($r) $r.agent.audits[0].failures=@('welding_while_sealant_hot')}),
+    @('rejected_call',{param($r) $r.agent.rejected_calls=1}),
+    @('held',{param($r) $r.agent.held=$true}),
+    @('string_held',{param($r) $r.agent.held='false'}),
+    @('no_agent_calls',{param($r) $r.agent.requests=0}),
+    @('no_vision_calls',{param($r) $r.model_http_requests=0}),
+    @('unfinished',{param($r) $r.agent.outcomes=@($r.agent.outcomes[0])})
+)) {
+    $Row=$AgentJson | ConvertFrom-Json
+    & $Mutation[1] $Row
+    Check ('reject_agent_'+$Mutation[0]) { Assert-DarkFactoryProcessReport (Save-Fixture ('agent-'+$Mutation[0]) $Row) agent $Session } $false
+}
 Check 'default_output_matches_native' {
     if ((Get-DarkFactoryProcessOutput '' $Project) -ne (Join-Path $Repository 'artifacts\process-live')) { throw 'Default output differs from native path' }
 }

@@ -1,6 +1,6 @@
 # Dark factory inspection with Unreal and Cosmos Reason2
 
-The current demonstration assembles an inner trunk panel in a locally supplied automotive welding cell. A robot-mounted NIR/thermal camera sends images to Cosmos-Reason2-2B on the host GPU, and four model gates control the production sequence. The selected two-bead adapter is trained and evaluated; moving this task to IQ9 EVK remains future work. The separate procedural battery-tray scene remains available for learning capture, mock transport and dataset preparation.
+The current demonstration assembles an inner trunk panel in a locally supplied automotive welding cell. A robot-mounted NIR/thermal camera sends images to Cosmos-Reason2-2B on the host GPU, and four model gates control the production sequence. The selected contact-heat adapters run on the host GPU and IQ9 EVK; see the current model guide for validation scope. The separate procedural battery-tray scene remains available for learning capture, mock transport and dataset preparation.
 
 Start with the [README](../README.md) for installation and launch commands. The [process guide](process_inspection.md) describes the live sequence, [scene guide](process_scene.md) covers tools and choreography, and [model guide](model_classification.md) records the exact prompts, adapter provenance and measured results. This repository publishes tutorial and source examples only: purchased assets, generated Unreal content, runtime packages, training images and model weights stay private.
 
@@ -16,7 +16,7 @@ Prepare/import your local assets and build using the README. Start the compatibl
 
 For scene exploration without model calls, use `-Process -NoInference`. This does not establish model acceptance or exercise a complete live gated cycle. Without `-Process`, the imported cell runs its separate [legacy visual production cycle](welding_production_cycle.md).
 
-The selected runtime is the shared NIR/thermal LoRA `panel-two-bead-shared-256-v3`, merged into the host Torch BF16 model with its explicitly selected linear patch projection. It has 256 cumulative optimizer updates across two training passes. The canonical model guide contains reproducible commands, hashes and confidence policy; a checkpoint name alone is not a compatibility check.
+The selected runtime routes `panel-contact-shared-960-v7` to presence/sealant/seating and `panel-contact-shared-896-v6` to weld. The host uses Torch BF16; the EVK uses merged Q8_0 decoders with their matching adapted F16 vision encoders. The canonical model guide contains reproducible commands, hashes and confidence policy; a checkpoint name alone is not a compatibility check.
 
 ```text
 Xbox / mouse -> observer camera + graphics / HUD        (presentation)
@@ -37,16 +37,16 @@ The observer can move independently. R4 physically positions its camera for each
 
 ## 2. Define the four model gates
 
-One generated body in five starts with the panel already installed, but only the model's presence consensus selects the live branch.
+One generated body in five starts with the panel already installed, but only the model's fresh presence result selects the live branch.
 
-| Stage | Images and decision | Result after required fresh consensus |
+| Stage | Images and decision | Result after one fresh three-camera batch |
 | --- | --- | --- |
-| `panel_presence` | NIR: G = installed; R = missing | Two matching G batches select the preassembled path; two matching R batches select assembly |
-| `adhesive` | Thermal: two front adhesive beads | Two G batches permit welding on the assembly path, or the next inspection on the preassembled path; R/A wait |
-| `panel_seated` | NIR: panel placement after welding | Two G batches permit weld-cooldown inspection; R holds an exception with the holder engaged; A holds |
-| `weld` | Thermal: three weld contacts | Two G batches permit holder retraction and departure, or direct departure for the preassembled body; R/A wait |
+| `panel_presence` | NIR: G = installed; R = missing | One G batch selects the preassembled path; one R batch selects assembly |
+| `adhesive` | Thermal: heat transferred to the panel along three contact edges | One G batch permits welding on the assembly path, or the next inspection on the preassembled path; R/A wait |
+| `panel_seated` | NIR: panel placement after welding | One G batch permits weld-cooldown inspection; R holds an exception with the holder engaged; A holds |
+| `weld` | Thermal: six weld contacts | One G batch permits holder retraction and departure, or direct departure for the preassembled body; R/A wait |
 
-Every stage uses three lossless 448 x 256 grayscale PNGs from the physical R4 poses in `spot1`, `spot2`, `spot3` order. Adhesive views map to the two real beads as `[0, 1, 0]`; there is no rear-middle bead. Weld views still cover three contacts. Capture waits for settled joints and three actual discarded render captures. Eight-second batch/reply freshness, stage identity and the compatible scoring policy apply before a result can act. Errors, stale replies and incomplete evidence always hold. A scene timer or generator flag cannot override that hold.
+Every stage uses three lossless 448 x 256 grayscale PNGs from the physical R4 poses in `spot1`, `spot2`, `spot3` order. Adhesive views map to the two real beads as `[0, 1, 0]`; there is no rear-middle bead. Weld views cover pairs [0,1], [2,3], [4,5]. Capture waits for settled joints and three actual discarded render captures. Eight-second batch/reply freshness, stage identity and the compatible scoring policy apply before a result can act. Errors, stale replies and incomplete evidence always hold. A scene timer or generator flag cannot override that hold.
 
 For a missing panel, R1 applies the two rounded purple adhesive beads, R3 picks and holds the panel, R4 checks adhesive readiness, R2 spot welds, and R4 confirms seating and weld cooldown. R3 then retracts and the body exits. Preassembled bodies run presence and both thermal gates while skipping assembly, welding, seating inspection and holder retraction. The rack restores its picked sheet when the current body starts departing. The HUD and cabinet indicators reflect these model-controlled steps.
 
@@ -82,7 +82,7 @@ A bounded answer reduces generated output, but LoRA alone does not promise faste
 
 The selected shared256 runtime scored 95/96 literal labels and 96/96 actions on validation, then 95/96 labels/actions on the one-time held-out panel. The held-out error conservatively held a cool weld; there were no false releases or wrong presence branches in that small set. The full live assembly/preassembled/assembly sequence also passed. [Validation](validation.md) separates these model results from policy, rendering and transport checks and links measured timings. This is synthetic-scene development evidence; IQ9 and real-camera results are still pending.
 
-Report per-stage confusion, conservative holds, false releases, both presence-branch errors, malformed replies, transport failures and warm/cold latency separately. Inference milliseconds exclude physical scanning, capture scheduling, cooling and two-batch consensus; full production-cycle time must be measured separately.
+Report per-stage confusion, conservative holds, false releases, both presence-branch errors, malformed replies, transport failures and warm/cold latency separately. Inference milliseconds exclude physical scanning, capture scheduling, cooling and gate scheduling; full production-cycle time must be measured separately.
 
 ## 6. Prepare the IQ9 deployment
 

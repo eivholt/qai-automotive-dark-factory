@@ -47,7 +47,7 @@ confidence and label-mass checks run before this logic.
 The blower accelerates decay of the sealant and conducted contact-surface heat
 using a six-second illustrative cooling envelope. Its rotor follows accumulated
 active simulation time and pauses with the process. Gate approval still requires
-two fresh G batches. No timer, temperature threshold or fault flag releases the
+one fresh G batch. No timer, temperature threshold or fault flag releases the
 body. The existing HUD/cabinet/stack-light hold remains in effect until model
 acceptance; the status text explains active cooling. This first version handles
 thermal recovery, not automatic panel reseating or sealant reapplication.

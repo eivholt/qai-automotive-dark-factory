@@ -27,7 +27,7 @@
   "decision_policy": {
     "minimum_label_mass": 0.5,
     "minimum_conditional_probability": 0.98,
-    "consecutive_green": 2,
+    "consecutive_green": 1,
     "max_reply_age_seconds": 8.0
   },
   "stages": {

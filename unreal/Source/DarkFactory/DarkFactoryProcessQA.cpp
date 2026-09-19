@@ -1,4 +1,5 @@
 #include "DarkFactoryProcessController.h"
+#include "DarkFactoryAgentProtocol.h"
 #include "DarkFactoryProcessScene.h"
 #include "DarkFactoryWeldingCell.h"
 #include "Components/SceneComponent.h"
@@ -136,14 +137,12 @@ bool ADarkFactoryProcessController::RunPolicySmoke() {
     ResetPresence();
     Check(TEXT("arrival_stops_at_panel_presence"),State.Phase==Phase::PanelPresence && State.ActiveGate==0 && AtFixture() && !State.bBranchKnown);
     Check(TEXT("missing_panel_does_not_choose_branch_without_model"),!ProcessScene->BuildMetadata()->GetBoolField(TEXT("preassembled")) && Hold(Phase::PanelPresence,300) && !State.bBranchKnown);
-    Decision(TEXT("G")); Check(TEXT("one_presence_green_does_not_choose_branch"),State.Phase==Phase::PanelPresence && State.ConsecutivePasses==1 && State.ConsensusCode==TEXT("G"));
-    Decision(TEXT("A")); Decision(TEXT("G"));
-    Check(TEXT("green_amber_green_resets_presence_streak"),State.Phase==Phase::PanelPresence && State.ConsecutivePasses==1);
-    Decision(TEXT("G"),false); Decision(TEXT("G"));
-    Check(TEXT("green_error_green_resets_presence_streak"),State.Phase==Phase::PanelPresence && State.ConsecutivePasses==1);
-    Decision(TEXT("R")); Check(TEXT("changing_presence_code_starts_new_consensus"),State.Phase==Phase::PanelPresence && State.ConsecutivePasses==1 && State.ConsensusCode==TEXT("R"));
+    Decision(TEXT("A"));
+    Check(TEXT("presence_ambiguity_holds_branch"),State.Phase==Phase::PanelPresence && !State.bBranchKnown);
+    Decision(TEXT("G"),false);
+    Check(TEXT("presence_transport_error_holds_branch"),State.Phase==Phase::PanelPresence && !State.bBranchKnown);
     Decision(TEXT("R"));
-    Check(TEXT("two_missing_replies_choose_expected_assembly_branch"),State.Phase==Phase::AdhesiveApplication && State.bBranchKnown && !State.bPreassembled && State.Gates[0]==Gate::BranchChosen);
+    Check(TEXT("one_missing_batch_selects_assembly"),State.Phase==Phase::AdhesiveApplication && State.bBranchKnown && !State.bPreassembled && State.Gates[0]==Gate::BranchChosen);
     Check(TEXT("assembly_starts_before_panel_placement_without_welding"),!State.bAssemblyPerformed && !State.bWeldAuthorized && State.Gates[1]==Gate::Pending && !WeldingCell->IsWelding());
     const double ApplyStart=State.ClockSeconds; CompleteMotion(Phase::AdhesiveApplication);
     Check(TEXT("adhesive_application_obeys_authored_duration"),State.Phase==Phase::PanelPlacement && State.ClockSeconds-ApplyStart>=ADarkFactoryProcessScene::GetPhaseDuration(Phase::AdhesiveApplication));
@@ -155,9 +154,9 @@ bool ADarkFactoryProcessController::RunPolicySmoke() {
     Decision(TEXT("R")); Check(TEXT("thermal_red_is_wait_not_exception"),State.Phase==Phase::Adhesive && State.Gates[1]==Gate::Waiting && State.Steps[4]==Step::Hold);
     Check(TEXT("adhesive_hold_outlasts_legacy_cycle"),Hold(Phase::Adhesive,300));
     Check(TEXT("adhesive_clock_cools_without_auto_acceptance"),State.ClockSeconds>HoldClock+29.9 && ProcessScene->GetMaximumAdhesiveC()<InitialAdhesive && !State.bWeldAuthorized && State.Gates[1]!=Gate::Passed);
-    Decision(TEXT("G")); Decision(TEXT("A")); Decision(TEXT("G"));
-    Check(TEXT("adhesive_amber_resets_green_consensus"),State.Phase==Phase::Adhesive && State.ConsecutivePasses==1);
-    Decision(TEXT("G")); Check(TEXT("two_adhesive_greens_authorize_only_welding_step"),State.Phase==Phase::Welding && State.bWeldAuthorized && State.Gates[1]==Gate::Passed && State.Gates[2]==Gate::Pending && State.Gates[3]==Gate::Pending);
+    Decision(TEXT("A"));
+    Check(TEXT("adhesive_ambiguity_keeps_welding_held"),State.Phase==Phase::Adhesive && !State.bWeldAuthorized);
+    Decision(TEXT("G")); Check(TEXT("one_adhesive_green_authorizes_only_welding"),State.Phase==Phase::Welding && State.bWeldAuthorized && State.Gates[1]==Gate::Passed && State.Gates[2]==Gate::Pending && State.Gates[3]==Gate::Pending);
     bool WeldSeen=false,OnlyArmC=true,CarFixed=true; float PeakWeld=0;
     const double WeldStart=State.ClockSeconds;
     for (int32 I=0;I<FMath::CeilToInt(ADarkFactoryProcessScene::GetPhaseDuration(Phase::Welding)/.1)+3 && State.Phase==Phase::Welding;++I) {
@@ -172,13 +171,12 @@ bool ADarkFactoryProcessController::RunPolicySmoke() {
     Decision(TEXT("R"));
     Check(TEXT("seating_red_holds_as_exception"),State.Phase==Phase::PanelSeated && State.Gates[2]==Gate::Rejected && State.Steps[6]==Step::Exception);
     Check(TEXT("seating_exception_never_releases_or_departs"),Hold(Phase::PanelSeated,300) && State.Steps[8]==Step::Pending && State.Gates[3]==Gate::Pending);
-    Decision(TEXT("G")); Decision(TEXT("R")); Decision(TEXT("G"));
-    Check(TEXT("seating_red_resets_green_consensus"),State.Phase==Phase::PanelSeated && State.ConsecutivePasses==1);
-    Decision(TEXT("G")); Check(TEXT("two_seating_greens_start_weld_cooling_gate"),State.Phase==Phase::WeldCooling && State.ActiveGate==3 && State.Gates[2]==Gate::Passed);
+    Decision(TEXT("A"));
+    Check(TEXT("seating_ambiguity_does_not_release_holder"),State.Phase==Phase::PanelSeated && State.Gates[3]==Gate::Pending);
+    Decision(TEXT("G")); Check(TEXT("one_seating_green_starts_weld_cooling"),State.Phase==Phase::WeldCooling && State.ActiveGate==3 && State.Gates[2]==Gate::Passed);
     Decision(TEXT("R")); Check(TEXT("hot_weld_red_holds"),State.Phase==Phase::WeldCooling && State.Gates[3]==Gate::Waiting);
     Check(TEXT("weld_cooling_never_auto_releases"),Hold(Phase::WeldCooling,300) && State.Steps[8]==Step::Pending);
-    Decision(TEXT("G")); Check(TEXT("one_weld_green_keeps_holder_engaged"),State.Phase==Phase::WeldCooling && State.ConsecutivePasses==1);
-    Decision(TEXT("G")); Check(TEXT("two_weld_greens_authorize_holder_retract_first"),State.Phase==Phase::HolderRetract && State.Gates[3]==Gate::Passed && State.Steps[9]==Step::Pending);
+    Decision(TEXT("G")); Check(TEXT("one_weld_green_authorizes_holder_retract_first"),State.Phase==Phase::HolderRetract && State.Gates[3]==Gate::Passed && State.Steps[9]==Step::Pending);
     const double RetractStart=State.ClockSeconds; CompleteMotion(Phase::HolderRetract);
     Check(TEXT("holder_clearance_precedes_departure"),State.Phase==Phase::Departing && State.ClockSeconds-RetractStart>=ADarkFactoryProcessScene::GetPhaseDuration(Phase::HolderRetract));
     const FString DepartedBody=State.BodyId; const int32 BeforeExit=State.PassedBodies;
@@ -189,21 +187,21 @@ bool ADarkFactoryProcessController::RunPolicySmoke() {
 
     ResetPresence(1);
     Check(TEXT("preassembled_body_still_waits_for_presence_model"),ProcessScene->BuildMetadata()->GetBoolField(TEXT("preassembled")) && Hold(Phase::PanelPresence,40) && !State.bBranchKnown);
-    Decision(TEXT("R")); Decision(TEXT("A")); Decision(TEXT("R"));
-    Check(TEXT("missing_branch_also_requires_uninterrupted_consensus"),State.Phase==Phase::PanelPresence && State.ConsecutivePasses==1);
-    Decision(TEXT("G")); Decision(TEXT("G"));
-    Check(TEXT("present_consensus_selects_preassembled_thermal_path"),State.Phase==Phase::Adhesive && State.bPreassembled && State.bBranchKnown && State.Gates[0]==Gate::Passed);
+    Decision(TEXT("A"));
+    Check(TEXT("preassembled_uncertainty_does_not_skip_presence"),State.Phase==Phase::PanelPresence && !State.bBranchKnown);
+    Decision(TEXT("G"));
+    Check(TEXT("one_present_batch_selects_preassembled_thermal_path"),State.Phase==Phase::Adhesive && State.bPreassembled && State.bBranchKnown && State.Gates[0]==Gate::Passed);
     bool SkipStates=true; for (int32 I:{2,3,5,6,8}) SkipStates &= State.Steps[I]==Step::Skipped;
     Check(TEXT("preassembled_branch_explicitly_marks_five_skipped_actions"),SkipStates && State.Gates[2]==Gate::Skipped);
     Check(TEXT("preassembled_adhesive_hold_does_not_assemble_or_weld"),Hold(Phase::Adhesive,300) && !State.bAssemblyPerformed && !State.bWeldAuthorized);
-    Decision(TEXT("G")); Decision(TEXT("G"));
+    Decision(TEXT("G"));
     Check(TEXT("preassembled_adhesive_pass_skips_welding_and_seating"),State.Phase==Phase::WeldCooling && State.ActiveGate==3 && State.Gates[2]==Gate::Skipped && !State.bWeldAuthorized);
     Check(TEXT("preassembled_weld_cooling_remains_model_gated"),Hold(Phase::WeldCooling,100));
-    Decision(TEXT("G")); Decision(TEXT("G"));
+    Decision(TEXT("G"));
     Check(TEXT("preassembled_cool_pass_skips_holder_and_departs"),State.Phase==Phase::Departing && State.Steps[8]==Step::Skipped && !State.bAssemblyPerformed && !State.bWeldAuthorized);
 
     // Pause/cancel checks use an unsubmitted HTTP fixture and a late encoder.
-    ResetPresence(); Decision(TEXT("R")); StartCapture();
+    ResetPresence(); StartCapture();
     Check(TEXT("nir_capture_uses_one_bounded_three_view_batch"),bCaptureActive && State.bRequestPending && CaptureSlot==0 && ExpectedImages==3);
     FinishSyntheticView(11);
     Check(TEXT("encoder_completion_consumed_once"),!EncodeFuture.IsValid() && BatchImages.Num()==1 && CaptureSlot==1 && !Request.IsValid());
@@ -222,7 +220,8 @@ bool ADarkFactoryProcessController::RunPolicySmoke() {
     Decision(TEXT("R")); for (int32 I=0;I<10;++I) Tick(.1f);
     Check(TEXT("paused_input_and_clock_cannot_choose_branch"),State.Phase==Phase::PanelPresence && State.ClockSeconds==PausedClock && State.ConsecutivePasses==0 && !WeldingCell->IsAnimating());
     TogglePaused(); DelayCapture(); Decision(TEXT("R"));
-    Check(TEXT("resume_needs_two_new_matching_presence_decisions"),State.Phase==Phase::PanelPresence && State.ConsecutivePasses==1);
+    Check(TEXT("resume_accepts_one_fresh_presence_batch"),State.Phase==Phase::AdhesiveApplication && State.bBranchKnown);
+    ResetPresence();
     CancelInspection();
     bModelRequestsEnabled=false; NextInspection=0; const uint64 DisabledSerial=CaptureSerial;
     for (int32 I=0;I<12;++I) { Tick(.1f); CaptureTick(); }
@@ -231,7 +230,7 @@ bool ADarkFactoryProcessController::RunPolicySmoke() {
 
     // Complete a third synthetic encoder after the batch deadline. The entry
     // guard must discard it before telemetry publication or HTTP submission.
-    ResetPresence(); Decision(TEXT("G")); StartCapture();
+    ResetPresence(); StartCapture();
     const uint64 RequestsBeforeStale=ModelRequestsSubmitted;
     const int32 AuditsBeforeStale=InspectionCaptures.Num();
     CaptureSlot=2; BatchImages={TArray<uint8>{1,2,3},TArray<uint8>{4,5,6}};
@@ -307,9 +306,122 @@ bool ADarkFactoryProcessController::RunPolicySmoke() {
     const bool CoolPrepared=ProcessScene->PrepareCapture(TEXT("adhesive"),2,1234,AuditClock); State.ClockSeconds=AuditClock;
     RecordModelSmokeThermalGate();
     Check(TEXT("cool_audit_does_not_erase_prior_failure"),CoolPrepared && ModelSmokeThermalChecks.Last()->AsObject()->GetBoolField(TEXT("ready_at_acceptance")) && !bModelSmokeThermalLimitsMatch && State.Phase==Phase::Adhesive);
+    // The fixed policy requires a complete fresh batch. Scripted decisions
+    // test state transitions only; the separate model smoke uses actual images.
+    ResetPresence(); Decision(TEXT("A"));
+    Check(TEXT("single_batch_uncertainty_holds_presence"),State.Phase==Phase::PanelPresence && State.ConsecutivePasses==0);
+    Decision(TEXT("G"),false);
+    Check(TEXT("single_batch_invalid_reply_cannot_choose_branch"),State.Phase==Phase::PanelPresence && State.Gates[0]==Gate::Error);
+    StartCapture(); TogglePaused(); Decision(TEXT("G"));
+    Check(TEXT("single_batch_pause_discards_partial_batch_and_ignores_reply"),State.bPaused && State.Phase==Phase::PanelPresence && BatchImages.IsEmpty() && ActiveRequestId.IsEmpty());
+    TogglePaused(); DelayCapture(); StartCapture(); BatchStarted=FPlatformTime::Seconds()-MaxCaptureAgeSeconds-1.; SubmitBatch();
+    Check(TEXT("single_batch_expired_capture_cannot_submit_or_choose_branch"),CaptureInactive() && ModelRequestsSubmitted==0 && State.Phase==Phase::PanelPresence && State.ConsecutivePasses==0);
+    Decision(TEXT("R"));
+    Check(TEXT("single_batch_missing_selects_assembly"),State.Phase==Phase::AdhesiveApplication && !State.bPreassembled);
+    CompleteMotion(Phase::AdhesiveApplication); CompleteMotion(Phase::PanelPlacement);
+    Decision(TEXT("R")); Decision(TEXT("A"));
+    Check(TEXT("single_batch_thermal_hold_has_no_timer_override"),Hold(Phase::Adhesive,300) && !State.bWeldAuthorized);
+    Decision(TEXT("G"));
+    Check(TEXT("single_batch_cool_authorizes_welding"),State.Phase==Phase::Welding && State.bWeldAuthorized);
+    CompleteMotion(Phase::Welding); Decision(TEXT("R"));
+    Check(TEXT("single_batch_seating_rejection_holds"),State.Phase==Phase::PanelSeated && State.Gates[2]==Gate::Rejected && Hold(Phase::PanelSeated,10));
+    Decision(TEXT("G")); Decision(TEXT("R"));
+    Check(TEXT("single_batch_hot_weld_holds_holder"),State.Phase==Phase::WeldCooling && Hold(Phase::WeldCooling,10));
+    Decision(TEXT("G"));
+    Check(TEXT("single_batch_cool_weld_releases_holder"),State.Phase==Phase::HolderRetract);
+    CompleteMotion(Phase::HolderRetract); CompleteMotion(Phase::Departing);
+    Check(TEXT("single_batch_policy_survives_body_turnover"),State.RequiredConsensusBatches==1 && !State.bBranchKnown && State.ConsecutivePasses==0);
+    ResetPresence(1); Decision(TEXT("G"));
+    Check(TEXT("single_batch_preassembled_skips_assembly"),State.Phase==Phase::Adhesive && State.bPreassembled && State.Gates[2]==Gate::Skipped);
+    Decision(TEXT("G"));
+    Check(TEXT("single_batch_preassembled_skips_welding"),State.Phase==Phase::WeldCooling && !State.bWeldAuthorized);
+    Decision(TEXT("G"));
+    Check(TEXT("single_batch_preassembled_departs_after_both_thermal_gates"),State.Phase==Phase::Departing);
+    {
+        using namespace DarkFactoryAgent;
+        auto Invalid=MakeShared<FJsonObject>(); Invalid->SetStringField(TEXT("status"),TEXT("invalid"));
+        Invalid->SetStringField(TEXT("decision"),TEXT("A")); Invalid->SetBoolField(TEXT("valid"),false);
+        Invalid->SetStringField(TEXT("reason"),TEXT("stale_reply")); Invalid->SetStringField(TEXT("stage"),TEXT("adhesive"));
+        Invalid->SetNumberField(TEXT("capture_age_at_reply_seconds"),8.12512345); Invalid->SetNumberField(TEXT("images"),0);
+        const auto Compact=CompactToolResult(Invalid);
+        FString CompactText; FJsonSerializer::Serialize(Compact,TJsonWriterFactory<TCHAR,TCondensedJsonPrintPolicy<TCHAR>>::Create(&CompactText));
+        Check(TEXT("agent_compact_transport_preserves_invalid_evidence"),!Compact->GetBoolField(TEXT("valid")) && Compact->GetStringField(TEXT("decision"))==TEXT("A") &&
+            Compact->GetStringField(TEXT("reason"))==TEXT("stale_reply") && Compact->GetStringField(TEXT("stage"))==TEXT("adhesive"));
+        Check(TEXT("agent_compact_clock_is_numeric_bounded_precision_and_journal_unchanged"),CompactText.Contains(TEXT("\"capture_age_at_reply_seconds\":8.125")) &&
+            Invalid->GetNumberField(TEXT("capture_age_at_reply_seconds"))==8.12512345 && Invalid->HasField(TEXT("images")));
+        auto Parse=[&](const FString& Tool,const FString& Args,const FString& Finish=TEXT("tool_calls"),int32 Count=1) {
+            auto Fn=MakeShared<FJsonObject>(); Fn->SetStringField(TEXT("name"),Tool); Fn->SetStringField(TEXT("arguments"),Args);
+            auto Call=MakeShared<FJsonObject>(); Call->SetStringField(TEXT("id"),TEXT("call1")); Call->SetStringField(TEXT("type"),TEXT("function")); Call->SetObjectField(TEXT("function"),Fn);
+            TArray<TSharedPtr<FJsonValue>> Calls; for (int32 I=0;I<Count;++I) Calls.Add(MakeShared<FJsonValueObject>(Call));
+            auto Message=MakeShared<FJsonObject>(); Message->SetArrayField(TEXT("tool_calls"),Calls);
+            auto Choice=MakeShared<FJsonObject>(); Choice->SetObjectField(TEXT("message"),Message); Choice->SetStringField(TEXT("finish_reason"),Finish);
+            auto Reply=MakeShared<FJsonObject>(); Reply->SetArrayField(TEXT("choices"),{MakeShared<FJsonValueObject>(Choice)});
+            FCommand Command; FString Error; return ParseCommand(Reply,Command,Error);
+        };
+        const FString WeldArgs=TEXT("{\"action\":\"weld_panel\",\"reason\":\"Test arbitrary job\"}");
+        Check(TEXT("agent_parser_accepts_weld_without_recipe_state"),Parse(TEXT("act"),WeldArgs));
+        Check(TEXT("agent_parser_rejects_truncated_output"),!Parse(TEXT("act"),WeldArgs,TEXT("length")));
+        Check(TEXT("agent_parser_rejects_parallel_jobs"),!Parse(TEXT("act"),WeldArgs,TEXT("tool_calls"),2));
+        Check(TEXT("agent_parser_rejects_unknown_capability"),!Parse(TEXT("exec"),WeldArgs));
+        Check(TEXT("agent_parser_rejects_extra_fields"),!Parse(TEXT("hold"),TEXT("{\"reason\":\"hold\",\"override\":true}")));
+        Check(TEXT("agent_parser_rejects_unbounded_wait"),!Parse(TEXT("wait"),TEXT("{\"reason\":\"wait\",\"seconds\":1000}")));
+        Check(TEXT("agent_reply_scope_matches"),SameScope(1,TEXT("a"),TEXT("r"),1,TEXT("a"),TEXT("r"),false));
+        Check(TEXT("agent_reply_rejects_pause_old_body_old_epoch_and_consumed_id"),
+            !SameScope(1,TEXT("a"),TEXT("r"),1,TEXT("a"),TEXT("r"),true) &&
+            !SameScope(1,TEXT("a"),TEXT("r"),1,TEXT("b"),TEXT("r"),false) &&
+            !SameScope(1,TEXT("a"),TEXT("r"),2,TEXT("a"),TEXT("r"),false) &&
+            !SameScope(1,TEXT("a"),TEXT("r"),1,TEXT("a"),TEXT(""),false));
+        FAudit Audit; Check(TEXT("agent_independent_audit_records_premature_weld"),Audit.ObserveAction(TEXT("weld_panel"),false,80.,20.).Contains(TEXT("welding_while_sealant_hot")));
+        Audit.Evidence.Add(TEXT("adhesive"),{TEXT("G"),true,1.}); Audit.Complete(TEXT("apply_sealant"));
+        Check(TEXT("agent_audit_invalidates_reheated_evidence"),!Audit.Evidence.Contains(TEXT("adhesive")));
+        Audit=FAudit(); Audit.ObserveInspection(TEXT("panel_presence"),{TEXT("R"),true,1.});
+        Audit.Complete(TEXT("apply_sealant")); Audit.Complete(TEXT("place_panel"));
+        Audit.ObserveInspection(TEXT("panel_presence"),{TEXT("G"),true,20.});
+        Check(TEXT("agent_later_presence_observation_is_not_incoming_truth"),!Audit.ObserveAction(TEXT("weld_panel"),false,20.,20.).Contains(TEXT("presence_branch_incorrect")));
+        Agent=MakeShared<FRuntime>(); Agent->Started=FPlatformTime::Seconds(); State.bAgentControl=true; ProcessScene->SetAgentControl(true);
+        ForcedPreassembled=0; ProcessScene->EndBody(); BeginBody(); CompleteMotion(Phase::Arriving);
+        Check(TEXT("agent_arrival_has_no_automatic_inspection"),State.Phase==Phase::AgentIdle && State.ActiveGate==-1 && ModelRequestsSubmitted==0);
+        Check(TEXT("agent_arrival_needs_no_artificial_decision_delay"),Agent->NextDecision<=State.ClockSeconds);
+        FCommand Inspect; Inspect.Tool=TEXT("inspect"); Inspect.Argument=TEXT("panel_presence"); Inspect.Reason=TEXT("Policy input");
+        DispatchAgentCommand(Inspect); DelayCapture();
+        for (int32 I=0;I<12;++I) Tick(.1f);
+        Decision(TEXT("R"));
+        Check(TEXT("agent_presence_result_does_not_select_branch_or_start_job"),State.Phase==Phase::AgentIdle && !State.bBranchKnown && !Agent->Busy && Agent->Journal.Last()->AsObject()->GetStringField(TEXT("decision"))==TEXT("R"));
+        FCommand Weld; Weld.Tool=TEXT("act"); Weld.Argument=TEXT("weld_panel"); Weld.Reason=TEXT("Deliberately wrong process choice");
+        Agent->PendingCommand=Weld; AgentTick();
+        Check(TEXT("agent_fast_reply_waits_for_actual_arm_withdrawal"),!ProcessScene->IsInspectionArmParked() && Agent->PendingCommand.IsSet() && State.Phase==Phase::AgentIdle && Agent->Failures==0);
+        TogglePaused(); AgentTick();
+        Check(TEXT("agent_pause_discards_queued_command"),!Agent->PendingCommand.IsSet() && State.Phase==Phase::AgentIdle && !Agent->Busy);
+        TogglePaused(); Agent->PendingCommand=Weld;
+        for (int32 I=0;I<4;++I) Tick(.1f);
+        Check(TEXT("agent_queued_command_cannot_start_during_partial_withdrawal"),Agent->PendingCommand.IsSet() && State.Phase==Phase::AgentIdle);
+        for (int32 I=0;I<6;++I) Tick(.1f);
+        Check(TEXT("agent_dispatches_once_after_actual_withdrawal"),ProcessScene->IsInspectionArmParked() && !Agent->PendingCommand.IsSet() && Agent->Audits.Num()==1);
+        Check(TEXT("agent_executes_recipe_violation_and_audits_without_veto"),State.Phase==Phase::Welding && Agent->Failures>0 && Agent->Rejected==0);
+        const FString OriginalJob=Agent->Job; DispatchAgentCommand(Inspect);
+        Check(TEXT("agent_executor_prevents_overlapping_jobs"),Agent->Job==OriginalJob && State.Phase==Phase::Welding);
+        CompleteMotion(Phase::Welding);
+        Check(TEXT("agent_completed_weld_does_not_start_seating_inspection"),State.Phase==Phase::AgentIdle && State.ActiveGate==-1 && Agent->Audit.Completed.FindRef(TEXT("weld_panel"))==1);
+        FCommand Wait; Wait.Tool=TEXT("wait"); Wait.Seconds=2.; Wait.Reason=TEXT("Wait without inspection");
+        DispatchAgentCommand(Wait); const double Before=State.ClockSeconds;
+        for (int32 I=0;I<25;++I) Tick(.1);
+        Check(TEXT("agent_wait_advances_physics_without_hidden_inference"),State.ClockSeconds>Before+2 && !Agent->Busy && State.Phase==Phase::AgentIdle && ModelRequestsSubmitted==0);
+        DispatchAgentCommand(Inspect); StartCapture(); const uint64 BeforeEpoch=Agent->Epoch;
+        TogglePaused(); Check(TEXT("agent_pause_cancels_inspection_and_epoch"),Agent->Epoch>BeforeEpoch && !Agent->Busy && CaptureInactive() && State.bPaused);
+        TogglePaused();
+        FCommand Depart; Depart.Tool=TEXT("act"); Depart.Argument=TEXT("send_forward"); Depart.Reason=TEXT("Deliberately missing all acceptance inspections");
+        DispatchAgentCommand(Depart);
+        Check(TEXT("agent_can_depart_with_bad_recipe_audit_only"),State.Phase==Phase::Departing && Agent->Failures>0);
+        Agent->PendingCommand=Weld; // Synthetic old-body response awaiting dispatch.
+        CompleteMotion(Phase::Departing);
+        Check(TEXT("agent_body_turnover_clears_observations_and_jobs"),State.Phase==Phase::Arriving && Agent->Journal.IsEmpty() && Agent->Audit.Completed.IsEmpty() && !Agent->HolderEngaged && !Agent->PendingCommand.IsSet());
+        CancelAgentDecision(); Agent.Reset(); State.bAgentControl=false; ProcessScene->SetAgentControl(false);
+    }
     CancelInspection(); bReady=false; bModelRequestsEnabled=OriginalRequests; WeldingCell->SetAnimationEnabled(false);
     auto Report=MakeShared<FJsonObject>(); Report->SetStringField(TEXT("schema"),TEXT("darkfactory-process-policy-smoke-v1"));
     Report->SetStringField(TEXT("contract_version"),ContractVersion); Report->SetStringField(TEXT("source"),TEXT("policy_test")); Report->SetStringField(TEXT("session_id"),SessionId);
+    auto Execution=MakeShared<FJsonObject>(); Execution->SetNumberField(TEXT("required_consensus_batches"),State.RequiredConsensusBatches);
+    Report->SetObjectField(TEXT("execution_policy"),Execution);
     Report->SetStringField(TEXT("scope"),TEXT("Native panel-assembly policy, physical holds and scan poses with scripted decisions/synthetic encoder mailboxes; no model accuracy or rendered-image validation"));
     Report->SetBoolField(TEXT("model_accuracy_evidence"),false); Report->SetNumberField(TEXT("http_requests_submitted"),static_cast<double>(ModelRequestsSubmitted));
     Report->SetNumberField(TEXT("checks_count"),Checks.Num()); Report->SetArrayField(TEXT("checks"),Checks); Report->SetArrayField(TEXT("inspection_scan_poses"),InspectionPolicyPoses); Report->SetBoolField(TEXT("passed"),Passed);

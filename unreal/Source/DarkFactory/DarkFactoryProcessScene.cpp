@@ -174,6 +174,7 @@ void ADarkFactoryProcessScene::BeginBody(int32 BodyIndex,double ClockSeconds,int
     BodySequence=FMath::Max(0,BodyIndex); BodyBirthSeconds=Clock=LastClock=ClockSeconds;
     RecoveryStarted=-1.; RecoveryCoolingAge=0.;
     bBodyActive=true; bBodyVisible=true; bPanelPicked=bPanelWelded=bOfflinePrepared=bOccluded=bMisaligned=false;
+    bHolderReleased=false;
     CaptureExpectedDecision.Empty(); CaptureVisibilityRays.Reset(); InspectionExtension=0; LastStageSeconds=0; CurrentPhase=EDarkFactoryProcessPhase::Arriving;
     const uint32 BodySeed=static_cast<uint32>(RandomSeed)^(static_cast<uint32>(BodySequence)*196613u+0x28f6c419u);
     FRandomStream Random(static_cast<int32>(BodySeed)); bPreassembled=Random.RandRange(0,4)==0;
@@ -202,6 +203,23 @@ void ADarkFactoryProcessScene::BeginBody(int32 BodyIndex,double ClockSeconds,int
 }
 void ADarkFactoryProcessScene::EndBody() {
     bBodyActive=bBodyVisible=false; bOccluded=false; UpdatePanelVisibility();
+}
+void ADarkFactoryProcessScene::BeginAgentJob(EDarkFactoryProcessPhase Phase) {
+    // Physical effects belong to jobs, never to inspection verdicts. Repeated
+    // applications and weld passes genuinely restart their deposition clocks.
+    if (Phase==EDarkFactoryProcessPhase::AdhesiveApplication) {
+        for (int32 I=0;I<AdhesiveDeposited.Num();++I) { AdhesiveDeposited[I]=-1.; AdhesiveProgress[I]=0.; }
+        ContactStarted=-1.;
+    }
+    if (Phase==EDarkFactoryProcessPhase::Welding) for (auto& Time:WeldDeposited) Time=-1.;
+}
+void ADarkFactoryProcessScene::CompleteAgentJob(EDarkFactoryProcessPhase Phase) {
+    if (Phase==EDarkFactoryProcessPhase::PanelPlacement) ContactStarted=Clock;
+    if (Phase==EDarkFactoryProcessPhase::Welding && bPanelPicked && !bPanelWelded) {
+        HeldPanel->AttachToComponent(Cell->GetCarriageRoot(),FAttachmentTransformRules::KeepWorldTransform);
+        bPanelWelded=true;
+    }
+    if (Phase==EDarkFactoryProcessPhase::HolderRetract) bHolderReleased=true;
 }
 bool ADarkFactoryProcessScene::StartRecoveryCooling() {
     if (!bRecoveryExperiment || RecoveryStarted>=0 || CurrentPhase!=EDarkFactoryProcessPhase::Adhesive) return false;
@@ -235,7 +253,7 @@ void ADarkFactoryProcessScene::ApplyAssemblyFrame(EDarkFactoryProcessPhase Phase
     const double Step=Dt/(Target>InspectionExtension ? InspectionDeploySeconds:InspectionWithdrawSeconds);
     InspectionExtension=Target>InspectionExtension ? FMath::Min(Target,InspectionExtension+Step):FMath::Max(Target,InspectionExtension-Step);
     if (FMath::Abs(InspectionExtension-Target)<1.e-9) InspectionExtension=Target;
-    Cell->SetPanelMotionState(Phase,StageSeconds,bPanelPicked);
+    Cell->SetPanelMotionState(Phase,StageSeconds,bPanelPicked && !bHolderReleased);
     Cell->SetProcessFrame(Phase==P::Welding ? StageSeconds:0.,Clock,Offset,Show,Phase==P::Welding,InspectionExtension);
     if (!bOfflinePrepared) {
         if (Phase==P::AdhesiveApplication) for (int32 I=0;I<AdhesiveMeshes.Num();++I) {
@@ -258,7 +276,7 @@ void ADarkFactoryProcessScene::ApplyAssemblyFrame(EDarkFactoryProcessPhase Phase
             const double Contact=ADarkFactoryWeldingCell::PanelWeldStartSeconds(I);
             if (StageSeconds>=Contact && WeldDeposited[I]<0) WeldDeposited[I]=Clock-StageSeconds+Contact;
         }
-        if (bPanelPicked && !bPanelWelded && Phase==P::PanelSeated) {
+        if (!bAgentControl && bPanelPicked && !bPanelWelded && Phase==P::PanelSeated) {
             // Preserve the physically reached placement; welding fixes it to the
             // carriage before the gripper eventually releases after final G.
             HeldPanel->AttachToComponent(Cell->GetCarriageRoot(),FAttachmentTransformRules::KeepWorldTransform);

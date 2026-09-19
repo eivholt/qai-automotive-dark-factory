@@ -1,8 +1,55 @@
 # Automotive dark factory
 
-An Unreal Engine factory-inspection demo with **NVIDIA Cosmos-Reason2-2B**, host GPU experiments ahead of Qualcomm IQ9 EVK deployment, independent Xbox-controller navigation, and separate NIR and thermal camera views.
+Optional **live agent control** connects Ministral-3-3B Q4_K_M to actual Unreal jobs and
+adapted Reason2 camera tools: `-Process -ProcessControl agent -Enhancements`.
+The agent chooses inspections and jobs; an independent audit records process
+mistakes without vetoing them. The default `-ProcessControl flow` remains the
+comparison controller. See [live agent control](docs/live_agent_control.md) for
+host/EVK startup, exact prompt, execution boundaries and validation.
 
-## Current progress — 16 September 2026
+An Unreal Engine factory-inspection demo with **NVIDIA Cosmos-Reason2-2B**, host GPU and experimental Qualcomm IQ9 EVK inference, independent Xbox-controller navigation, and separate NIR and thermal camera views.
+
+## Current progress — 19 September 2026
+
+Reason2 now has a compiled **IQ9 NPU vision and text** runtime: W8 text with
+FP16 vision preserves the 191/192 development result, with no false accepts or
+wrong NIR decisions, at **1.41 s median per three-camera inspection**. The one
+error is a conservative cool-sealant hold. This is the existing development
+cohort, not new held-out accuracy. Both stage adapters remain loaded alongside
+Ministral-3-3B; the controller runs on the EVK CPU. See the
+[compiled NPU guide](docs/evk_qairt_experiment.md) for validation and startup.
+The actual Unreal integration passed three departures, six thermal checks and
+15/15 fresh valid replies at **1.42 s median**. The current Python suite has
+178 passing tests.
+
+The Ministral EVK agent now supports **one-token action selection without
+fine-tuning**. Two cold three-body runs took **3m18s**, versus 4m14s with native
+tool calls and 8m04s for optimized Qwen. The final run made **1.61 s median
+controller decisions**, 24 choices and 12 actual camera batches, with no audit
+failures or rejected calls. All 48 decisions across the two runs matched the
+model's unmasked top token. Those runs preceded the startup cache below.
+Inference overlaps camera withdrawal; commands wait for the arm to park.
+The original weights and policy are retained, with a separately versioned
+action-code prompt/history format and no generated rationale. All 13 actions
+remain available; there is no recipe veto or automatic correction. See the
+[one-token guide](docs/single_token_controller.md) for startup on port 18196,
+token-score audits and limits. Native tool calls remain available on 18195.
+Further **training-free optimizations are now enabled** on the EVK: a persisted
+policy-prefix cache cuts the first decision to about **1.7 s** after readiness,
+and precomputing the known next-turn envelope during robot jobs lowers median
+agent latency from **1.58 to 1.42 s** in a matched live comparison. The final three
+bodies took **2m50s**, with 22 decisions / 11 Reason2 batches and no audit failures.
+The policy stays editable and model weights unchanged; no future inspection
+result is guessed. See [the optimization study](docs/agent_optimization_research.md)
+for cache invalidation, measurements, rejected alternatives and limitations.
+
+Earlier Ministral prompts skipped
+a thermal check; the revised prompt includes an explicit example requiring both
+thermal inspections. No code veto was added. The original Q4_K_M is retained;
+its NPU export attempt failed on unsupported `mistral3` architecture. See the
+[Ministral study](docs/ministral_controller.md) for cold-start timing, failures,
+reproduction and the limits of this development result. Qwen remains an explicit
+fallback; [its speed study](docs/agent_speed.md) retains the previous measurements.
 
 The demo now includes a permanent panel mounting frame, top-down placement,
 three-edge sealant application, animated pinch welding and four model inspection
@@ -15,15 +62,41 @@ Roof lighting is softer, and process-mode carriage motors now warm with travel
 and cool at rest. Control cabinets show localized electronics and vent warmth
 in thermal views. See [equipment heat](docs/equipment_heat.md).
 
-The latest UE 5.8 build, 124 Python tests, 2,012 graphics checks and nine welding
-regression suites passed. Editor authoring passed 21 rendered lifecycle checks.
-The earlier 191/192 development model result predates the permanent frame; IQ9
-deployment and new held-out validation of the final scene remain pending.
+The earlier scene update passed the UE 5.8 build, 143 Python tests, 42 launcher checks
+and 115 rendered native policy checks. Earlier visual regression evidence includes
+2,012 graphics checks, nine welding suites and 21 Editor authoring lifecycle checks.
+The earlier 191/192 development model result predates the permanent frame;
+new held-out validation of the final scene remains pending.
 See the [progress overview](docs/progress.md) and [validation record](docs/validation.md).
 
 Only tutorial, source code and configuration are intended for publication.
 Runtime builds, purchased assets, generated content, training images and model
 weights remain on the user's computers.
+
+The earlier [agent-control experiment](docs/agentic_process_experiment.md) tested
+Qwen3.5 controller models on the host GPU with synthetic Reason2 tool replies.
+It includes proposed missing-frame installation and sealant-continuity rework
+branches. The LLM selects complete jobs; arm motion and evidence validation stay
+inside the executor. That historical study did not change the live Unreal
+controller or a trained model for the new inspections. The guide includes measured
+host/device results, measured IQ9 memory and reproduction commands.
+
+The initial [IQ9 runtime experiment](docs/evk_model_runtime.md) ran both adapted
+Reason2 exports through Hexagon decoders with CPU vision. Q8_0 retained 96/96
+correct decisions on an existing development cohort on both host and EVK;
+Q4_0 introduced seven false accepts and was rejected. Qwen3.5-9B Q4_K_M passed
+16/16 runs in each host suite and all eight standard EVK cases (53 decisions,
+12.06 s median) while both Reason2 models remained loaded. Its live Unreal agent
+integration remains separate from these synthetic-tool tests.
+
+Process gates now accept **one fresh three-camera batch**, hardcoded with no
+consensus switch. Confidence .98, label mass .5 and eight-second freshness are
+unchanged. The old conveyor service is disabled. An authorized reboot reclaimed
+the EVK's large kernel allocation, and all three models now run together with
+at least 21.49 GiB available during testing. The actual one-batch EVK run passed
+three departures and all six thermal checks in 181.50 s, with 12 valid replies
+at 4.87 s median. See the [EVK runtime guide](docs/evk_model_runtime.md) for explicit
+device selection, startup commands and measurement limits.
 
 ## Current assembly scene
 
@@ -50,7 +123,7 @@ Each process body now retains a [source-derived mounting frame](docs/panel_mount
 
 **Editor Play or explicit `-Process` enables model-gated assembly.** One in five bodies arrives preassembled, but only fresh camera evidence selects the branch. R4 checks panel presence in NIR, sealant readiness from conducted heat on the panel surface, panel seating in NIR after installation, and weld cooldown thermally. The holder retracts only after acceptance. The preassembled branch skips assembly and seating inspection but still requires both thermal gates. HUD cards, cabinet indicators and stack lights display actual process state. See the [complete sequence](docs/process_inspection.md) and [scene implementation](docs/process_scene.md).
 
-The command-line launcher without `-Process` keeps its repeating visual preview. Without locally prepared assets, `-Scene auto` falls back to the procedural battery-tray reference, whose mock inference and training workflow are separate. Current panel-v3 must not use the older door, parcel or battery adapters. NIR and thermal are rendering approximations, not calibrated cameras; the panel model has not yet been deployed to IQ9.
+The command-line launcher without `-Process` keeps its repeating visual preview. Without locally prepared assets, `-Scene auto` falls back to the procedural battery-tray reference, whose mock inference and training workflow are separate. Current panel-v3 must not use the older door, parcel or battery adapters. NIR and thermal are rendering approximations, not calibrated cameras; the experimental IQ9 stage router is documented in [the EVK guide](docs/evk_model_runtime.md).
 
 The layout retains six welds across the two front contact flanges, with no
 extension rod or rear-middle support. EVK props mount directly to the base covers.
@@ -79,7 +152,7 @@ The selected `panel-two-bead-shared-256-v3` adapter completed 256 total optimize
 | Host HTTP latency, median / p95 | 49.28 / 54.55 ms standalone; 84.43 / 92.83 ms during the rendered integration run |
 | Native integration | Assembly / preassembled / assembly completed; 30 model requests and all six thermal acceptance audits passed |
 
-These are small simulated-camera experiments, not real-factory or EVK validation. Timings cover the model HTTP request, not arm travel, scanning, cooling or full-cycle throughput. [Model training and evaluation](docs/model_classification.md) records exact provenance, commands and remaining limits. Earlier shared320 results belong to the [previous three-bead scene](docs/model_classification_panel_v2_history.md).
+These host scores are small simulated-camera experiments, not real-factory validation; separate EVK results are recorded in [the runtime guide](docs/evk_model_runtime.md). Timings cover the model HTTP request, not arm travel, scanning, cooling or full-cycle throughput. [Model training and evaluation](docs/model_classification.md) records exact provenance, commands and remaining limits. Earlier shared320 results belong to the [previous three-bead scene](docs/model_classification_panel_v2_history.md).
 
 ## Run the panel demo on a prepared installation
 
@@ -292,7 +365,7 @@ See [training and export](docs/training.md) for processor validation, optional C
 
 ## Connect a prepared IQ9 candidate
 
-This is the procedural single-camera bridge. The automotive process contract is currently host-only and must not be routed through it. Use the address and model ID of a separately prepared **new procedural factory candidate**. This starts only the local bridge; it does not modify the EVK service:
+This is the procedural single-camera bridge. The automotive process uses its own host/EVK stage router and must not be routed through this legacy bridge. Use the address and model ID of a separately prepared **new procedural factory candidate**. This starts only the local bridge; it does not modify the EVK service:
 
 ```powershell
 .\.venv\Scripts\python.exe -m dark_factory.bridge --backend evk --evk-url http://YOUR_EVK_IP:18183 --model YOUR_FACTORY_MODEL_ID
@@ -323,6 +396,7 @@ For the CPU suite and procedural rendering references:
 - [Full tutorial](docs/dark_factory_tutorial.md)
 - [Panel process setup and gates](docs/process_inspection.md)
 - [Model training, results and host serving](docs/model_classification.md)
+- [One versus two inspection batches](docs/consensus_experiment.md): comparison evidence; all gates now use one fresh three-camera batch, with no switch.
 - [Panel geometry, tools and motion](docs/process_scene.md)
 - [Observer DLSS, Lumen and hardware ray tracing](docs/observer_graphics.md)
 - [Fixed observer thermal display and hot-weld saturation](docs/thermal_welding_range.md)

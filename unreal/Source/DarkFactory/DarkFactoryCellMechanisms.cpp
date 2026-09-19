@@ -277,7 +277,7 @@ void ADarkFactoryCellMechanisms::UpdateFromCell() {
     bool Green=bEnabled && CycleSeconds>=CloseEnd && CycleSeconds<OpenStart;
     bool Amber=bEnabled && !Green,Red=false;
     if (ProcessStatus.bEnabled) {
-        bool Exception=false;
+        bool Exception=ProcessStatus.bAgentControl && ProcessStatus.bAgentHeld;
         for (const auto Gate:ProcessStatus.Gates)
             Exception |= Gate==EDarkFactoryGateState::Rejected || Gate==EDarkFactoryGateState::Error;
         const bool Working=ProcessStatus.Phase==EDarkFactoryProcessPhase::Arriving

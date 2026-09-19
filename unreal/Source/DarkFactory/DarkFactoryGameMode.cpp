@@ -144,6 +144,7 @@ const TCHAR* ProcessPhaseLabel(EDarkFactoryProcessPhase Phase) {
         case EDarkFactoryProcessPhase::WeldCooling: return TEXT("R4 / weld cooling inspection");
         case EDarkFactoryProcessPhase::HolderRetract: return TEXT("Arm B / releasing and retracting");
         case EDarkFactoryProcessPhase::Departing: return TEXT("Passing body forward");
+        case EDarkFactoryProcessPhase::AgentIdle: return TEXT("Agent decision / idle");
     }
     return TEXT("Process hold");
 }
@@ -190,7 +191,7 @@ TSharedRef<FJsonObject> ADarkFactoryHUD::BuildProductionStatusMetadata() const {
         O->SetStringField(TEXT("phase"),ProcessPhaseLabel(State.Phase)); O->SetStringField(TEXT("body_id"),State.BodyId);
         O->SetNumberField(TEXT("body_sequence"),State.BodySequence); O->SetBoolField(TEXT("paused"),State.bPaused);
         O->SetBoolField(TEXT("request_pending"),State.bRequestPending); O->SetNumberField(TEXT("active_gate"),State.ActiveGate);
-        O->SetNumberField(TEXT("consecutive_passes"),State.ConsecutivePasses); O->SetNumberField(TEXT("required_passes"),2);
+        O->SetNumberField(TEXT("consecutive_passes"),State.ConsecutivePasses); O->SetNumberField(TEXT("required_passes"),State.RequiredConsensusBatches);
         O->SetNumberField(TEXT("passed_bodies"),State.PassedBodies);
         O->SetBoolField(TEXT("branch_known"),State.bBranchKnown); O->SetBoolField(TEXT("preassembled_branch"),State.bPreassembled);
         O->SetStringField(TEXT("backend"),State.Backend); O->SetStringField(TEXT("decision"),State.Decision);
@@ -262,7 +263,7 @@ void ADarkFactoryHUD::DrawProcessStatus(const ADarkFactoryProcessController* Pro
         }
         return Result;
     };
-    const TCHAR* RunLabel=State.Backend.Contains(TEXT("PHYSICAL QA")) ? TEXT("PHYSICAL QA / NO MODEL")
+    const TCHAR* RunLabel=State.bAgentControl ? TEXT("LLM AGENT / LIVE TOOLS"):State.Backend.Contains(TEXT("PHYSICAL QA")) ? TEXT("PHYSICAL QA / NO MODEL")
         :State.Backend.Contains(TEXT("POLICY TEST")) ? TEXT("POLICY TEST")
         :State.Backend.Contains(TEXT("OFFLINE")) ? TEXT("CAPTURE FIXTURE"):TEXT("MODEL-GATED PROCESS");
     DrawText(Fit(FString::Printf(TEXT("%s   Body %03d   %s%s"),RunLabel,State.BodySequence,
@@ -276,10 +277,18 @@ void ADarkFactoryHUD::DrawProcessStatus(const ADarkFactoryProcessController* Pro
         DrawRect(FLinearColor(.025f,.052f,.071f,.94f),Left,Y+54,Column-6,65);
         DrawRect(Color,Left,Y+54,Column-6,2);
         DrawText(Fit(Names[I],Column-16,.90f*Scale),Pale,Left+7,Y+62,GEngine->GetSmallFont(),.90f*Scale);
-        DrawText(Fit(GateLabel(State.Gates[I]),Column-16,.88f*Scale),Color,Left+7,Y+83,GEngine->GetSmallFont(),.88f*Scale);
+        FString ObservationLabel=GateLabel(State.Gates[I]);
+        if (State.bAgentControl && !State.AgentGateCodes[I].IsEmpty() && State.ActiveGate!=I) {
+            const auto& Code=State.AgentGateCodes[I];
+            ObservationLabel=Code==TEXT("invalid") ? TEXT("Invalid observation"):Code==TEXT("A") ? TEXT("A / unclear"):
+                I==0 ? (Code==TEXT("G") ? TEXT("G / panel present"):TEXT("R / panel missing")):
+                I==2 ? (Code==TEXT("G") ? TEXT("G / seated"):TEXT("R / seating defect")):
+                Code==TEXT("G") ? TEXT("G / cool"):TEXT("R / hot");
+        }
+        DrawText(Fit(ObservationLabel,Column-16,.88f*Scale),Color,Left+7,Y+83,GEngine->GetSmallFont(),.88f*Scale);
         if (State.ActiveGate==I)
-            DrawText(FString::Printf(TEXT("%s  %d / 2%s"),State.ConsensusCode.IsEmpty() ? TEXT("fresh"):*State.ConsensusCode,
-                State.ConsecutivePasses,State.bRequestPending ? TEXT("  scanning"):TEXT("")),Muted,Left+7,Y+103,GEngine->GetSmallFont(),.69f*Scale);
+            DrawText(FString::Printf(TEXT("%s  %d / %d%s"),State.ConsensusCode.IsEmpty() ? TEXT("fresh"):*State.ConsensusCode,
+                State.ConsecutivePasses,State.RequiredConsensusBatches,State.bRequestPending ? TEXT("  scanning"):TEXT("")),Muted,Left+7,Y+103,GEngine->GetSmallFont(),.69f*Scale);
     }
     const TCHAR* Steps[]={TEXT("Arrive"),TEXT("Panel check"),TEXT("Apply sealant"),TEXT("Place / hold"),TEXT("Sealant cool"),
         TEXT("Spot weld"),TEXT("Seat check"),TEXT("Weld cool"),TEXT("Release"),TEXT("Depart")};
@@ -296,19 +305,23 @@ void ADarkFactoryHUD::DrawProcessStatus(const ADarkFactoryProcessController* Pro
     bool Error=false;
     for (const auto Gate:State.Gates) Error |= Gate==EDarkFactoryGateState::Error;
     const FString Detail=State.bPaused ? TEXT("PAUSED: motion, heating and inspections held.")
+        :State.bAgentControl ? State.Message
         :Error ? TEXT("MODEL UNAVAILABLE / HOLD: ")+State.Message:State.Message;
     DrawText(Fit(Detail,Width-20,.90f*Scale),Error ? FLinearColor(1.f,.30f,.26f):State.bPaused ? Amber:Pale,X+10,Y+190,GEngine->GetSmallFont(),.90f*Scale);
     const FString Latency=State.LastLatencyMs>0 ? FString::Printf(TEXT("%.0f ms"),State.LastLatencyMs):TEXT("--");
     const TCHAR* Branch=!State.bBranchKnown ? TEXT("Branch undecided"):State.bPreassembled ? TEXT("Preassembled / assembly skipped"):TEXT("Missing panel / assemble");
-    DrawText(Fit(FString::Printf(TEXT("%s   Last %s / %s   Exited %d"),Branch,*State.Decision,*Latency,State.PassedBodies),Width-20,.82f*Scale),Muted,X+10,Y+211,GEngine->GetSmallFont(),.82f*Scale);
-    DrawText(Fit(TEXT("R: missing panel -> assemble; hot -> wait; seating fault -> hold"),Width-20,.74f*Scale),Muted,X+10,Y+231,GEngine->GetSmallFont(),.74f*Scale);
+    const FString Summary=State.bAgentControl ? FString::Printf(TEXT("Agent %.1f s | Reason2 %s | Audit errors %d | Exited %d"),State.AgentLatencyMs/1000.f,*Latency,State.AgentAuditFailures,State.PassedBodies)
+        :FString::Printf(TEXT("%s   Last %s / %s   Exited %d"),Branch,*State.Decision,*Latency,State.PassedBodies);
+    DrawText(Fit(Summary,Width-20,.82f*Scale),Muted,X+10,Y+211,GEngine->GetSmallFont(),.82f*Scale);
+    DrawText(Fit(State.bAgentControl ? State.AgentAction+TEXT(": ")+State.AgentReason:TEXT("R: missing panel -> assemble; hot -> wait; seating fault -> hold"),Width-20,.74f*Scale),Muted,X+10,Y+231,GEngine->GetSmallFont(),.74f*Scale);
     DrawText(TEXT("Raw sensor inputs exclude HUD and controller state."),Muted,X+10,Y+247,GEngine->GetSmallFont(),.70f*Scale);
 }
 void ADarkFactoryHUD::DrawProcessCaptures(const ADarkFactoryProcessController* Process,const ADarkFactoryWorld* World,float RightPanelX,float PanelWidth) {
     if (!Process || !World || !Canvas) return;
     if (Process->IsInspectionReplayVisible()) { DrawInspectionReplay(Process,RightPanelX,PanelWidth); return; }
     const auto& State=Process->GetStatus();
-    const bool NIR=State.Phase<=EDarkFactoryProcessPhase::PanelPlacement || State.Phase==EDarkFactoryProcessPhase::PanelSeated;
+    const bool NIR=State.bAgentControl ? (State.LastInspectionStage.IsEmpty() || State.LastInspectionStage==TEXT("panel_presence") || State.LastInspectionStage==TEXT("panel_seated")):
+        (State.Phase<=EDarkFactoryProcessPhase::PanelPlacement || State.Phase==EDarkFactoryProcessPhase::PanelSeated);
     const int32 Count=3;
     const float Margin=14.f,Header=58.f,Footer=28.f,Extra=NIR ? 36.f:62.f;
     const float Height=FMath::Min((PanelWidth-20.f)/1.75f,FMath::Max(32.f,

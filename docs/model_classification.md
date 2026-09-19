@@ -33,7 +33,7 @@ zero observed premature G approvals or wrong presence branches. One cool sealant
 contact batch is conservatively held as R. Sealant cool-G recall is 23/24; weld
 cool-G recall is 24/24. Both NIR stages are 24/24. The existing selection criteria
 pass at unchanged **0.98** conditional confidence and 0.5 label mass. Gates still
-require two matching fresh batches. A, transport errors and stale replies hold.
+require one fresh three-camera batch. A, transport errors and stale replies hold.
 
 Host HTTP median/p95 is **50.65/54.99 ms** on the RTX 5090,
 excluding camera movement, image capture and cooling. These are 24 synthetic
@@ -165,3 +165,23 @@ assembly in 183.06 seconds, with 24 model requests, three correct departures and
 all six thermal acceptance checks. Live camera and curtain audits passed 4,666
 and 27 checks. Evidence: `artifacts/rear-roof-live-v1/`. This remains integration
 evidence with unchanged adapters and policy, not a new held-out score.
+
+## Fixed one-batch controller
+
+The September 18 [live consensus comparison](consensus_experiment.md) keeps
+these adapters and score thresholds unchanged. Four three-body runs compare
+one versus two fresh three-view batches: one averages 136.08 s versus 162.32 s,
+with no wrong branches or premature thermal acceptance observed. This is repeated
+integration evidence, not a new accuracy score. The user selected fixed one-batch
+operation; the former consensus switch is removed. Restart model hosts to load
+the updated decision policy. Trained prompts and adapter provenance are unchanged.
+
+## IQ9 Q8 export experiment
+
+The [September 18 EVK runtime](evk_model_runtime.md) preserves the routed adapters,
+prompts, grayscale contract and confidence thresholds. Both adapted vision
+encoders accompany their decoders. On the existing 96-batch development cohort,
+Q8_0 text/F16 vision reproduced 96/96 on host and EVK; Q4_0 produced seven false
+G decisions and is rejected by the edge router. These results do not establish
+new held-out accuracy for the final scene. Use the explicit `evk_hexagon` model
+source through a loopback SSH tunnel; the default remains host GPU.

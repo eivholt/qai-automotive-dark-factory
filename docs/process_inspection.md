@@ -1,17 +1,27 @@
 # Camera-gated inner trunk panel assembly
 
-Explicit `-Process` selects the `automotive-panel-process-v3` experiment in the locally imported cell. It replaces the former door-fault/return task. Host Cosmos-Reason2-2B inspects camera images; the earlier parcel adapter, procedural mock and EVK deployment remain separate.
+This page describes the default **flow** controller. The optional
+[agent controller](live_agent_control.md) lets Qwen choose the actual jobs and
+inspections, with process acceptance checked by an independent, non-vetoing audit.
+Both modes use the same sensor and Reason2 response contracts.
+
+
+Explicit `-Process` selects the `automotive-panel-process-v3` experiment in the locally imported cell. It replaces the former door-fault/return task. Cosmos-Reason2-2B inspects camera images on the host GPU or the explicitly selected IQ9 EVK runtime. The earlier parcel adapter and procedural mock remain separate.
+
+Every gate uses one fresh three-camera batch, fixed in code with no consensus
+switch. Score, freshness and hold rules remain unchanged. See the historical
+[one/two-batch comparison](consensus_experiment.md) for the decision's evidence.
 
 | Step | Physical behavior | Model gate or transition |
 | --- | --- | --- |
 | 1. Arrival | Body and rail holders move into the station | Arrive and settle |
-| 2. Panel presence | R4 scans the inner trunk installation area with NIR | Two matching fresh G: preassembled branch; two R: assembly branch; A holds |
+| 2. Panel presence | R4 scans the inner trunk installation area with NIR | One fresh G: preassembled branch; one R: assembly branch; A holds |
 | 3. Sealant application | Arm A extrudes the two continuous perimeter sealant runs | Authored application finishes |
 | 4. Pickup and placement | Arm B picks up a panel, positions it and stays engaged | Placement finishes; arm B continues holding |
-| 5. Sealant readiness | R4 scans the complete two sealant runs from three physical positions | Two fresh G: temperature-ready; A/R waits |
+| 5. Sealant readiness | R4 scans the complete two sealant runs from three physical positions | One fresh G: temperature-ready; A/R waits |
 | 6. Welding | Arm C spot welds the held panel | Authorized welding finishes |
-| 7. Panel seating | R4 checks the installed panel with NIR | Two fresh G: seating accepted; R is an exception hold; A waits |
-| 8. Weld cooldown | R4 checks the six weld contact regions in three paired views thermally | Two fresh G: release-ready; A/R waits |
+| 7. Panel seating | R4 checks the installed panel with NIR | One fresh G: seating accepted; R is an exception hold; A waits |
+| 8. Weld cooldown | R4 checks the six weld contact regions in three paired views thermally | One fresh G: release-ready; A/R waits |
 | 9. Holder retraction | Arm B releases the panel and withdraws | Retraction finishes |
 | 10. Departure | Body and rail holders leave the station | Reset identities and begin the next body |
 
@@ -47,7 +57,7 @@ All four gates use three physical R4 views in `spot1`, `spot2`, `spot3` order. N
 
 The model sees lossless 448 x 256 grayscale PNGs and the fixed stage prompt. Model thermal stays 20-120 C apparent. The observer is independently fixed at 0-120 C; F10/right-stick welding-range switching has been removed, and colors above 120 C saturate without changing the physical hot-surface temperatures or sensor encoding. Cabinet text, status lamps and HUD are hidden from model cameras. Identity, version, prompt hash, camera order, modality, scoring method and policy must agree. The whole batch/reply age limit is eight seconds; stale or mismatched evidence holds.
 
-Panel choreography constants currently specify 13.5 seconds of sealant application, 6.0 seconds of pickup/placement with an initial 1.5-second pickup interval, 11.5 seconds of pinch welding, and 2.5 seconds of holder retraction. These are authored action durations, not full-cycle throughput: inspection travel, model consensus and temperature-dependent waits add time. Shared source constants in `DarkFactoryWeldingCell.h` and the scene's phase-duration function are authoritative. The legacy 21-second visual cycle remains a separate fixture.
+Panel choreography constants currently specify 13.5 seconds of sealant application, 6.0 seconds of pickup/placement with an initial 1.5-second pickup interval, 11.5 seconds of pinch welding, and 2.5 seconds of holder retraction. These are authored action durations, not full-cycle throughput: inspection travel, model inference and temperature-dependent waits add time. Shared source constants in `DarkFactoryWeldingCell.h` and the scene's phase-duration function are authoritative. The legacy 21-second visual cycle remains a separate fixture.
 
 Offline capture snaps the same physical inspection poses at a frozen process/heat clock. Every episode contains eight batches: presence, three adhesive G/A/R states, seating, and three weld G/A/R states. Its views and time steps stay together in one split. Current recipes are `rigid-arm-panel-perimeter-scan-v5` and `panel-perimeter-episodes-v8`; the panel contact surface-heat recipe is `panel-perimeter-contact-core-halo-v6`. Adhesive views map to the two physical beads as `[0,1,0]`; the isolated rear-middle patch is absent; each continuous run now extends along a side and half the rear contact, while weld views cover pairs [0,1], [2,3], [4,5]. Never reinterpret old door data as this panel dataset.
 

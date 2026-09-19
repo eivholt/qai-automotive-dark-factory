@@ -1,6 +1,6 @@
 # Repository agent memory
 
-User direction first recorded on 2026-09-11 and updated on 2026-09-15. Read this alongside AGENTS.md. The current panel-assembly direction below supersedes the earlier door-fault process. Historical implementation entries retain their original validation scope; they do not imply current two-bead panel-v3 model accuracy.
+User direction first recorded on 2026-09-11 and updated on 2026-09-18. Read this alongside AGENTS.md. The current panel-assembly direction below supersedes the earlier door-fault process. Historical implementation entries retain their original validation scope; they do not imply current two-bead panel-v3 model accuracy.
 
 Latest implementation: three-edge sealant beneath a panel raised 5 mm, conducted panel-surface heat, and explicit shared960 primary/shared896 weld routing. The final entry and docs/model_classification.md supersede earlier adapter and geometry status.
 
@@ -12,7 +12,7 @@ Build an Unreal Engine factory simulation demonstrating sensor cameras feeding N
 
 Use 3D assets to depict a section of a production line. Sensor-camera observations and the model's inspection results should act as a gate for subsequent production steps: the simulation advances only when the inspection outcome permits it, and otherwise holds or follows the defined anomaly response.
 
-On 2026-09-13 the user replaced the door-fault task with inner trunk panel assembly. A new body arrives with its panel already installed one time in five. Four camera-only Reason2 stages now use automotive-panel-process-v3: panel_presence (NIR), adhesive (thermal), panel_seated (NIR), weld (thermal). All use three actual R4 camera views in spot1/spot2/spot3 order. The model chooses the presence branch from two matching fresh G/R batches; the generator flag must never choose it in live control.
+On 2026-09-13 the user replaced the door-fault task with inner trunk panel assembly. A new body arrives with its panel already installed one time in five. Four camera-only Reason2 stages now use automotive-panel-process-v3: panel_presence (NIR), adhesive (thermal), panel_seated (NIR), weld (thermal). All use three actual R4 camera views in spot1/spot2/spot3 order. The model chooses the presence branch from one fresh three-camera G/R batch; the generator flag must never choose it in live control.
 
 For a missing panel, arm A/R1 applies adhesive, arm B/R3 picks up and holds a panel, R4 checks adhesive temperature, arm C/R2 welds, R4 confirms panel seating with NIR and then weld cooldown thermally, arm B releases/retracts, and the body exits forward. For a preassembled panel, skip adhesive application, pickup/placement, welding, seating inspection and holding-arm retraction; still run presence and both thermal gates. Seating R holds an exception with the holder engaged, thermal R waits, and A/errors/stale evidence always hold. Wrong presence R is also a branch error because it could assemble over an existing panel. Doors and fault-return logic are superseded.
 
@@ -975,3 +975,632 @@ are closed; model service unchanged. Restart the demo to load the rebuilt DLL.
 The user subsequently requested stopping the model host. Stopped only
 dark-factory-panel-model.service; verified inactive/dead and no listener on
 port 18191. Leave it stopped until model execution is requested again.
+
+## Agent-controlled process study — 16 September 2026
+
+User wants to explore a local LLM choosing process jobs with Reason2 as inspection
+tools, following or-edge-agent/IQ9_EVK.md. Begin on the host GPU, then evaluate
+IQ9 co-residency. Explicit preference: keep commands at complete-job level
+(inspect sealant, place panel, start welding). Unreal owns arm poses, tool
+opening/clamping, current timing, physical camera scans and motion completion.
+The broker/executor retain freshness, consensus and mechanical interlocks; the
+LLM selects jobs rather than generating low-level actuator commands.
+
+New proposed states: the permanent open mounting frame may be absent, requiring
+placement and welding without sealant before panel assembly. Sealant can have
+gaps/under-dispensing; a binary continuous/not-continuous/A inspection may request
+another pass over the SAME full three-edge path, with no region localization.
+Initial study limits extra passes to two then review; live probabilities are not
+selected. Inspect panel presence first. Preassembled opaque panels skip hidden
+frame/coverage checks and retain both existing thermal gates. For missing panels,
+check/install/seat-verify/cool/release the frame, apply sealant, verify continuity,
+then place the panel and retain the usual thermal/welding/seating/cooling sequence.
+Continuity is separate from thermal readiness; reapplication needs updated heat.
+New geometry/views/data/adapters and actual integration remain future work.
+The prior coverage feasibility experiment failed; do not claim a trained coverage
+adapter or send new stages to the current automotive-panel-process-v3 endpoint.
+
+Added scripts/agent/start_host.sh and experiment.py, isolated offline mock jobs
+with a real local controller LLM. Base and frame-sealant scenario sets never
+connect to Unreal or send fixture labels/expected outcomes to the model.
+Qwen3.5-9B Q4_K_M is the leading candidate: matched initial comparison gives
+14/16 clean development replays versus Qwen3.5-4B's 10/16, median HTTP decision
+372 versus224 ms. Two repeats of eight cases are not independent held-out trials.
+The 9B executor blocked two stale-evidence inspection retries; 4B made66 rejected
+requests and looped on preassembled cases. The expanded study's compact tool
+interface completes16/16 expected outcomes with12/16 clean and6 rejected requests.
+These are orchestration experiments with synthetic replies, not Reason2 accuracy.
+138 Python tests pass; no production Unreal/controller code changed.
+
+Read-only EVK measurement:34.37 GiB RAM,9.67 GiB available,23.31 GiB unreclaimable
+slab; cause unknown and services unchanged. Estimated dedicated-device budget
+is15.3–18.3 GiB for Qwen9B Q4 plus two Reason2 Q4-decoder/FP16-vision bundles,
+contexts, compute buffers and OS reserve; current free memory is insufficient.
+Two multimodal rank8 adapters are47,789,640 bytes each (11,927,552 FP32 params),
+but serving currently merges them into two full models. Do not assume decoder-only
+LoRA switching preserves vision adaptations. HTP capability/performance and
+automotive quantization parity are unverified; resident models can infer serially.
+
+Host co-residency succeeded with Qwen9B and both selected BF16 Reason2 copies:
+17.65 GiB total sampled GPU usage including desktop, without Unreal. Reason2
+reports8,521,694,208 allocated CUDA bytes.24 existing private-image transport probes
+had119.5 ms median while controller work overlapped; not new accuracy/fresh gates.
+Private model downloads are in WSL ~/models/dark-factory-agent, traces under
+artifacts/agent-research-20260916. Temporary controller and Reason2 hosts were
+stopped after testing; leave stopped until execution is requested. No EVK service
+was modified. Research, budgets, limitations and commands are documented in
+docs/agentic_process_experiment.md and linked from README.
+
+## Consensus experiment — 18 September 2026
+
+User explicitly requested testing one high-confidence batch versus the existing
+two-batch rule. Added opt-in launcher -ProcessConsensusBatches 1 (native
+-DFProcessConsensusBatches=1), default 2. This approved controller experiment
+supersedes the mandatory-two rule only when explicitly selected. It does not
+change the frozen model contract, prompts, .98/.5 thresholds, fresh three-view
+capture, stage routing or thermal bands. Reports distinguish execution_policy
+from model decision_policy; offline capture cannot use the override. A/errors/
+staleness/pause still hold. Preserve default two pending a separate decision.
+See docs/consensus_experiment.md for actual comparison scope and results.
+
+Four actual host ProcessSmoke runs (order 2/1/1/2, seed42, Enhancements, bright
+observer, same adapters) passed all12 departures and24 thermal acceptances,
+including strict42/52 C clear-ready boundaries. Mean three-body process time:
+one136.08 s vs two162.32 s (16.16% reduction); requests15.5 vs23 (32.61% fewer).
+HTTP medians remain82 ms. One-batch hot/uncertain replies still hold; earlier
+inspection means necessary cooling rescans replace some saved confirmations.
+This repeats three deterministic initial states, not12 independent accuracy
+trials. No new held-out score or rare-error bound. Default remains2.
+UE build,138 Python tests,41 launcher checks,118 native policy checks and all
+four camera audits (14,978 checks) passed. Evidence stays private under
+artifacts/consensus-ab-20260918; comparison.json records per-run metrics.
+Reviewed two actual HUD captures and showed them in chat. All Unreal instances
+and the repo model service were stopped after testing; leave stopped until
+execution is requested again. No commit or push requested for this experiment.
+
+## Qwen9B and actual IQ9 inference — 18 September 2026
+
+User requested continuing Qwen3.5-9B Q4_K_M agent tests on host then EVK, followed
+by running both selected Reason2 adapters on the EVK. The agent still chooses
+complete jobs through synthetic-tool experiments; it does not yet control the
+live Unreal sequence. Explicit wait/exception observations and complete-path
+prompt clarifications yielded 16/16 clean host base runs and 16/16 expanded runs,
+with median decisions 305/343 ms. Two actual IQ9 CPU cases (missing/preassembled)
+passed 13 tool decisions without rejection, at 14.84 s median / 49.97 s first
+request. The third case was interrupted to free memory and is not a result.
+
+EVK is currently ubuntu@192.168.1.158 through WSL SSH; saved iq9075-evk alias is
+stale and was not changed. New files/services are isolated under
+~/qai-dark-factory. Existing qai-conveyor-geniex.service remains unchanged/active.
+Native llama.cpp 0eadefebd3f8f92a86d634a0e5b8fffc9dc792c0 uses matching GenieX
+v0.6.1 Hexagon libraries through a small static-registration loader. Keep native
+ggml libraries first in LD_LIBRARY_PATH. Exact runtime/export hashes, commands
+and limitations are in docs/evk_model_runtime.md.
+
+Both multimodal LoRAs were merged/exported with their matching adapted F16 vision
+encoders. Never swap only decoder LoRAs or mix the projectors. Q4_0 failed the
+existing 96-batch development cohort with seven false G (four presence, two
+sealant, one weld). Q8_0 and BF16 scored 96/96 on host; Q8_0 also scored 96/96 on
+EVK with both adapters resident, no transport failures and 5.52 s median using
+six CPU vision threads. This cohort predates the permanent frame; no new held-out
+accuracy is claimed. Final eight-thread CPU vision probes were 4.66 s median.
+Decoder logs confirm 29/29 layers assigned to HTP0 with some CPU operations.
+Vision-on-HTP aborted on its first image request; retain CPU vision. Qwen Q4_K_M
+is CPU-only on this prepared EVK; no GPU driver/permission changes were made.
+
+Always pass --cache-ram 0 for these Reason2 backends, alongside no-cache-prompt.
+The default 8 GiB RAM prompt cache caused an initial two-backend run to exhaust
+memory after 31 successful classifications. The cache-limited full rerun passed.
+The EVK has 34.37 GiB RAM but about 24.8 GiB in unreclaimable skbuff kernel slabs;
+only 8.2 GiB was initially available. Both Reason2 services now leave about
+1.8–2.0 GiB available. A Qwen-plus-two-Reason2 run remains pending REBOOT APPROVAL:
+the user was asked because reboot interrupts the existing conveyor service; no
+reply or reboot occurred. Do not infer approval from elapsed time. The launcher
+requires 18 GiB available for the combined stack; exact combined residency is
+still unmeasured. All three weight files/bundles together total 10.23 GiB before
+runtime buffers. Do not push the degraded device into another OOM.
+
+New serve_edge_reason2.py routes primary960 to presence/sealant/seating and
+weld896 to weld, with verified paired weight identities. It returns explicit
+source evk_hexagon. Unreal requires -ProcessModelSource evk_hexagon and the
+loopback tunnel endpoint; host_gpu remains default. Preserve all existing
+prompt/image contracts, .98/.5, default two batches and 8 s freshness. Only the
+overall EVK model-QA timeout is 480 s instead of 240 s, not a gate override.
+
+Actual EVK ProcessSmoke passed assembly/preassembled/assembly: 3 departures in
+272.97 s, 23/23 fresh valid replies, 4.85 s median request time, all 6 thermal
+acceptances at 20.00–25.04 C, and an uncertain sealant hold followed by reinspection.
+4,472 camera checks, 118 rendered native policy checks, 44 launcher checks,
+144 Python tests and UE 5.8 build pass. Evidence: artifacts/agent-evk-20260918.
+Reviewed actual HUD screenshot and displayed it in chat. Unreal and temporary
+host GPU services are stopped. New EVK user services dark-factory-edge-primary,
+dark-factory-edge-weld and dark-factory-edge-router remain running. Qwen is
+unloaded. WSL dark-factory-edge-tunnel maintains loopback 18198; launch demo with
+-Process -Enhancements -ProcessEndpoint http://127.0.0.1:18198/v1/inspect
+-ProcessModelSource evk_hexagon. No commit/push was requested for this work.
+
+## Fixed single-batch gates and EVK reboot authorization — 18 September 2026
+
+User now authorizes EVK reboots at will, says conveyor demo models are not needed,
+and requests hardcoded one-batch behavior without ProcessConsensusBatches. This
+supersedes the earlier pending approval and default-two notes. Disabled/stopped
+qai-conveyor-geniex.service; its deployment and model files remain intact.
+Reboot reclaimed the approximately 24.8 GiB unreclaimable kernel slab: available
+RAM increased from 1.81 GiB with Reason2 loaded to 33.27 GiB before stack startup.
+
+All process gates now use one complete fresh three-camera batch. Presence G/R
+branches immediately; other gates accept one fresh G. Removed launcher/native
+consensus switches; decision_policy.consecutive_green and runtime required count
+both report 1. Preserve .98/.5, 8 s freshness, A/error/stale holds, thermal R waits,
+seating R exceptions, physical scans and adapter stage routing. Prompts, hashes,
+image processing and training provenance are unchanged; no retraining is required.
+Restart existing model servers after updating code/config so reply policy matches.
+The historical A/B comparison remains in docs/consensus_experiment.md.
+
+Both adapted Reason2 bundles and Qwen9B now load together on the rebooted EVK.
+The Qwen unit uses a bounded 9 GiB MemoryMax; its 7 GiB initial cap was too close
+to observed startup allocation. Keep CPU Qwen, HTP decoder/CPU vision Reason2,
+RAM prompt caching disabled, and serial model execution. Final measurements and
+verification are recorded below when testing finishes.
+
+
+Fixed-policy follow-up: UE 5.8 build, 143 Python tests, 42 launcher checks and
+115 rendered native policy checks pass. Actual host ProcessSmoke passed three
+correct departures in 137.89 s, 16/16 valid replies at 82.49 ms median, all six
+clear-ready thermal audits and 3,114 physical-camera checks. Its captured welding
+image was reviewed and shown in chat. The temporary host service is stopped.
+Updated Qwen9B host tests pass 16/16 standard runs (106 decisions, 386.55 ms median)
+and 16/16 expanded runs (166 decisions, 371.85 ms median). On the rebooted EVK,
+all eight standard cases pass: 53 decisions, zero rejected calls, 12.06 s median,
+53.56 s first request, 707.63 s total model time, with both Reason2 bundles loaded.
+Agent tools remain synthetic; Qwen is not driving live Unreal. The future live
+broker must handle slow agent decisions without extending evidence freshness.
+
+
+Final co-resident EVK ProcessSmoke passes assembly/preassembled/assembly in
+181.50 s: 12/12 valid fresh replies, 4.868 s median / 5.016 s maximum, all six
+clear-ready thermal acceptances at 20.10–35.15 C, one conservative uncertain
+sealant hold followed by a fresh pass, and 2,338 physical-camera audit checks.
+Qwen remained loaded but idle during real Reason2 inference. Across 74 samples,
+available memory never fell below 21.49 GiB; unreclaimable slab peaked at only
+146.34 MiB. No current-boot OOM was found. Qwen cgroup peak was 7.355 GiB;
+primary/weld 1.630/1.570 GiB, excluding some shared/DSP allocations.
+This is co-residency/integration evidence, not new held-out accuracy or live
+Qwen control. Private summary and all evidence: artifacts/evk-one-batch-20260918.
+
+Reviewed and showed the actual EVK welding screenshot in chat. Unreal and both
+temporary host GPU model services are stopped. The test-only 18195 agent SSH
+tunnel and memory sampler are stopped. All four EVK user services (primary,
+weld, router, agent) remain active; the WSL 18198 router tunnel remains active.
+Run with -Process -Enhancements -ProcessEndpoint http://127.0.0.1:18198/v1/inspect
+-ProcessModelSource evk_hexagon. No consensus switch. Reproduction/limits are in
+docs/evk_model_runtime.md. No commit or push was requested for this work.
+
+
+## Live agent controller — 18 September 2026
+
+User approved replacing recipe vetoes with a true optional agent mode. This
+supersedes the earlier mock-only status for explicit `-ProcessControl agent`.
+Flow remains the default selectable comparison. Qwen now calls the actual R4
+Reason2 scans and complete mechanical jobs in Unreal. No hidden recipe advances,
+automatic reinspection, automatic cooling, branch/permit/next-step flags or source
+truth in Qwen observations. Acceptance criteria belong in configs/live_agent.json.
+An independent source-aware evaluator records process errors without vetoing or
+repairing choices. Syntax, request/body/pause epochs, duplicates, exclusive jobs,
+unsupported second pickups and carriage/engaged-holder conflicts stay mechanical
+executor checks. Model prompts and .98/.5/one-batch/8-second reply TTL are unchanged.
+A historical valid inspection can be older than eight seconds when Qwen acts;
+record its age/intervening jobs, never claim it remains a fresh sensor image.
+
+New native ProcessAgent/AgentProtocol code keeps a real assistant/tool conversation
+per body. Initial flattened-history prompting looped on inspections; preserving
+conversation fixed placement. An early live version welded before the sealant
+inspection: it EXECUTED and was flagged by the non-vetoing audit. Explicit
+acceptance criteria fixed that development case without adding a code permit.
+The final host criteria run passed three departures (missing/preassembled/missing),
+29 Qwen decisions, 16 real Reason2 batches, zero rejected calls/audit failures,
+212.50 seconds wall time. Qwen median 552.23 ms, max 753.87 ms; Reason2 median
+82.23 ms, max 94.12 ms. R4 camera audit: 3,114 checks. This is a development run,
+not held-out accuracy; it followed prompt refinement on this same scenario.
+Evidence is artifacts/agent-live-20260918/host-criteria. Reviewed actual welding
+screenshot and showed it in chat. The agent sometimes performs redundant cooling
+and seating inspections; it does not exactly reproduce the flow controller.
+
+UE 5.8 builds; native policy passes 135 checks (20 agent-specific) including actual
+execution of a bad recipe, no automatic advancement, scope rejection and canceled
+inspection. Python 143 tests and launcher 52 checks pass. Agent mode physical
+weld attachment follows completed welding, never an inspection phase. Idle keeps
+the holder engaged until release; repeated deposition jobs restart surface heat.
+HUD identifies live Qwen, job/reason/timing/audit failures, and actual G/R/A meanings.
+
+EVK combined stack remains resident. First actual agent attempt hit UE's separate
+30 s HTTP activity timeout during CPU prefill; added 120 s activity + total limits
+ONLY for Qwen. Reason2 freshness remains 8 s. A rerun is in progress; do not claim
+EVK live-agent success until its report passes. WSL start_evk_tunnel.sh --agent
+now maintains separate router18198 and Qwen18195 user tunnels. Current guide:
+docs/live_agent_control.md. Do not leave Unreal running after verification.
+
+
+Final EVK live-agent rerun succeeded: 3/3 correct departures in 648.77 s, 25 actual
+Qwen choices, 14 real Reason2 batches, zero rejected calls/audit failures. Median
+Qwen 15.369 s (max/first 52.678 s after a canceled prefill, not clean cold start);
+Reason2 median 4.847 s/max 4.986 s. Physical camera audit 2,726 checks. Three memory
+samples retained >=21.49 GiB available, no service restarts observed. Qwen remained
+CPU-only, both adapted Reason2 decoders on HTP with CPU vision. Longer decisions
+cooled targets enough that no thermal waits occurred. Both host and EVK agents
+performed redundant sealant/seating inspections; efficiency is not optimal.
+This supersedes the pending-edge paragraph above. Reviewed/showed actual EVK
+welding screenshot in chat. Evidence: artifacts/agent-live-20260918/evk-timeout-fixed
+and summary.json. No held-out accuracy claim. Final flow/legacy checks pending.
+
+Architecture: the conversation/transport/tool-execution loop lives in Unreal on
+the PC. EVK mode moves Qwen decision inference and both Reason2 backends to the
+EVK, not the Unreal executor or a standalone hardware-control daemon.
+
+
+Final regression/cleanup: the unchanged flow controller passed three bodies in
+137.87 simulation seconds with 16 actual model batches, six thermal audits and
+3,114 camera checks. All nine legacy WeldingSmoke reports passed. RealismSmoke
+and its Python verifier passed 681 checks (the real engine log was copied into
+its private fixture directory before verification). The final build includes
+bounded agent outcome history, at most 128 bodies; no runtime model logic changed
+after the successful edge run. No further rendered run was needed for that bound.
+Unreal is closed. Temporary WSL host Qwen and Reason2 services are stopped. All
+four EVK services and both persistent WSL loopback tunnels remain active. Branch
+is main; changes remain local and uncommitted. No commit/push was requested.
+
+## Single-image acceleration experiment — 19 September 2026
+
+User asked to split Reason2 inference into single-image requests for acceleration.
+Implemented offline probe_edge_reason2.py --single-view with three serial calls,
+one image/one output token each, separate versioned single-view prompts and
+explicit per-view aggregation in gates_single_view.py. Presence requires unanimous
+G/R; other stages require all G, any confident R holds/flags; failed/incomplete
+views hold. Do not reuse whole-batch labels as individual view labels. These new
+prompts/inputs are not covered by the existing three-view adapter provenance.
+
+Actual IQ9 HTP vision failed on the FIRST single-image request in clip_encode
+(FastRPC 0x8000040d, dspqueue_read 0x2e). A separate flash-attention-off trial
+also failed and reported dummy-warmup memory/operator problems. The original
+backend already encodes images sequentially, so HTTP splitting does not resolve
+this runtime/kernel failure. Both isolated test units are gone. CPU vision tests
+completed 12 calls across four saved stage batches: median 1.767 s per image,
+5.356 s per whole inspection versus 4.804 s for the original batch on the same
+images. Seating changed from original G to R/R/R in the split path. Other three
+stage decisions agreed. This is a small development probe, not held-out accuracy.
+Keep live routing/adapter checks unchanged pending working acceleration and
+single-view validation/training. Private evidence: artifacts/single-view-20260919;
+reproduction in docs/evk_model_runtime.md. No Unreal visual changes.
+
+Verification: 149 Python tests pass, including exact one-image/one-token HTTP
+payload and aggregation/failure tests; rendered ProcessPolicySmoke passes all
+135 native checks (synthetic decisions, not model accuracy). Same-image baseline
+requests after the failed HTP experiments completed on both deployed adapters.
+All four EVK services remain active, temporary port 18199 is closed, Unreal is
+closed, and generated reports/logs remain ignored. Changes are uncommitted.
+
+## Compiled QAIRT NPU experiment — 19 September 2026 (in progress)
+
+User requests conveyor-like NPU speeds. Added isolated QAIRT conversion,
+training-only 120-image vision calibration, hash-bound packaging, a native
+GenieX v0.3.17 score worker and offline validation runner. The worker preserves
+full-vocabulary label mass and stops after the first token, avoiding unused
+decode. Current original three-view prompts need CL1024; single-view prompts
+remain an unvalidated separate experiment. Do not change live gate confidence,
+sensor sizes, source encoding, prompt hashes or one-batch behavior to gain speed.
+
+Reference conveyor controls: six one-image calls median 504.64 ms; three
+three-image calls median 1169.74 ms. These are direct native runtime checks,
+not automotive accuracy or HTTP measurements. QNN's final-partition memory-map
+warning was traced with verbose logs to a successful retry from DSP domain 0
+to domain 2, with all five contexts successfully loaded, no CPU fallback.
+
+Automotive primary/weld conversion and validation are running in WSL user units
+dark-factory-qairt-{primary,weld}-{build,validate}. Work is under
+/home/eivho/dark-factory-qairt; private evidence is artifacts/qairt-20260919.
+The validation units package, stage and serially test each new bundle, without
+activating an HTTP service. The adjacent conveyor repository/deployment remains
+read-only. Native EVK Reason2 primary/weld/router services were temporarily
+stopped for this test; Qwen remains loaded. Restore or explicitly replace the
+automotive Reason2 services after testing. Unreal is closed. Python 153 tests
+and rendered ProcessPolicySmoke 135 checks passed. No commit/push requested.
+See docs/evk_qairt_experiment.md; final automotive results are pending.
+
+First automotive QAIRT primary validation completed: 115/120, zero false G,
+median 1442.55 ms / max 1458.07 ms per original three-view batch. Do not deploy:
+four cool/present G cases held A and one cool sealant G became R. Single-view
+probe: 27 calls, median579.36 ms/image, thermal760.96 ms, aggregate6/9; still
+unvalidated prompts with wrong presence/seating branches. Native tokens match
+original468/620/484. Input pixel comparison max error1.19e-7 rules out resizing
+or normalization. Injecting actual NPU vision features into unchanged HF decoder
+reproduced a presence error (G.999996 -> R.99477); unquantized QAI conversion
+retained G.999994. Thus the inspected loss is in quantized vision.
+
+Vision weights are actually INT8, activations INT16; upstream generic w4 names
+were misleading. First primary private provenance precision string predates
+that inspection; tensor encodings and docs are authoritative. New packaging
+records W8A16. Primary encoder final-block36 activations now FLOAT16, recalibrated
+on the same120 training images only. Its QuantSim features recover G.999983 in
+the diagnosed example. Native compile/validation is still pending in WSL units
+dark-factory-qairt-primary-vision-fp16 / primary-lastfp16-validate. Candidate work:
+primary/cl1024/vision-last-fp16. Weld baseline validation is running separately.
+Full Python suite now155 tests. Native score worker is unchanged; diagnostics
+use separate qairt_vision_diagnostic.cpp. Experimental HTTP server exists but is
+not running and refuses candidates below the existing191/192 development bar.
+
+Compiled mixed-precision follow-up: the initial link failed on shared scalar
+INT/FLOAT constants. split_qairt_vision_constants.py makes six mathematically
+identical copies; both revised graphs compiled/linked successfully. Actual IQ9
+validation still115/120 primary and71/72 weld, same conservative errors, medians
+1425.03/1448.92ms. Native final features still differ from QuantSim. Pixel and
+vision-RoPE inputs match reference within1.2e-7/6e-8. Inspected compiler bias
+warnings are tiny rounding overflows and do not explain the classification loss.
+Both full-FP16 vision alternatives are now linking, retaining original W8-text
+contexts. Work roles/cl1024/vision-all-fp16; WSL units dark-factory-qairt-
+{primary,weld}-allfp16 and -allfp16-validate. These are still not deployed.
+Experimental helper tests7pass; complete prior suite155pass plus new candidate
+source-immutability test. Original EVK services still temporarily stopped except
+Qwen; restore or replace them after final testing.
+
+## Selected compiled NPU backend — 19 September 2026
+
+This supersedes the in-progress/rejected-candidate state above. Fully FP16
+vision recovered primary 119/120 and weld 72/72 on the existing development
+cohort: 191/192, no false G or wrong NIR decisions. One cool-sealant G became a
+conservative R hold. Median original three-view batches are 1409.49/1410.53 ms.
+NIR presence/seating medians are 1228.55/1229.89 ms. All original prompts, image
+encoding, .98/.5 thresholds, 8 s freshness and one-batch behavior are unchanged.
+This is not new held-out accuracy. Both vision and W8-text/FP16-activation text
+run in compiled QAIRT 2.45 contexts on IQ9 HTP, with normal CPU preprocessing.
+
+Selected private bundles: ~/qai-dark-factory/models/qairt-primary and qairt-weld;
+each includes exact candidate provenance and validation.json. Native worker is
+runtime/qairt_score_worker, with copied pinned v0.3.17 plugin libraries under
+runtime/geniex-v0317-qairt245/qairt. No conveyor deployment was modified.
+Active EVK service: dark-factory-edge-qairt on loopback18198. Old automotive
+primary/weld/router units remain stopped as a retained fallback. Qwen service
+and both WSL tunnels stay active. Use start_evk_qairt.sh --agent for the prepared
+stack. Qwen still runs CPU-only. Both Reason2 workers plus Qwen leave about17GiB
+available; no restart during the rendered run was observed.
+
+Actual Unreal ProcessSmoke -Enhancements passed assembly/preassembled/assembly,
+15 fresh valid replies, all six thermal acceptance audits and zero ground-truth
+fields sent to models. HTTP median1416.12ms/max1438.24ms;153.38 simulation seconds.
+Three A replies and thermal holds caused reinspection without policy overrides.
+The existing flow controller was used for this runtime regression; no new full
+Qwen agent benchmark is claimed. The actual welding screenshot was reviewed and
+shown in chat. Unreal is closed. Final single-image FP16 probe:27 calls,
+557.81ms median (NIR553-554ms, sealant733ms), but only6/9 aggregate accuracy with
+changed prompts. Keep it offline; original three-view batches are faster overall
+than three separate calls (1671.76ms median aggregate) and remain deployed.
+
+Repro source: make_qairt_float_vision.py, replace_qairt_vision.py, native worker,
+probe_qairt_reason2.py and serve_qairt_reason2.py. Service startup rejects missing
+or incompatible validation and modified worker/bundle hashes. Reference converter
+and original weights remain intact. Python discovery156 tests and native rendered
+policy135 checks pass. Private reports/logs/images are in artifacts/qairt-20260919;
+docs/evk_qairt_experiment.md has commands and limitations. Branch main, uncommitted;
+no commit/push requested.
+
+## Agent speed follow-up — 19 September 2026
+
+Compared the user's OR/shipping/model-comparison tutorials; see docs/agent_speed.md.
+Qwen remains the exact Qwen3.5-9B Q4_K_M CPU model, now with eight threads.
+CompactToolResult removes duplicate model-facing diagnostics and formats numeric
+clocks to milliseconds, preserving the full journal, validity/errors and original
+freshness logic. No recipe veto or sensor encoding changed. Fixed-history EVK
+replay median excluding first requests improved 13.281 s -> 10.985 s; one allowed
+inspection-order difference. Native policy 137 checks and Python 156 tests pass.
+An isolated Q8 Hexagon controller candidate failed FastRPC mapping before inference;
+it is not deployed. Its EVK copy was removed; workstation copy and private logs
+remain. Three hash-matched duplicate transfer archives were removed from EVK only.
+
+The first live attempt held on preassembled body2 after three optional seating A
+results. Keep this failed evidence in artifacts/agent-speed-20260919/evk-process-smoke.
+The final prompt clarifies the user's existing criteria: initial presence G gives
+preassembled visual acceptance; both thermal gates are still required, while
+panel_seated is for newly welded panels. This is prompt guidance, no code veto.
+Host preassembled/fault probes pass. The final actual EVK run passed at
+artifacts/agent-speed-20260919/evk-process-final: 3 departures, 22 agent choices,
+11 fresh vision batches, zero rejected calls/audit failures. Qwen median 11.186 s,
+Reason2 1.415 s, total 484.345 s versus the previous 648.77 s. First policy prefill
+took 77.712 s; do not hide that startup cost. Native verdict, verify_live_agent.py
+and 2,144 camera telemetry checks passed. This is development integration, not
+new held-out accuracy. EVK Qwen and QAIRT Reason2 services remain active with
+about 17.1 GiB available and no restarts; host Qwen and Unreal are closed.
+All four synthetic fault probes also pass on EVK with the final prompt: hot
+sealant/weld -> wait15, seating defect -> hold, invalid presence -> reinspect.
+They execute no jobs/Reason2 calls and are not classifier accuracy evidence.
+
+## Ministral controller follow-up — 19 September 2026
+
+User requested the exact previous-project Ministral-3-3B-Instruct-2512 Q4_K_M.
+Official GGUF SHA256 is 9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8.
+It is now the default host/EVK text controller; DF_AGENT_KIND=qwen explicitly
+selects retained Qwen weights. Both Reason2 QAIRT NPU adapters remain unchanged.
+Ministral currently uses eight EVK CPU threads, not NPU. Fresh qairt-dev 0.8.1 +
+SDK 2.47.0.260601 export failed before compilation: Architecture mistral3 not
+supported. Old compiled bundle was absent; retain isolated environment/failure
+log. Do not alias the architecture or claim old tutorial NPU rates for this run.
+No reference production deployment or /opt/qairt/current was changed.
+
+Initial prompts passed selected replays but missed the independent weld cooling
+inspection on preassembled live bodies. Keep failed host-process/evk-cpu-process
+reports. Current configs/live_agent.json uses a shorter prompt plus an explicit
+preassembled example requiring BOTH thermal results. This is prompt guidance,
+not an executor recipe veto. All supported actions still execute; the independent
+audit reports errors and never repairs decisions. HUD now says Agent/LLM AGENT.
+
+Two actual EVK runs passed assembly/preassembled/assembly (six total departures),
+22 decisions and 11 fresh valid Reason2 batches each, zero rejected/audit failures.
+First pass 261.310 s, median 3.794 s; clean restart at normal 18195 passed 275.569 s,
+median 3.952 s, first 28.885 s. Reason2 remains 1.416 s. Each camera verifier passed 2144
+telemetry checks. Earlier optimized Qwen was 484.345 s / 11.186 s / 77.712 s first request.
+This is development integration, not held-out accuracy. Host final prompt replay
+passed 9/9 assembly, 4/4 preassembled, 4/4 faults and 16 varied preassembled histories;
+two reconstructed failed histories also pass. Added scripts/agent/probe_departure.py
+for the synthetic ID/clock/ambiguous-retry probes; expected choices stay evaluator-only.
+Python 158 tests and 52 launcher checks pass. Services show about 19.5 GiB available;
+Ministral service 2.9 GiB, Reason2 service 3.5 GiB, excluding some DSP/kernel accounting.
+Private evidence: artifacts/ministral-20260919; docs/ministral_controller.md has
+startup, provenance, failed candidates and measured limits. Normal endpoint 18195
+now serves Ministral; 18198 remains Reason2. Qwen and temporary host Ministral are
+stopped. No commit/push requested. A final captured HUD/welding image was shown
+in chat. The evk-final-process directory is an interrupted UI-label refresh run;
+evk-final-cold-process is the completed final run.
+
+Final selected-prompt EVK probes passed 4/4 faults and 16/16 varied preassembled
+histories (including ambiguous sealant retries). Native policy passed 137 checks;
+final Python suite passed 158 and launcher checks 52. Unreal and temporary
+Ministral candidate/host services are closed. Selected Ministral and unchanged
+Reason2 NPU services remain ready via the normal tunnels; about 19.5 GiB is
+available and no automatic service restarts occurred. No independent held-out
+accuracy claim; these synthetic probes execute no jobs or Reason2 calls.
+
+## Further Ministral speed tests — 19 September 2026
+
+User explicitly excludes fine-tuning Ministral. Benchmarked CPU threads 4/6/8,
+microbatches 128/256/512, ngram-simple target-verified speculation (key 4/draft 8),
+Q8_0 K/V cache, shorter reasons and preserving original tool argument key order.
+Keep the exact original Q4_K_M weights, eight threads, batch 256/ubatch 128,
+F16 cache, no speculation and original configs/live_agent.json hash
+c47aa7776b32f7001fced0c7b524e92fec74047b1ecf9dfd182e252864eb477a.
+No Reason2/adapters/thresholds or accepted prompt changes this turn.
+
+Discarded candidates: ngram replay was slower (3.877 vs 3.470 s warm); batch 512
+helped cold prefill but slowed subsequent calls; Q8 cache had a slower cold
+request and no useful warm improvement. Preserving generated argument order
+saved about 18 uncached tokens but selected release_holder before weld inspection
+in continued-history replay. Short 3-6-word reasons passed saved replay/faults
+and 16 preassembled probes yet live body 2 incorrectly placed another panel after
+presence G + adhesive G. Four audit failures, no automatic correction; stopped that
+run after two departures. Failed report is evk-process. Do not adopt either
+prompt/history change on saved-history probes alone. Original prompt restored.
+
+Accepted change: remove the fixed 1-second delay after every tool completion.
+Ministral thinks while R4 withdraws; a validated pending reply waits for actual
+InspectionExtension==0 before dispatch. Pending replies block duplicate requests
+and are cleared on pause/body turnover with request epochs. Camera motion,
+three settle renders, capture freshness, and all process acceptance rules stay
+unchanged. No deterministic recipe veto added. Runtime reports physical arm
+readiness at each dispatch; verifier checks it. Native tests exercise fast replies
+during withdrawal, pause cancellation and body turnover.
+
+Actual clean-restart evk-original-process passed assembly/preassembled/assembly:
+253.539 s vs 275.569 prior, saving 22.031 s / 8.0%; 22 decisions, 11 fresh Reason2 batches,
+zero rejected calls/audit failures, zero source fields sent to models. Agent median
+3.991 s, first 28.586 s; Reason2 median 1.415 s. Inference itself is not faster.
+Tool-result-to-request idle time totals 0.341 s vs 22.094 s. All 2,144 physical camera
+checks, 142 rendered policy checks, 160 Python tests and 52 launcher checks pass.
+Private evidence: artifacts/ministral-speed-20260919. Updated Ministral/live-agent
+guides, README and validation. No new held-out accuracy. Unreal, benchmark server
+and temporary tunnel are stopped; normal EVK agent+Reason2 services are active,
+about 19.5 GiB available, no auto restarts. No commit/push requested.
+
+replay_latency.py now supports --continue-generated and --rebuild-arguments
+for cache experiments. It remaps actual tool call IDs and stops at any choice
+mismatch before giving a saved observation to the wrong job; two unit tests cover
+that evidence boundary. These are synthetic replay tools, not live integration.
+
+## One-token Ministral controller — 19 September 2026
+
+User approved testing the logits trick without fine-tuning Ministral. Implemented
+scripts/agent/single_token.py, serve_single_token.py, start_single_token.sh and
+probe_single_token.py. Official Q4_K_M/runtime/config remain unchanged. The derived
+prompt preserves policy and replaces JSON/reason output with a fixed A-M menu;
+hash a6bb5d377bec78f47c6264e2b25b779e6ce39a23b557d467e58a80bb12ebdf3c.
+All 13 actions are always available. Verify token IDs 1065-1077 at startup, request
+one token, temperature0 + temperature sampler, unmasked pre-sampling top128 scores.
+Require global vocabulary winner == returned action token. No grammar/bias/LoRA,
+state mask, recipe veto or fallback action. Omitted label probabilities are unknown
+with mass bounds. Fixed HUD reason explicitly says no explanation was generated.
+Wait choices are 1/5/15 s; original variable-wait native endpoint remains separate.
+
+HostGPU/EVK each pass 9 assembly, 4 preassembled, 4 faults and 16 departure probes.
+Initial empty-sampler probes failed winner equality; exclude non-fixed host files.
+Two actual cold three-body EVK runs pass: 197.913/198.266 s, each 24 choices and 12
+Reason2 batches, zero rejects/audit failures. Both handle an ambiguous sealant result
+with model-selected wait/reinspection, then independently inspect weld. Final agent
+median 1.607 s/first 18.036 s, Reason2 median 1.432 s. Compared with native 253.539 s /
+3.991 s median: 21.8% total and 59.7% controller improvement. Reason2 untouched.
+All 48 raw token winners, histories and observations match actual execution;
+2,338 camera checks per run, 169 Python tests, three negative audit checks pass.
+No Unreal source changes for this protocol. Small development integration only,
+not held-out accuracy or validated autonomous factory control.
+
+EVK start_evk_qairt.sh --agent now starts the normal Ministral backend 18195 plus
+dark-factory-edge-agent-single-token proxy 18196 (Ministral only). --agent tunnel
+launcher forwards both plus Reason2 18198. Recommended agent command explicitly
+uses 18196; native 18195 retains generated reasons. No global Unreal defaults changed.
+Host GPU proxy can wrap 18193 on 18194. Never concurrently infer on both proxy/native
+endpoints sharing one cache slot. Normal adapter logging disabled; optional empty
+QA directory bounded to 64 requests. verify_single_token_agent.py requires complete
+smoke logs/health/runtime. Private evidence artifacts/agent-single-token-20260919,
+final evk-final-cold-process/proxy-final-cold. docs/single_token_controller.md records
+commands/provenance/limits. Proxy uses about 13 MB; about 19.5 GiB available with models resident.
+Unreal, host candidate and temporary EVK candidates/tunnel closed; normal services
+remain ready. Normal proxy startup and repeated stack/tunnel startup verified;
+no QA log argument in the final service. No commit/push requested.
+
+## Training-free IQ9 cache/overlap research - 19 September 2026
+
+User requests novel agent optimization while keeping prompts editable, preferably
+without LLM fine-tuning, and suggests reversible welder pre-positioning. Studied
+RadixAttention, Sutradhara tool-time prefill, PASTE speculative tools and LayerSkip;
+research/measurement details are in docs/agent_optimization_research.md.
+
+Selected two changes with original Q4_K_M/config/one-token prompt/runtime hashes:
+1. Static policy-prefix KV persisted privately (96 MiB), keyed by exact weights,
+   binary/libs, native args/GGML environment, rendered template and prompt. Cache
+   corruption or edits recompute it; no actual observation/decision is stored.
+   Native restart restored 945 tokens in 21 ms; total setup 109 ms versus 16.83 s
+   on a miss. Startup n_predict=0 emits one setup token on the pinned backend;
+   discard the entire response. Native model loading/hash checks remain.
+2. After returning the chosen action, prefill only its actual assistant token and
+   next user envelope ending at `Tool result: `. No future status/G/R/A/timestamp
+   is fabricated. A native-slot mutex serializes this with at most one next real
+   request. The full next prompt is authoritative; exact token-prefix matching
+   discards stale suffixes after pause/body turnover. Skip I/M. Preparation errors
+   are diagnostic only, never a guessed action or rejected next request.
+
+Implemented policy_cache.py and --policy-cache/--prefill-next-turn in the proxy;
+start_evk.sh writes runtime identity, start_evk_qairt.sh --agent enables both for
+normal Ministral 18195/18196 only. Qwen remains separate. The normal stack rejects
+experimental Q8 selection; use an isolated native launcher for those studies.
+Do not concurrently call native 18195 and proxy 18196 sharing the one slot.
+
+Actual cached-start three bodies: 172.815 s, 22 choices/11 Reason2 batches,
+first 1.636 s, median 1.582 s, Reason2 median 1.415 s. With overlap: 170.429 s,
+same 22/11 jobs, first 1.703 s, median 1.416 s, Reason2 median 1.415 s. Both have
+zero rejected calls/audit failures; all 44 native token/history/dispatch checks
+and 2,144 camera checks per run pass. Overlap: 19 preparations, median 266 ms,
+zero errors. Matched-pair median improvement 10.5%, wall saving 2.39 s. Prior
+198.266 s run had 24/12, so do not attribute its whole difference to cache.
+No new held-out accuracy claim.
+
+Rejected: host rows and alias JSON encodings both release after seating before
+weld inspection; unchanged JSON passes 9/9. Conditional what-if probes match
+17/24 strict expected sets (not an unsafe rate); include two clear premature
+releases, others conservative/different order. Never execute these plans. Real
+Turnip Adreno 663/Mesa 25.2.8 Vulkan found via scoped render-group service and
+pinned build, but first request timed out after 115 s; stopped. No driver/system
+package changes. Official Q8 CPU first two choices 14.41/1.22 s, then inspected
+sealant before placement; stop replay, retain Q4. Vulkan build and Q8 probe
+launchers remain reproducible, private files/weights only. OpenCL had no platforms.
+
+Welder staging is assessed, not implemented. Existing 1.3 s approach enters R4's
+workspace after the first 0.35 s; need a separately checked waiting pose, open
+jaws, no current/sparks/heat and cancellation retreat. Max 2.6 s across two new
+panels in the three-body fixture. Avoid an extra 1.4 s LLM call merely to save
+1.3 s: put preparation inside an existing parallel job with a separately
+authorized commit. No Unreal visual/motion changes this turn. Ordinary LoRA
+doesn't remove layers or prefill; output already one token, no measured
+additional gain to promise.
+
+178 Python tests pass, including invalidation/corruption, no invented observations,
+fast next requests, canceled-body history isolation and optional preparation
+failure. Rendered model smoke/audits pass. Evidence artifacts/agent-prefill-20260919.
+README, one-token guide, research and validation updated. Unreal, host/Vulkan/Q8/QA
+candidates and temporary tunnel stopped. Normal 18196 cache+overlap ready, QA logs
+off; 18195 and unchanged 18198 active, no automatic restarts, about 16.9 GiB available.
+No commit/push requested; preserve pre-existing uncommitted work.

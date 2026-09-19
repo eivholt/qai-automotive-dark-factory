@@ -4,7 +4,7 @@ HUD, cabinet and stack lights display `FDarkFactoryProcessStatus` from the contr
 
 ## Observer HUD
 
-Four cards show Panel/NIR, Adhesive/thermal, Seating/NIR and Weld/thermal. Ten physical steps appear in two rows of five, with pending, active, complete, skipped, hold and exception states. The presence gate shows matching fresh G/R branch consensus; ordinary acceptance requires two fresh G batches. A missing panel's chosen assembly branch is normal progress, not a rejection.
+Four cards show Panel/NIR, Adhesive/thermal, Seating/NIR and Weld/thermal. Ten physical steps appear in two rows of five, with pending, active, complete, skipped, hold and exception states. The presence gate shows the fresh G/R branch decision; ordinary acceptance requires one fresh G batch. A missing panel's chosen assembly branch is normal progress, not a rejection.
 
 Three tiles show actual capture targets for the active NIR or thermal stage. Thermal color is GPU presentation of the raw grayscale targets. Targets with another body/stage identity are withheld and labeled awaiting capture. Previews are inspection snapshots, not continuous-video evidence; they add no CPU readback, PNG upload or extra camera render. Observer FPS, movement, modalities, palettes and light controls remain independent. The observer scale is fixed at 0-120 C, while these model-camera previews retain 20-120 C. Both display 120+ for saturated heat; no observer welding-range switch remains.
 

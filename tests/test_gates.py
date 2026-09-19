@@ -84,7 +84,7 @@ class GateTests(unittest.TestCase):
                     load_gate_contract(path)
 
     def test_unsupported_policy_model_and_generation_rejected(self):
-        mutations = [("decision_policy", "consecutive_green", 3), ("decision_policy", "consecutive_green", True),
+        mutations = [("decision_policy", "consecutive_green", 2), ("decision_policy", "consecutive_green", 3), ("decision_policy", "consecutive_green", True),
                      ("decision_policy", "max_reply_age_seconds", .1), ("decision_policy", "max_reply_age_seconds", float("nan")),
                      ("decision_policy", "minimum_label_mass", True), ("decision_policy", "minimum_label_mass", .4), ("decision_policy", "minimum_conditional_probability", .4), ("decision_policy", "minimum_conditional_probability", float("inf")),
                      ("generation", "method", "free_text"), (None, "model_family", "other")]
@@ -107,9 +107,9 @@ class GateTests(unittest.TestCase):
         for scores, mass in (({"G": 1}, 1), ({"G": math.nan, "A": 0, "R": 0}, 1), ({"G": 1, "A": 1, "R": 1}, 1), ({"G": 1, "A": 0, "R": 0}, 2)):
             self.assertEqual(select_decision(scores, mass, p)[0], "A")
 
-    def test_requires_two_new_frames_and_no_replayed_reply(self):
+    def test_one_fresh_batch_and_no_replayed_reply(self):
         latch = GateLatch(self.c)
-        self.assertEqual(latch.observe(self.reply(), self.payload, 200), "A")
+        self.assertEqual(latch.observe(self.reply(), self.payload, 200), "G")
         second = {**self.payload, "request_id": "r2", "captured_at_ms": 300}
         self.assertEqual(latch.observe(self.reply(second), second, 400), "G")
         self.assertEqual(latch.observe(self.reply(second), second, 450), "A")
@@ -129,25 +129,18 @@ class GateTests(unittest.TestCase):
         latch = GateLatch(self.c)
         self.assertEqual(latch.observe(self.reply(decision="R"), self.payload, 200), "R")
         second = {**self.payload, "request_id": "r2", "captured_at_ms": 300}
-        self.assertEqual(latch.observe(self.reply(second), second, 400), "A")
+        self.assertEqual(latch.observe(self.reply(second), second, 400), "G")
         third = {**second, "request_id": "r3", "captured_at_ms": 500, "body_id": "new-body"}
-        self.assertEqual(latch.observe(self.reply(third), third, 600), "A")
+        self.assertEqual(latch.observe(self.reply(third), third, 600), "G")
 
-    def test_presence_red_requires_two_matching_fresh_frames(self):
+    def test_presence_red_accepts_one_fresh_batch_but_replay_holds(self):
         latch = GateLatch(self.c)
-        first = self.payload
-        self.assertEqual(latch.observe(self.reply(first, "R"), first, 200), "A")
-        self.assertEqual(latch.observe(self.reply(first, "R"), first, 200), "A")
-        def send(i, label, body="b1"):
-            p = {**first, "request_id": f"r{i}", "captured_at_ms": i*100, "body_id": body}
-            return latch.observe(self.reply(p, label), p, i*100+10)
-        self.assertEqual(send(2, "R"), "A")
-        self.assertEqual(send(3, "G"), "A")
-        self.assertEqual(send(4, "R"), "A")
-        self.assertEqual(send(5, "R"), "R")
-        self.assertEqual(send(6, "R", "new-body"), "A")
-        self.assertEqual(send(7, "A", "new-body"), "A")
-        self.assertEqual(send(8, "R", "new-body"), "A")
+        self.assertEqual(latch.observe(self.reply(decision="R"), self.payload, 200), "R")
+        self.assertEqual(latch.observe(self.reply(decision="R"), self.payload, 210), "A")
+        fresh = {**self.payload, "request_id": "r2", "captured_at_ms": 300}
+        self.assertEqual(latch.observe(self.reply(fresh, "R"), fresh, 400), "R")
+        next_body = {**fresh, "request_id": "r3", "body_id": "new-body", "captured_at_ms": 500}
+        self.assertEqual(latch.observe(self.reply(next_body, "R"), next_body, 600), "R")
 
     def test_v1_door_contract_and_request_are_rejected(self):
         with self.assertRaises(ProtocolError):

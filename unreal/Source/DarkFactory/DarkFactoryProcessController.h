@@ -19,6 +19,7 @@ class USpotLightComponent;
 class FJsonObject;
 class FJsonValue;
 struct FDarkFactoryPanelMotionQA;
+namespace DarkFactoryAgent { struct FRuntime; struct FCommand; }
 
 /** Four camera-only Reason2 gates with bounded async capture and fail-hold transport. */
 UCLASS()
@@ -52,7 +53,7 @@ private:
     FDarkFactorySensorReadback Readback;
     TFuture<TArray<uint8>> EncodeFuture;
     TSharedPtr<IHttpRequest,ESPMode::ThreadSafe> Request;
-    FString SessionId,Endpoint,ContractVersion,ActiveRequestId,CaptureBodyId,CaptureStage,OutputRoot,LastModel,LastAdapter,LastScoringMethod,LastBackendAlias;
+    FString SessionId,Endpoint,ExpectedModelSource,ContractVersion,ActiveRequestId,CaptureBodyId,CaptureStage,OutputRoot,LastModel,LastAdapter,LastScoringMethod,LastBackendAlias;
     TMap<FString,FString> PromptHashes;
     struct FPreviewStamp { FString Body,Stage; double At=0; };
     TArray<FPreviewStamp> PreviewStamps;
@@ -69,7 +70,7 @@ private:
     DarkFactoryEnhancements::FCoolingRecovery CoolingRecovery;
     double SensorAssetsIdleSince=0,SensorResourcesReadyAt=0;
     TArray<TSharedPtr<FJsonValue>> Events;
-    TArray<TSharedPtr<FJsonValue>> ModelSmokeOutcomes,ModelSmokeThermalChecks;
+    TArray<TSharedPtr<FJsonValue>> ModelSmokeOutcomes,ModelSmokeThermalChecks,ModelSmokeDecisions;
     bool bModelSmokeOutcomesMatch=true,bModelSmokeThermalLimitsMatch=true;
     uint64 CaptureSerial=0,BatchSerial=0,ModelRequestsSubmitted=0;
     int32 CaptureSlot=-1,SettleFrames=0,SensorWarmupCaptures=0,ForcedPreassembled=-1,CompletedBodies=0,CaptureCase=-1,ExpectedImages=0;
@@ -98,6 +99,19 @@ private:
     FString StageName() const;
     void CaptureQATick();
     bool RunPolicySmoke();
+    TSharedPtr<DarkFactoryAgent::FRuntime> Agent;
+    bool InitializeAgent();
+    void BeginAgentBody();
+    void AgentTick();
+    void RequestAgentDecision();
+    void DispatchAgentCommand(const DarkFactoryAgent::FCommand& Command);
+    void CompleteAgentTool(const TSharedRef<FJsonObject>& Result);
+    void AgentInspectionResult(const FString& Code,bool Valid,const FString& Reason,float Latency);
+    void CancelAgentDecision();
+    void AuditAgentAction(const FString& Action);
+    void RecordAgentTrace(const FString& Event,const TSharedRef<FJsonObject>& Detail);
+    void AgentTransportHold(const FString& Error);
+    void AppendAgentMetadata(const TSharedRef<FJsonObject>& Report) const;
     static bool HasGrayscaleSensorPixels(const TArray<FColor>& Pixels);
     static bool AdvanceSensorIdleWindow(double Now,bool bCompiling,double& IdleSince);
     bool SensorResourcesReady();

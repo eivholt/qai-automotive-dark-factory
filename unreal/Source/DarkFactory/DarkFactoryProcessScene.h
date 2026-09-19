@@ -28,6 +28,9 @@ public:
     // -1: seeded 1/5 preassembled; 0: missing; 1: preassembled. Offline override only.
     void BeginBody(int32 BodyIndex,double ClockSeconds,int32 PreassembledOverride=-1);
     void EndBody();
+    void SetAgentControl(bool Enabled) { bAgentControl=Enabled; }
+    void BeginAgentJob(EDarkFactoryProcessPhase Phase);
+    void CompleteAgentJob(EDarkFactoryProcessPhase Phase);
     bool StartRecoveryCooling();
     void StopRecoveryCooling();
     bool IsRecoveryCooling() const { return RecoveryStarted>=0.; }
@@ -38,6 +41,7 @@ public:
     bool PrepareSealantCoverageCapture(int32 CaseIndex,int32 Seed,double& ClockOut);
     void RequestInspectionView(const FString& Stage,int32 View,double ClockSeconds,bool Snap=false);
     bool IsInspectionViewSettled(int32 View) const;
+    bool IsInspectionArmParked() const { return InspectionExtension==0.; }
     void GetInspectionCameraPose(const FString& Stage,int32 View,FVector& Location,FRotator& Rotation,float& FOV) const;
     void GetInspectionFramingCorners(const FString& Stage,int32 View,TArray<FVector>& Corners) const;
     void GetSealantSurfaceSamples(int32 View,TArray<FVector>& Points) const;
@@ -82,6 +86,7 @@ private:
     EDarkFactoryProcessPhase CurrentPhase=EDarkFactoryProcessPhase::Arriving;
     FString InspectionStage=TEXT("panel_presence"),CaptureExpectedDecision;
     bool bInitialized=false,bBodyActive=false,bPreassembled=false,bPanelPicked=false,bPanelWelded=false;
+    bool bAgentControl=false,bHolderReleased=false;
     bool bBodyVisible=false,bCaptureVariation=false,bOfflinePrepared=false,bOccluded=false,bMisaligned=false;
     void UpdateTemperatureFields();
     void UpdatePanelVisibility();
