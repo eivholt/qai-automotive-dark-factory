@@ -1,5 +1,16 @@
 # Live agent control
 
+September 23 current default: agent mode now uses eight named tools and canonical
+job histories, with IDs/timestamps excluded from the model and deterministic
+JSON field order. `prepare_panel` bundles application + placement/hold;
+`inspect_temperatures` returns both actual thermal results; `finish_body` retracts
+an engaged holder and departs. Wait is fixed at five seconds. No fine-tuning,
+recipe veto, automatic cooling or automatic quality retry was added. All eight
+actions remain available each turn. See [tool scope](agent_demo_scope.md) and
+[exact prompts and tools](current_agent_prompts.md). The original four-function,
+thirteen-choice interface remains an explicit legacy comparison, not the current
+default. Earlier measurements below belong to that original interface.
+
 September 19, 2026. `-ProcessControl agent` connects Ministral-3-3B-Instruct-2512 Q4_K_M to the
 actual Unreal scene and actual adapted Cosmos-Reason2 inspections. The default
 `-ProcessControl flow` preserves the existing deterministic controller for comparison.
@@ -7,6 +18,11 @@ The older [Python experiments](agentic_process_experiment.md) used synthetic too
 they are separate from this live integration.
 
 ## Responsibility boundary
+
+The default harness is now [deployed on the EVK](edge_agent_runtime.md). It owns
+the policy, conversation and autonomous tool loop. Unreal is the equipment
+worker, retaining camera capture/Reason2 transport, authored motion and HUD.
+`-AgentRuntime local` selects the previous PC harness for comparison.
 
 The agent receives the task objectives, acceptance criteria and tool descriptions in
 [`configs/live_agent.json`](../configs/live_agent.json). A body arrival begins a
@@ -19,9 +35,9 @@ transcript. The faster [one-token adapter](single_token_controller.md) instead
 shows the selected action code and explicitly states that no explanation was
 generated.
 
-Model-facing results omit duplicated diagnostics and use millisecond precision
-for numeric seconds; the full-precision journal and freshness checks remain
-unchanged. The EVK controller uses eight CPU threads. See the
+Current model-facing histories name jobs and remove numeric times/IDs entirely;
+application transport retains millisecond precision. The full-precision journal
+and freshness checks remain unchanged. The EVK controller uses eight CPU threads. See the
 [Ministral study](ministral_controller.md) for current measurements and failures;
 [agent latency study](agent_speed.md) retains the earlier Qwen results.
 The native tool-call cold three-body run takes 253.539 s, with 3.991 s median agent
@@ -33,12 +49,12 @@ the output/history format: two cold runs take 197.913 / 198.266 s, with 1.607 s
 median controller latency in the final run. See its guide for validation and the exact
 derived prompt hash. No controller fine-tuning was performed.
 
-The tools are `inspect(stage)`, `act(action)`, `wait(seconds)` and `hold(reason)`.
+The original comparison tools are `inspect(stage)`, `act(action)`, `wait(seconds)` and `hold(reason)`.
 Supported jobs are `apply_sealant`, `place_panel`, `weld_panel`, `release_holder`
 and `send_forward`. Each runs its complete authored choreography.
-The conversation loop, HTTP client and mechanical executor run inside Unreal on
-the PC. In EVK mode, controller inference and both Reason2 backends run on
-the EVK; this is not a standalone on-device robot-control daemon. Inspection
+With the default EVK harness, conversation and tool dispatch run on the EVK;
+the mechanical executor and camera/Reason2 HTTP client run inside Unreal on the
+PC. Controller inference and both Reason2 backends also default to the EVK. Inspection
 deploys R4, captures its three physical views and obtains one Reason2 result.
 It never starts the next process job. Jobs end in an idle state; the agent decides
 what happens next. The agent now thinks while the camera retracts, replacing the
@@ -75,7 +91,7 @@ inspection jobs and ends on an actual release job.
 
 ## Camera and time contracts
 
-Reason2 prompts, adapter routing, 448 × 256 grayscale images, confidence 0.98,
+Reason2 prompts, adapter routing, 448 Ã— 256 grayscale images, confidence 0.98,
 label mass 0.5, one three-camera batch and the **8-second capture-to-reply limit**
 are unchanged. No observer overlay is sent to either vision model. Invalid or
 expired vision replies become invalid observations, never positive evidence.
@@ -114,11 +130,17 @@ wsl.exe bash scripts/model/start_host_service.sh --port 18191 --adapter checkpoi
 wsl.exe bash scripts/agent/start_host.sh
 ```
 
-The second command remains in its terminal. Wait for both `/health` endpoints
-on 18191/18193 to report ready, then use a separate PowerShell:
+The second command remains in its terminal. Start the default one-token proxy
+in another terminal after the native model on 18193 is ready:
 
 ```powershell
-.\unreal\Scripts\run.ps1 -Process -ProcessControl agent -Enhancements
+wsl.exe env DF_SINGLE_TOKEN_BACKEND=http://127.0.0.1:18193 DF_SINGLE_TOKEN_PORT=18194 bash scripts/agent/start_single_token.sh --prefill-next-turn
+```
+
+Wait for `/health` on 18191 and 18194, then use a separate PowerShell:
+
+```powershell
+.\unreal\Scripts\run.ps1 -Process -ProcessControl agent -Enhancements -AgentRuntime local
 ```
 
 ## Run with all models on the EVK
@@ -128,9 +150,7 @@ Start the prepared stack as described in [EVK runtime](evk_model_runtime.md):
 ```powershell
 wsl.exe ssh ubuntu@192.168.1.158 bash /home/ubuntu/qai-dark-factory/repo/scripts/model/start_evk_qairt.sh --agent
 wsl.exe bash scripts/model/start_evk_tunnel.sh --agent
-.\unreal\Scripts\run.ps1 -Process -ProcessControl agent -Enhancements `
-  -AgentEndpoint http://127.0.0.1:18196/v1/chat/completions `
-  -ProcessEndpoint http://127.0.0.1:18198/v1/inspect -ProcessModelSource evk_hexagon
+.\unreal\Scripts\run.ps1 -Process -ProcessControl agent -Enhancements
 ```
 
 The Ministral CPU service and both adapted Reason2 QAIRT NPU vision/text workers
@@ -141,20 +161,63 @@ on public network interfaces.
 Port 18196 is the one-token protocol adapter over the same native Ministral
 service. Port 18195 retains native tool calls and generated reasons. The stack
 launcher starts the adapter only for Ministral. Wait for 18196 `/health` after
-startup; [the one-token guide](single_token_controller.md) also covers host GPU
+startup, and 18210 `/health` for the EVK harness; [the one-token guide](single_token_controller.md) also covers host GPU
 usage and private token-score audits. Do not send competing requests to both
 controller endpoints.
+
+## Switch between EVK and host GPU in the running demo
+
+Start both sets of services above, plus the host one-token proxy on 18194 as
+described in [the one-token guide](single_token_controller.md). With both
+backends healthy:
+
+```powershell
+.\unreal\Scripts\run.ps1 -Process -ProcessControl agent -Enhancements -ProcessBackendSwitch
+```
+
+This option starts on **EVK** unless `-ProcessModelSource host_gpu` is supplied.
+Press **F4** or **Xbox right-stick click** to switch both models together. The HUD
+identifies the active pair: Reason2 NPU + Ministral CPU on IQ9, or both models on
+the host GPU. The harness remains on the EVK across this switch. There is no
+automatic fallback. Agent mode also defaults to EVK without the switch enabled;
+flow mode retains its existing launch defaults.
+
+Switching cancels outstanding vision/agent requests, queued decisions, partial
+camera batches and pending readbacks; late encoder output is discarded. An
+interrupted agent inspection returns a cancellation in its actual tool history.
+The agent chooses whether to inspect again. Completed observations and work stay
+in the conversation; physical jobs continue from their current position, and a
+paused process stays paused. Explicit model holds and the per-body decision
+budget remain intact. A transport hold can retry on the newly selected backend.
+No recipe action or positive inspection result is supplied by the switch.
+
+The fixed profiles use vision/agent ports **18198/18196** for EVK and
+**18191/18194** for host GPU. The EVK harness reaches the GPU agent through reverse
+SSH port 18214. Custom agent endpoints require `-AgentRuntime local`; vision
+overrides belong to the initially selected profile. Both services must be
+started separately; selecting a stopped backend produces the normal error/hold.
+Runtime reports and agent traces record backend selection; it is not added to
+model-facing observations or sensor PNGs.
+
+The rendered fixture `-ProcessBackendSmoke` selects EVK/GPU/EVK on its three
+bodies, using actual services and model decisions. Run it once with
+`-ProcessControl agent` and once with `-ProcessControl flow`, then run
+`scripts/verify_backend_switch.py <process_runtime.json> --output <audit.json>`.
+The native policy fixture additionally checks interrupted inspections, late
+encoder output, pending commands, paired endpoints and preservation of pause,
+history, model holds and decision limits. This is integration evidence, not
+new model accuracy.
 
 ## Reproduce validation
 
 ```powershell
 .\unreal\Scripts\run.ps1 -ProcessPolicySmoke -Enhancements -Output artifacts\agent-policy
-.\unreal\Scripts\run.ps1 -ProcessSmoke -ProcessControl agent -Enhancements -ProcessObserverMode 3 -Output artifacts\agent-host
+.\unreal\Scripts\run.ps1 -ProcessSmoke -ProcessControl agent -Enhancements -AgentRuntime local -ProcessObserverMode 3 -Output artifacts\agent-host
 wsl.exe python3 scripts/verify_live_agent.py artifacts/agent-host/process_runtime.json --output artifacts/agent-host/agent-checks.json
 wsl.exe python3 scripts/verify_inspection_arm.py --runtime artifacts/agent-host/process_runtime.json --output artifacts/agent-host/arm-checks.json
 ```
 
-Use the EVK endpoint arguments above with `-ProcessSmoke` for the edge run. Agent
+Omit `-AgentRuntime local` and use `-ProcessSmoke` for the default EVK run. Agent
 smoke seeds missing/preassembled/missing bodies **only in the private simulator**,
 allows at most 30 minutes and exits after three departures or an agent error/hold.
 It records exact prompt/tools, choices, real tool results, source-only audits,
@@ -215,3 +278,12 @@ with no audit failures or rejected calls. The clean-start run took 275.569 s,
 with 3.952 s median agent decisions, a 28.885 s first request and 1.416 s median
 Reason2 batches. The revised prompt includes a preassembled example; two earlier
 Ministral prompts missed a thermal check and are preserved as failed candidates.
+
+The September 21 live backend-switch test validates EVK / host GPU / EVK routing,
+but the agent run **does not pass the full process**: after two departures,
+Ministral skipped placement on the third body and eventually chose hold. There
+was one mechanical rejection and no transport error. The separate flow run
+passed all three bodies with the same backend transitions. See
+[the validation record](validation.md#live-backend-switching-21-september-2026)
+for counts and scope. Switching backends preserves the agent's completed tool
+history; it does not correct process choices or reset an explicit model hold.

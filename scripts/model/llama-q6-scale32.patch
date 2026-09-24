@@ -1,0 +1,103 @@
+--- a/ggml/src/ggml-vulkan/vulkan-shaders/mul_mat_vec_q6_k.comp
++++ b/ggml/src/ggml-vulkan/vulkan-shaders/mul_mat_vec_q6_k.comp
+@@ -3,6 +3,7 @@
+ #extension GL_EXT_shader_explicit_arithmetic_types_int32 : require
+ 
+ #include "mul_mat_vec_base.glsl"
++#include "q6_scale32.glsl"
+ 
+ layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+ 
+@@ -20,7 +21,7 @@
+ 
+         if (!all_threads) { // when we don't have enough blocks to use all threads
+             if (i < num_blocks_per_row)
+-                sccache[csel][ix][itid] = FLOAT_TYPE(data_a[ib0 + i].scales[itid]);
++                sccache[csel][ix][itid] = FLOAT_TYPE(q6_scale32(ib0 + i, itid));
+             barrier();
+ 
+             if (i >= num_blocks_per_row)
+@@ -52,7 +53,7 @@
+         const vec4 q3 = vec4(unpack8(q3_u32)) - 32;
+ 
+         if (all_threads) {
+-            sccache[csel][ix][itid] = FLOAT_TYPE(data_a[ib0 + i].scales[itid]);
++            sccache[csel][ix][itid] = FLOAT_TYPE(q6_scale32(ib0 + i, itid));
+             barrier();
+         }
+ 
+--- a/ggml/src/ggml-vulkan/vulkan-shaders/mul_mm_funcs.glsl
++++ b/ggml/src/ggml-vulkan/vulkan-shaders/mul_mm_funcs.glsl
+@@ -1,3 +1,6 @@
++#if defined(DATA_A_Q6_K)
++#include "q6_scale32.glsl"
++#endif
+ // k_pair is the K coordinate measured in FLOAT_TYPEV2 elements.
+ uint a_shmem_index(uint m, uint k_pair) {
+     if (APPLY_SLM_A_RESHAPE) {
+@@ -325,7 +328,7 @@
+             const uint qsi = n * 32 + (iqs % 32);       // 0..63
+             const uint qhi = n * 16 + (iqs % 16);       // 0..31
+ 
+-            const float dscale = float(data_a[ib].d) * float(data_a[ib].scales[is]);
++            const float dscale = float(data_a[ib].d) * float(q6_scale32(ib, is));
+ 
+             const uint ql = (uint(data_a_packed16[ib].ql[qsi]) >> b) & 0x0F0F;
+             const uint qh = (uint(data_a_packed16[ib].qh[qhi]) >> qhshift) & 0x0303;
+--- a/ggml/src/ggml-vulkan/vulkan-shaders/dequant_funcs.glsl
++++ b/ggml/src/ggml-vulkan/vulkan-shaders/dequant_funcs.glsl
+@@ -720,6 +720,7 @@
+ #endif
+ 
+ #if defined(DATA_A_Q6_K)
++#include "q6_scale32.glsl"
+ vec2 dequantize(uint ib, uint iqs, uint a_offset) {
+     iqs /= 2;
+     const uint n = iqs / 64;                    // 0,1
+@@ -730,7 +731,7 @@
+     const uint qsi = n * 64 + (iqs % 32) * 2;   // 0,2,4..126
+     const uint qhi = n * 32 + (iqs % 16) * 2;   // 0,2,4..62
+ 
+-    const float dscale = float(data_a[a_offset + ib].d) * float(data_a[a_offset + ib].scales[is]);
++    const float dscale = float(data_a[a_offset + ib].d) * float(q6_scale32(a_offset + ib, is));
+ 
+     return vec2(dscale * float(int8_t(((data_a[a_offset + ib].ql[qsi    ] >> (b * 4)) & 0xF) | (((data_a[a_offset + ib].qh[qhi    ] >> qhshift) & 3) << 4)) - 32),
+                 dscale * float(int8_t(((data_a[a_offset + ib].ql[qsi + 1] >> (b * 4)) & 0xF) | (((data_a[a_offset + ib].qh[qhi + 1] >> qhshift) & 3) << 4)) - 32));
+--- a/ggml/src/ggml-vulkan/vulkan-shaders/dequant_q6_k.comp
++++ b/ggml/src/ggml-vulkan/vulkan-shaders/dequant_q6_k.comp
+@@ -6,6 +6,8 @@
+ 
+ layout (binding = 0) readonly buffer A {A_TYPE data_a[];};
+ layout (binding = 1) writeonly buffer D {D_TYPE data_b[];};
++layout (binding = 0) readonly buffer A_PACKED16 {A_TYPE_PACKED16 data_a_packed16[];};
++#include "q6_scale32.glsl"
+ 
+ void main() {
+     [[unroll]] for (uint wgy = 0; wgy < 256; wgy++) {
+@@ -25,9 +27,9 @@
+ 
+         const FLOAT_TYPE d = FLOAT_TYPE(data_a[i].d);
+ 
+-        data_b[y_idx +  0] = D_TYPE(d * FLOAT_TYPE(data_a[i].scales[is + 0] * (int8_t((data_a[i].ql[ql_idx +  0] & 0xF) | (((qh >> 0) & 3) << 4)) - 32)));
+-        data_b[y_idx + 32] = D_TYPE(d * FLOAT_TYPE(data_a[i].scales[is + 2] * (int8_t((data_a[i].ql[ql_idx + 32] & 0xF) | (((qh >> 2) & 3) << 4)) - 32)));
+-        data_b[y_idx + 64] = D_TYPE(d * FLOAT_TYPE(data_a[i].scales[is + 4] * (int8_t((data_a[i].ql[ql_idx +  0] >>  4) | (((qh >> 4) & 3) << 4)) - 32)));
+-        data_b[y_idx + 96] = D_TYPE(d * FLOAT_TYPE(data_a[i].scales[is + 6] * (int8_t((data_a[i].ql[ql_idx + 32] >>  4) | (((qh >> 6) & 3) << 4)) - 32)));
++        data_b[y_idx +  0] = D_TYPE(d * FLOAT_TYPE(q6_scale32(i, is + 0) * (int8_t((data_a[i].ql[ql_idx +  0] & 0xF) | (((qh >> 0) & 3) << 4)) - 32)));
++        data_b[y_idx + 32] = D_TYPE(d * FLOAT_TYPE(q6_scale32(i, is + 2) * (int8_t((data_a[i].ql[ql_idx + 32] & 0xF) | (((qh >> 2) & 3) << 4)) - 32)));
++        data_b[y_idx + 64] = D_TYPE(d * FLOAT_TYPE(q6_scale32(i, is + 4) * (int8_t((data_a[i].ql[ql_idx +  0] >>  4) | (((qh >> 4) & 3) << 4)) - 32)));
++        data_b[y_idx + 96] = D_TYPE(d * FLOAT_TYPE(q6_scale32(i, is + 6) * (int8_t((data_a[i].ql[ql_idx + 32] >>  4) | (((qh >> 6) & 3) << 4)) - 32)));
+     }
+ }
+--- a/ggml/src/ggml-vulkan/vulkan-shaders/q6_scale32.glsl
++++ b/ggml/src/ggml-vulkan/vulkan-shaders/q6_scale32.glsl
+@@ -0,0 +1,10 @@
++// Private diagnostic: read signed Q6_K scale bytes through packed16 storage.
++// The Q6_K memory format and all mathematical scale values are unchanged.
++#ifndef PRIVATE_Q6_SCALE32
++#define PRIVATE_Q6_SCALE32
++int q6_scale32(uint block_index, uint scale_index) {
++    uint packed = uint(data_a_packed16[block_index].scales[scale_index / 2u]) & 65535u;
++    int encoded = int((packed >> ((scale_index & 1u) * 8u)) & 255u);
++    return (encoded ^ 128) - 128;
++}
++#endif

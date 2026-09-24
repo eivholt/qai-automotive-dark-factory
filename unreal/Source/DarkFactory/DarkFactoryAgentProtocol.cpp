@@ -20,13 +20,19 @@ TSharedRef<FJsonObject> CompactToolResult(const TSharedRef<FJsonObject>& Result)
             Wire->SetField(Key,MakeShared<FJsonValueNumberString>(MoveTemp(Number)));
         }
     }
+    const TArray<TSharedPtr<FJsonValue>>* Nested=nullptr;
+    if (Result->TryGetArrayField(TEXT("results"),Nested)) {
+        TArray<TSharedPtr<FJsonValue>> Rows;
+        for (const auto& Value:*Nested) Rows.Add(MakeShared<FJsonValueObject>(CompactToolResult(Value->AsObject().ToSharedRef())));
+        Wire->SetArrayField(TEXT("results"),Rows);
+    }
     return Wire;
 }
 bool SameScope(uint64 ExpectedEpoch,const FString& ExpectedBody,const FString& ExpectedRequest,
     uint64 Epoch,const FString& Body,const FString& Request,bool Paused) {
     return !Paused && ExpectedEpoch==Epoch && ExpectedBody==Body && !Request.IsEmpty() && ExpectedRequest==Request;
 }
-bool ParseCommand(const TSharedPtr<FJsonObject>& Reply,FCommand& Out,FString& Error) {
+bool ParseCommand(const TSharedPtr<FJsonObject>& Reply,FCommand& Out,FString& Error,bool Bundled) {
     Error=TEXT("Expected exactly one complete, supported tool call");
     const TArray<TSharedPtr<FJsonValue>>* Choices=nullptr;
     if (!Reply || !Reply->TryGetArrayField(TEXT("choices"),Choices) || Choices->Num()!=1) return false;
@@ -44,6 +50,13 @@ bool ParseCommand(const TSharedPtr<FJsonObject>& Reply,FCommand& Out,FString& Er
     TSharedPtr<FJsonObject> Args;
     if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Arguments),Args) || !Args ||
         !Args->TryGetStringField(TEXT("reason"),Out.Reason) || Out.Reason.IsEmpty() || Out.Reason.Len()>240) return false;
+    if (Bundled) {
+        if (Args->Values.Num()!=1) return false;
+        if (Out.Tool==TEXT("wait")) Out.Seconds=5.;
+        return Out.Tool==TEXT("inspect_panel") || Out.Tool==TEXT("prepare_panel") || Out.Tool==TEXT("inspect_temperatures") ||
+            Out.Tool==TEXT("weld_panel") || Out.Tool==TEXT("inspect_seating") || Out.Tool==TEXT("finish_body") ||
+            Out.Tool==TEXT("wait") || Out.Tool==TEXT("hold");
+    }
     if (Out.Tool==TEXT("inspect")) {
         if (Args->Values.Num()!=2 || !Args->TryGetStringField(TEXT("stage"),Out.Argument)) return false;
         return Out.Argument==TEXT("panel_presence") || Out.Argument==TEXT("adhesive") || Out.Argument==TEXT("panel_seated") || Out.Argument==TEXT("weld");

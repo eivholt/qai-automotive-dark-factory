@@ -9,7 +9,7 @@ struct FCommand {
     double Seconds=0;
 };
 // Syntax/capability validation only. No recipe, inspection or temperature tests.
-bool ParseCommand(const TSharedPtr<FJsonObject>& Reply,FCommand& Out,FString& Error);
+bool ParseCommand(const TSharedPtr<FJsonObject>& Reply,FCommand& Out,FString& Error,bool Bundled=false);
 // Model-visible serialization only; the diagnostic journal keeps full precision.
 TSharedRef<FJsonObject> CompactToolResult(const TSharedRef<FJsonObject>& Result);
 bool SameScope(uint64 ExpectedEpoch,const FString& ExpectedBody,const FString& ExpectedRequest,
@@ -28,7 +28,16 @@ struct FAudit {
 struct FRuntime {
     FString Endpoint, SystemPrompt, RequestId, Job, Error;
     TArray<TSharedPtr<FJsonValue>> Tools, Journal, Messages, Trace, Audits, Outcomes;
+    TArray<TSharedPtr<FJsonValue>> CompletedSteps, ThermalResults;
     TSharedPtr<IHttpRequest,ESPMode::ThreadSafe> Request;
+    FString HarnessEndpoint=TEXT("http://127.0.0.1:18210/v1/cell/exchange");
+    TSharedPtr<IHttpRequest,ESPMode::ThreadSafe> HarnessRequest;
+    TArray<TSharedPtr<FJsonValue>> HarnessEvents;
+    TSet<FString> HarnessConsumed;
+    uint64 HarnessSerial=0,HarnessAck=0;
+    double NextHarnessPoll=0,LastHarnessReply=0,FinishingAt=0;
+    int32 HarnessExchanges=0;
+    bool Remote=false,Finishing=false;
     FCommand Command;
     // A validated reply can arrive while R4 is still withdrawing. Cancellation
     // clears it with the request epoch; no new inference runs while it is queued.
@@ -37,6 +46,6 @@ struct FRuntime {
     uint64 Epoch=0, Serial=0;
     int32 Turns=0, Requests=0, Rejected=0, Failures=0;
     double RequestedAt=0, NextDecision=0, WaitUntil=0, Started=0;
-    bool Held=false, Smoke=false, Busy=false, HolderEngaged=false, BodyPlaced=false;
+    bool Held=false, Smoke=false, Busy=false, HolderEngaged=false, BodyPlaced=false, Bundled=false;
 };
 }

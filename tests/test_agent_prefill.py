@@ -49,6 +49,7 @@ class PrefillTests(unittest.TestCase):
                 super().serve_forever(poll_interval=.01)
 
         class Controller:
+            actions = st.ACTIONS
             prompt_hash = "test"
             prompt = "test policy"
             token_ids = {"A": 1065}

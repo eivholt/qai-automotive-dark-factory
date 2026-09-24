@@ -10,13 +10,13 @@ void ADarkFactoryHUD::DrawInspectionReplay(const ADarkFactoryProcessController* 
     float Y=23;
     auto Line=[&](const FString& Text,FLinearColor Color,float Scale=.8f) {
         FString Fit=Text.Replace(TEXT("\n"),TEXT(" ")).Replace(TEXT("\r"),TEXT(" ")); float W=0,H=0;
-        GetTextSize(Fit,W,H,GEngine->GetSmallFont(),Scale);
-        while (W>PanelWidth-20 && Fit.Len()>3) { Fit.LeftChopInline(1); GetTextSize(Fit+TEXT("..."),W,H,GEngine->GetSmallFont(),Scale); }
+        MeasureHUDText(Fit,W,H,GEngine->GetSmallFont(),Scale);
+        while (W>PanelWidth-20 && Fit.Len()>3) { Fit.LeftChopInline(1); MeasureHUDText(Fit+TEXT("..."),W,H,GEngine->GetSmallFont(),Scale); }
         if (Fit!=Text) Fit+=TEXT("...");
-        DrawText(Fit,Color,X+10,Y,GEngine->GetSmallFont(),Scale); Y+=18;
+        DrawHUDText(Fit,Color,X+10,Y,GEngine->GetSmallFont(),Scale); Y+=18;
     };
     Line(TEXT("INSPECTION REPLAY / historical"),Amber,.90f);
-    Line(TEXT("F5: live / PgUp-PgDn: history"),Muted);
+    DrawHUDControls(TEXT("[F5]: live / [PgUp-PgDn]: history"),X+10,Y,.8f); Y+=18;
     const auto* Receipt=Process->GetInspectionReceipt();
     if (!Receipt) { Line(TEXT("No retained requests yet"),Pale); Line(TEXT("Launch with -Enhancements"),Muted); return; }
     Line((Receipt->Stage==TEXT("adhesive") ? FString(TEXT("sealant")):Receipt->Stage)+TEXT(" / ")+Receipt->Body.Right(12),Pale);

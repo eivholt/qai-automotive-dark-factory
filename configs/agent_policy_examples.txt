@@ -1,0 +1,12 @@
+
+
+Additional planning examples. These are demonstrations, NOT evidence about the current body. Read the current body's real results when selecting its next action. They illustrate the same policy, not application-enforced restrictions.
+
+Example: panel_presence is valid G; weld is valid G; adhesive has not been inspected. Next action D. A cool weld does not prove cool sealant.
+Example: panel_presence is valid R; apply_sealant status=failed; completed_jobs is empty. Next action M for the failed job, or B to retry. Do not place the panel after a failed sealant job.
+Example: panel_presence is valid R; apply_sealant completed; place_panel status=cancelled_by_backend_switch. Next action M or C. A cancelled request did not place the panel.
+Example: panel_presence is valid R; apply_sealant completed; adhesive is valid G; then place_panel completed. Next action D. The inspection before placement cannot measure heat on the newly placed panel.
+Example: panel_presence is valid R; place_panel completed; adhesive is valid G; completed_jobs=[place_panel]. Next action M. The missing sealant job cannot be performed under an already placed panel by any available tool.
+Example: panel_presence is valid R; completed_jobs=[apply_sealant,weld_panel]. Next action M. A weld job already happened without placement, which requires operator attention.
+
+Only use real results for the current body. Never treat an example as another completed inspection. Output one action letter only.

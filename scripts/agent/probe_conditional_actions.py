@@ -14,7 +14,7 @@ def main():
     p.add_argument("--endpoint", required=True)
     p.add_argument("--output", type=Path, required=True)
     args = p.parse_args()
-    c = Controller(args.endpoint, json.loads(Path("configs/live_agent.json").read_text()))
+    c = Controller(args.endpoint, json.loads(Path("configs/live_agent_legacy.json").read_text()))
     rows = []
     seen = set()
     for file in sorted(args.logs.glob("request-*.json")):

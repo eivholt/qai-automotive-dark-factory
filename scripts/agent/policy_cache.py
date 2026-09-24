@@ -30,7 +30,7 @@ def warm(controller, prefix):
 def tool_prefix(controller, messages, code):
     """Only the already-selected action and next message envelope are known."""
     from single_token import ACTIONS
-    if code not in ACTIONS:
+    if code not in getattr(controller, "actions", ACTIONS):
         raise ValueError("Unknown selected action")
     marker = "__DF_PENDING_TOOL_45fd3cf__"
     if any(marker in message["content"] for message in messages):

@@ -17,6 +17,7 @@ struct FDarkFactoryProcessStatus {
     int32 AgentAuditFailures=0;
     float AgentLatencyMs=0;
     FString AgentAction, AgentReason, LastInspectionStage;
+    bool bEdgeAgentHarness=false;
     FString AgentGateCodes[GateCount];
     // These branch/action flags describe controller decisions, not scene truth.
     bool bBranchKnown=false, bPreassembled=false, bAssemblyPerformed=false, bWeldAuthorized=false;

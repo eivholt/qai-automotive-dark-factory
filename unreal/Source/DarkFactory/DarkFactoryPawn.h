@@ -95,6 +95,8 @@ private:
     void ToggleFactorySound();
     void ToggleColliderOverlay();
     void ToggleInspectionReplay();
+    void ToggleModelBackend();
+    void ControllerModelBackend();
     void PreviousInspectionReceipt();
     void NextInspectionReceipt();
     void CancelObserverBookmark();

@@ -126,10 +126,10 @@ void ADarkFactoryHUD::DrawColliderLegend(float RightPanelX,bool Imported) {
     if (Width<270) return;
     DrawRect(FLinearColor(.008f,.015f,.024f,.92f),X,Y,Width,46);
     const FString Title=FString::Printf(TEXT("Collider bounds: %s (%d) | through surfaces%s"),ModeNames[ColliderOverlayMode],ColliderBoxes.Num(),bColliderTruncated ? TEXT(" | limit reached"):TEXT(""));
-    DrawText(Title,FLinearColor(.9f,.96f,1.f),X+10,Y+5,GEngine->GetSmallFont(),.86f);
+    DrawHUDText(Title,FLinearColor(.9f,.96f,1.f),X+10,Y+5,GEngine->GetSmallFont(),.86f);
     const TCHAR* Labels[]={TEXT("Static"),TEXT("Kinematic"),TEXT("Dynamic"),TEXT("Query mesh bounds")};
     const float Column=(Width-20)/4;
-    for (int32 I=0;I<4;++I) DrawText(Labels[I],Colors[I],X+10+I*Column,Y+25,GEngine->GetSmallFont(),.80f);
+    for (int32 I=0;I<4;++I) DrawHUDText(Labels[I],Colors[I],X+10+I*Column,Y+25,GEngine->GetSmallFont(),.80f);
 }
 TSharedRef<FJsonObject> ADarkFactoryHUD::BuildColliderOverlayMetadata() {
     GatherColliderBoxes(); auto R=MakeShared<FJsonObject>();

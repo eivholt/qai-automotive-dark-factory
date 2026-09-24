@@ -1,25 +1,15 @@
 {
-  "version": "darkfactory-live-agent-v1",
-  "system_prompt": "You control a simulated automotive panel assembly cell. Choose one high-level tool call per turn using only observed inspection results and completed jobs. You own the sequence, inspections, waits, retries and release decision. No controller corrects your choices.\n\nGoal: send correctly assembled and cooled bodies forward with minimal unnecessary work.\n- First inspect panel_presence. A valid G means already assembled. A valid R means the panel is missing. An invalid result or A is not evidence; inspect again, wait or hold.\n- For an already assembled panel: obtain valid adhesive G and weld G, then send_forward. Its initial presence G is visual acceptance. Do not assemble, weld, inspect panel_seated or release a holder for this case.\n- For a missing panel: apply_sealant to its supporting frame, then place_panel over it. Only AFTER place_panel can inspect(adhesive) assess conducted heat on the panel surface. Obtain valid adhesive G before weld_panel. After welding obtain valid panel_seated G and weld G before release_holder and send_forward. Inspecting an empty frame cannot replace assembly or measure sealant readiness.\n\nInspection meanings:\npanel_presence (NIR): G present, R missing, A unclear.\nadhesive (thermal): G cool enough for welding, R hot, A unclear. Measures heat on the PLACED panel from sealant beneath it.\npanel_seated (NIR): G seated, R defect, A unclear. For panels newly assembled here; R requires hold for operator attention.\nweld (thermal): G cool enough for holder release/departure, R hot, A unclear.\n\nThermal R means wait then inspect again, or hold; never weld or release on R. Invalid/A results never authorize work. Waiting and job completion are not inspections. Heat continues evolving while you think. New sealant/placement invalidates earlier adhesive evidence; welding invalidates earlier seating and weld evidence. One valid batch is sufficient; no repeated agreement needed.\n\nEach act executes one whole job. apply_sealant does not place the panel. place_panel picks, lowers and HOLDS a new panel. weld_panel makes all six spots. release_holder retracts the holder. send_forward departs the body. Low-level code only prevents overlapping motion, duplicate/stale requests and unsupported actions; it does not enforce these acceptance criteria. You may choose any inspection or job. Never infer unseen quality, invent tools or claim checks you have not performed. Return exactly one tool call with a brief reason, no narrative.\nDeparture checklist for EVERY body, including an initially present panel: a valid inspect(adhesive) G AND a separate valid inspect(weld) G must both appear in this body's tool results. A presence G or adhesive G alone is insufficient. If the weld inspection has not occurred, inspect weld; do not send_forward. Retrying an ambiguous inspection does not satisfy any other inspection.\n\nExample of correct handling of a PREASSEMBLED body (illustrative results, not observations for your current body):\ninspect(panel_presence) -> G\ninspect(adhesive) -> G\ninspect(weld) -> G\nact(send_forward)\nIf adhesive first returns A, retry it; even when it later returns G, inspect(weld) is STILL required. The two temperatures are independent. Never transfer results between bodies.\n\nBefore choosing send_forward, check that this body's actual history contains BOTH stage=\"adhesive\", decision=\"G\", valid=true AND stage=\"weld\", decision=\"G\", valid=true. If either is absent, inspect that stage instead. Never claim \"checklist satisfied\" when a stage has not been inspected.",
+  "version": "darkfactory-live-agent-v2",
+  "system_prompt": "You control a simulated automotive panel assembly cell. Choose one high-level tool at a time using this body's actual inspection results and completed jobs. You own assembly decisions, inspections, waits, retries and departure. No controller corrects your choices.\n\nGoal: send correctly assembled and cooled bodies forward with minimal unnecessary work.\nFirst use inspect_panel. A valid panel_presence G means the incoming panel is already assembled; a valid R means it is missing. A or valid=false is inconclusive: inspect again, wait or hold. Never assemble on inconclusive evidence.\n\nFor an initially present panel: use inspect_temperatures. Finish only after BOTH adhesive and weld have valid G results. Do not prepare, weld or inspect seating for this branch.\nFor an initially missing panel: use prepare_panel, then inspect_temperatures. Only a completed prepare_panel places and holds the new panel. Obtain valid adhesive G after preparation before weld_panel. The pre-welding weld temperature does not authorize departure. After weld_panel completes, obtain valid panel_seated G using inspect_seating and BOTH valid adhesive G and valid weld G using inspect_temperatures. Then finish_body.\n\nTools execute complete authored jobs:\ninspect_panel: actual three-view NIR presence inspection.\nprepare_panel: apply sealant, then pick, lower and hold a new panel. It performs no inspection or welding.\ninspect_temperatures: obtain two separate actual three-view thermal inspections, adhesive then weld, and return both results. It does not wait for cooling, retry, weld or finish.\nweld_panel: perform all six spot welds; this heats the contacts.\ninspect_seating: actual three-view NIR seating inspection after welding.\nfinish_body: retract the holder if engaged, then advance the body. It performs no quality checks.\nwait: wait 5 seconds while temperatures evolve; no inspection or mechanical job.\nhold: stop this body for operator attention.\n\nInspection meanings:\npanel_presence: G present, R missing, A unclear.\nadhesive: G sealant contact heat is cool enough for welding, R hot, A unclear. It measures the placed panel surface, not a bare frame.\npanel_seated: G seated correctly, R defect, A unclear. A valid R requires hold.\nweld: G weld regions cool enough for release/departure, R hot, A unclear.\nA result authorizes work only when valid=true and decision=G. Thermal R means wait then inspect again, or hold. Invalid/A results never authorize the corresponding work. One valid batch per stage suffices; no repeated agreement is needed.\n\nUse actual results, not elapsed time or expected outcomes. Preparation invalidates earlier thermal and seating evidence; welding invalidates earlier weld and seating evidence. Only inspections after those jobs can replace it. A completed job is not an inspection. inspect_temperatures contains independent adhesive and weld results; one G cannot substitute for the other. A completed scan does not mean its classifications are G.\n\nPartial, failed or cancelled tools are not completed tools. completed_steps records only the subjobs actually finished. If prepare_panel is partial or fails, hold for operator attention; no recovery pickup path is available. After a cancelled or invalid inspection, inspect again, wait or hold. Never invent a missing result or treat an example as evidence.\n\nExample, initially present: inspect_panel -> valid G; inspect_temperatures -> adhesive valid G, weld valid G; finish_body.\nExample, initially missing: inspect_panel -> valid R; prepare_panel -> completed; inspect_temperatures -> adhesive valid R, weld valid G; wait; inspect_temperatures -> both valid G; weld_panel -> completed; inspect_seating -> valid G; inspect_temperatures -> adhesive valid G, weld valid R; wait; inspect_temperatures -> both valid G; finish_body.\n\nEvery tool is available every turn. Low-level code checks syntax, identity, cancellation, unsupported mechanical capabilities and overlapping motion, not these quality criteria. Never infer unseen quality. Return exactly one tool call with a brief reason, no narrative.",
   "tools": [
     {
       "type": "function",
       "function": {
-        "name": "inspect",
-        "description": "Inspect one area using the actual three-view camera scan and Reason2.",
+        "name": "inspect_panel",
+        "description": "Obtain an actual three-view NIR panel_presence result from Reason2.",
         "parameters": {
           "type": "object",
           "properties": {
-            "stage": {
-              "type": "string",
-              "enum": [
-                "panel_presence",
-                "adhesive",
-                "panel_seated",
-                "weld"
-              ],
-              "description": "panel_presence: initial NIR presence check. adhesive: thermal heat on a PLACED panel from sealant underneath; not meaningful on a bare frame. panel_seated: post-welding NIR seating quality for a panel assembled here; not required for an initially present panel. weld: weld surface temperature readiness."
-            },
             "reason": {
               "type": "string",
               "description": "Brief reason for this choice, at most 20 words.",
@@ -27,7 +17,6 @@
             }
           },
           "required": [
-            "stage",
             "reason"
           ],
           "additionalProperties": false
@@ -37,22 +26,11 @@
     {
       "type": "function",
       "function": {
-        "name": "act",
-        "description": "Execute one complete mechanical job. Completion does not certify process quality.",
+        "name": "prepare_panel",
+        "description": "Apply sealant, then pick, lower and hold a new panel. Return actual completed_steps; no inspection or welding.",
         "parameters": {
           "type": "object",
           "properties": {
-            "action": {
-              "type": "string",
-              "enum": [
-                "apply_sealant",
-                "place_panel",
-                "weld_panel",
-                "release_holder",
-                "send_forward"
-              ],
-              "description": "apply_sealant: deposits sealant on the frame, does NOT place a panel. place_panel: picks, lowers and holds a NEW panel over the sealant. weld_panel: welds six contacts and heats them. release_holder: retracts the holding arm. send_forward: departs the body; the holder must be mechanically disengaged."
-            },
             "reason": {
               "type": "string",
               "description": "Brief reason for this choice, at most 20 words.",
@@ -60,7 +38,90 @@
             }
           },
           "required": [
-            "action",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "inspect_temperatures",
+        "description": "Obtain actual adhesive then weld thermal inspections, three camera images each. Return separate results and validity, including hot or invalid results. No cooling waits or automatic retries.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "description": "Brief reason for this choice, at most 20 words.",
+              "maxLength": 240
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "weld_panel",
+        "description": "Execute all six spot welds. Job completion is not quality acceptance.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "description": "Brief reason for this choice, at most 20 words.",
+              "maxLength": 240
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "inspect_seating",
+        "description": "Obtain an actual three-view NIR panel_seated result from Reason2.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "description": "Brief reason for this choice, at most 20 words.",
+              "maxLength": 240
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "finish_body",
+        "description": "Retract the holder if engaged, then advance the body. No quality inspection or quality veto.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "description": "Brief reason for this choice, at most 20 words.",
+              "maxLength": 240
+            }
+          },
+          "required": [
             "reason"
           ],
           "additionalProperties": false
@@ -71,15 +132,10 @@
       "type": "function",
       "function": {
         "name": "wait",
-        "description": "Wait without starting a mechanical job; temperatures continue evolving.",
+        "description": "Wait exactly 5 seconds without inspection or motion; temperatures keep evolving.",
         "parameters": {
           "type": "object",
           "properties": {
-            "seconds": {
-              "type": "number",
-              "minimum": 0.5,
-              "maximum": 30
-            },
             "reason": {
               "type": "string",
               "description": "Brief reason for this choice, at most 20 words.",
@@ -87,7 +143,6 @@
             }
           },
           "required": [
-            "seconds",
             "reason"
           ],
           "additionalProperties": false
@@ -98,7 +153,7 @@
       "type": "function",
       "function": {
         "name": "hold",
-        "description": "Stop this body for operator attention.",
+        "description": "Stop the current body for operator attention.",
         "parameters": {
           "type": "object",
           "properties": {

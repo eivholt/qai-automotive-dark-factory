@@ -337,6 +337,7 @@ def make_handler(classifier):
                 "model_config_sha256": classifier.model_config_sha256,
                 "vision_patch_embedding": getattr(classifier, "vision_patch_embedding", "llamacpp-native"),
                 "stage_backend_aliases": getattr(classifier, "stage_backend_aliases", None),
+                "streaming_protocol": getattr(classifier, "streaming_protocol", None),
                 "cuda_allocated_bytes": next(iter(classifier.models.values())).torch.cuda.memory_allocated() if isinstance(classifier, ModalityClassifier) else None,
                 "cuda_peak_allocated_bytes": next(iter(classifier.models.values())).torch.cuda.max_memory_allocated() if isinstance(classifier, ModalityClassifier) else None,
                 "provenance": getattr(classifier, "provenance", None)})

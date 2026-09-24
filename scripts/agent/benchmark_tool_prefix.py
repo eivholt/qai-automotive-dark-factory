@@ -19,7 +19,7 @@ def main():
     p.add_argument("--endpoint", required=True)
     p.add_argument("--runtime", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
-    p.add_argument("--config", type=Path, default=Path("configs/live_agent.json"))
+    p.add_argument("--config", type=Path, default=Path("configs/live_agent_legacy.json"))
     args = p.parse_args()
     history = json.loads(args.runtime.read_text())["agent"]["current_body_messages"]
     c = Controller(args.endpoint, json.loads(args.config.read_text()))

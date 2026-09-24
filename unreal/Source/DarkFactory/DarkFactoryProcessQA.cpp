@@ -349,15 +349,18 @@ bool ADarkFactoryProcessController::RunPolicySmoke() {
             Compact->GetStringField(TEXT("reason"))==TEXT("stale_reply") && Compact->GetStringField(TEXT("stage"))==TEXT("adhesive"));
         Check(TEXT("agent_compact_clock_is_numeric_bounded_precision_and_journal_unchanged"),CompactText.Contains(TEXT("\"capture_age_at_reply_seconds\":8.125")) &&
             Invalid->GetNumberField(TEXT("capture_age_at_reply_seconds"))==8.12512345 && Invalid->HasField(TEXT("images")));
-        auto Parse=[&](const FString& Tool,const FString& Args,const FString& Finish=TEXT("tool_calls"),int32 Count=1) {
+        auto Parse=[&](const FString& Tool,const FString& Args,const FString& Finish=TEXT("tool_calls"),int32 Count=1,bool Bundled=false) {
             auto Fn=MakeShared<FJsonObject>(); Fn->SetStringField(TEXT("name"),Tool); Fn->SetStringField(TEXT("arguments"),Args);
             auto Call=MakeShared<FJsonObject>(); Call->SetStringField(TEXT("id"),TEXT("call1")); Call->SetStringField(TEXT("type"),TEXT("function")); Call->SetObjectField(TEXT("function"),Fn);
             TArray<TSharedPtr<FJsonValue>> Calls; for (int32 I=0;I<Count;++I) Calls.Add(MakeShared<FJsonValueObject>(Call));
             auto Message=MakeShared<FJsonObject>(); Message->SetArrayField(TEXT("tool_calls"),Calls);
             auto Choice=MakeShared<FJsonObject>(); Choice->SetObjectField(TEXT("message"),Message); Choice->SetStringField(TEXT("finish_reason"),Finish);
             auto Reply=MakeShared<FJsonObject>(); Reply->SetArrayField(TEXT("choices"),{MakeShared<FJsonValueObject>(Choice)});
-            FCommand Command; FString Error; return ParseCommand(Reply,Command,Error);
+            FCommand Command; FString Error; return ParseCommand(Reply,Command,Error,Bundled);
         };
+        Check(TEXT("agent_simple_parser_accepts_named_macro"),Parse(TEXT("prepare_panel"),TEXT("{\"reason\":\"Prepare\"}"),TEXT("tool_calls"),1,true));
+        Check(TEXT("agent_simple_parser_rejects_legacy_low_level_tool"),!Parse(TEXT("act"),TEXT("{\"action\":\"place_panel\",\"reason\":\"Place\"}"),TEXT("tool_calls"),1,true));
+        Check(TEXT("agent_simple_parser_rejects_generated_parameters"),!Parse(TEXT("wait"),TEXT("{\"seconds\":15,\"reason\":\"Wait\"}"),TEXT("tool_calls"),1,true));
         const FString WeldArgs=TEXT("{\"action\":\"weld_panel\",\"reason\":\"Test arbitrary job\"}");
         Check(TEXT("agent_parser_accepts_weld_without_recipe_state"),Parse(TEXT("act"),WeldArgs));
         Check(TEXT("agent_parser_rejects_truncated_output"),!Parse(TEXT("act"),WeldArgs,TEXT("length")));
@@ -415,6 +418,114 @@ bool ADarkFactoryProcessController::RunPolicySmoke() {
         Agent->PendingCommand=Weld; // Synthetic old-body response awaiting dispatch.
         CompleteMotion(Phase::Departing);
         Check(TEXT("agent_body_turnover_clears_observations_and_jobs"),State.Phase==Phase::Arriving && Agent->Journal.IsEmpty() && Agent->Audit.Completed.IsEmpty() && !Agent->HolderEngaged && !Agent->PendingCommand.IsSet());
+        {
+            const FString SavedEndpoint=Endpoint,SavedSource=ExpectedModelSource;
+            ModelBackends={
+                {TEXT("evk_hexagon"),TEXT("http://127.0.0.1:18198/v1/inspect"),TEXT("http://127.0.0.1:18196/v1/chat/completions")},
+                {TEXT("host_gpu"),TEXT("http://127.0.0.1:18191/v1/inspect"),TEXT("http://127.0.0.1:18194/v1/chat/completions")}
+            };
+            bBackendSwitchEnabled=true;
+            SelectModelBackend(TEXT("evk_hexagon"));
+            CompleteMotion(Phase::Arriving); DispatchAgentCommand(Inspect); StartCapture();
+            const FString SwitchBody=State.BodyId; const uint64 SwitchEpoch=Agent->Epoch;
+            const int32 SwitchTurns=Agent->Turns,SwitchAudit=Agent->Failures;
+            Agent->PendingCommand=Weld;
+            ActiveRequestId=TEXT("old-backend-request"); Request=FHttpModule::Get().CreateRequest();
+            Request->OnProcessRequestComplete().BindLambda([](FHttpRequestPtr,FHttpResponsePtr,bool) {});
+            const auto OldRequest=Request;
+            Agent->Request=FHttpModule::Get().CreateRequest();
+            Agent->Request->OnProcessRequestComplete().BindLambda([](FHttpRequestPtr,FHttpResponsePtr,bool) {});
+            const auto OldAgentRequest=Agent->Request;
+            Agent->RequestId=TEXT("old-agent-request");
+            TPromise<TArray<uint8>> LateEncoder; EncodeFuture=LateEncoder.GetFuture();
+            Check(TEXT("backend_switch_selects_both_endpoints"),SelectModelBackend(TEXT("host_gpu"))
+                && Endpoint==ModelBackends[1].VisionEndpoint && Agent->Endpoint==ModelBackends[1].AgentEndpoint);
+            Check(TEXT("backend_switch_cancels_old_requests_and_queued_command"),!Request && !Agent->Request
+                && !OldRequest->OnProcessRequestComplete().IsBound() && !OldAgentRequest->OnProcessRequestComplete().IsBound()
+                && ActiveRequestId.IsEmpty() && Agent->RequestId.IsEmpty() && Agent->Epoch>SwitchEpoch && !Agent->PendingCommand.IsSet());
+            Check(TEXT("backend_switch_closes_interrupted_inspection_without_acceptance"),!Agent->Busy && State.Phase==Phase::AgentIdle
+                && Agent->Journal.Last()->AsObject()->GetStringField(TEXT("status"))==TEXT("cancelled_by_backend_switch")
+                && !Agent->Journal.Last()->AsObject()->HasField(TEXT("decision")));
+            LateEncoder.SetValue(TArray<uint8>{1,2,3}); CaptureTick();
+            Check(TEXT("backend_switch_discards_late_encoder_and_keeps_actual_history"),CaptureInactive() && BatchImages.IsEmpty()
+                && State.BodyId==SwitchBody && Agent->Turns==SwitchTurns && Agent->Failures==SwitchAudit && !Agent->Messages.IsEmpty());
+            DispatchAgentCommand(Wait); State.bPaused=true;
+            const int32 MessagesBefore=Agent->Messages.Num(); const double WaitBefore=Agent->WaitUntil;
+            SelectModelBackend(TEXT("evk_hexagon"));
+            Check(TEXT("backend_switch_preserves_paused_physical_job_and_conversation"),State.bPaused && Agent->Busy && Agent->Job==TEXT("wait")
+                && Agent->WaitUntil==WaitBefore && Agent->Messages.Num()==MessagesBefore && State.BodyId==SwitchBody);
+            Agent->Held=true; State.bAgentHeld=true; Agent->Error.Empty();
+            SelectModelBackend(TEXT("host_gpu"));
+            Check(TEXT("backend_switch_preserves_explicit_model_hold"),Agent->Held && State.bAgentHeld);
+            Agent->Error=TEXT("Agent endpoint unavailable"); Agent->Turns=41;
+            SelectModelBackend(TEXT("evk_hexagon"));
+            Check(TEXT("backend_switch_cannot_reset_exhausted_decision_budget"),Agent->Held && Agent->Turns==41);
+            const uint64 UnchangedEpoch=Agent->Epoch;
+            Check(TEXT("backend_switch_rejects_unknown_profile_without_mutation"),!SelectModelBackend(TEXT("unknown")) && Agent->Epoch==UnchangedEpoch);
+            bBackendSwitchEnabled=false;
+            Check(TEXT("backend_switch_disabled_preserves_selected_endpoints"),!SelectModelBackend(TEXT("host_gpu")) && Agent->Epoch==UnchangedEpoch);
+            Endpoint=SavedEndpoint; ExpectedModelSource=SavedSource; ModelBackends.Reset(); BackendSwitches=0; State.bPaused=false;
+        }
+        // V2 macros contain authored motion/measurement, never acceptance or
+        // branch repair. These synthetic results verify executor semantics only.
+        Agent->Bundled=true; ProcessScene->EndBody(); BeginBody(); CompleteMotion(Phase::Arriving);
+        FCommand Prepare; Prepare.Tool=TEXT("prepare_panel"); Prepare.Reason=TEXT("Macro fixture");
+        DispatchAgentCommand(Prepare); CompleteMotion(Phase::AdhesiveApplication);
+        Check(TEXT("agent_prepare_continues_to_placement_without_extra_llm_choice"),Agent->Busy && Agent->Job==TEXT("place_panel") && Agent->CompletedSteps.Num()==1);
+        const double PlacingAge=State.StageSeconds;
+        TogglePaused(); Tick(.1f);
+        Check(TEXT("agent_prepare_pause_preserves_completed_sealant_and_placement"),Agent->Busy && Agent->CompletedSteps.Num()==1 && State.StageSeconds==PlacingAge);
+        TogglePaused(); CompleteMotion(Phase::PanelPlacement);
+        Check(TEXT("agent_prepare_reports_actual_steps_and_holds_without_inspecting"),!Agent->Busy && Agent->HolderEngaged && State.ActiveGate==-1 &&
+            Agent->Journal.Last()->AsObject()->GetArrayField(TEXT("completed_steps")).Num()==2);
+        const int32 BeforeRepeat=Agent->Audit.Completed.FindRef(TEXT("apply_sealant"));
+        DispatchAgentCommand(Prepare);
+        Check(TEXT("agent_prepare_duplicate_pickup_fails_before_applying_more_sealant"),!Agent->Busy && Agent->Audit.Completed.FindRef(TEXT("apply_sealant"))==BeforeRepeat &&
+            Agent->Journal.Last()->AsObject()->GetArrayField(TEXT("completed_steps")).IsEmpty());
+        FCommand Temperatures; Temperatures.Tool=TEXT("inspect_temperatures"); Temperatures.Reason=TEXT("Read both temperatures");
+        DispatchAgentCommand(Temperatures); DelayCapture(); Decision(TEXT("R")); DelayCapture();
+        Check(TEXT("agent_thermal_bundle_continues_after_hot_first_result"),Agent->Busy && StageName()==TEXT("weld") && Agent->ThermalResults.Num()==1);
+        Decision(TEXT("A"),false);
+        auto Thermal=Agent->Journal.Last()->AsObject();
+        Check(TEXT("agent_thermal_bundle_preserves_hot_and_invalid_results_without_retry"),!Agent->Busy && Thermal->GetArrayField(TEXT("results")).Num()==2 &&
+            Thermal->GetArrayField(TEXT("results"))[0]->AsObject()->GetStringField(TEXT("decision"))==TEXT("R") &&
+            !Thermal->GetArrayField(TEXT("results"))[1]->AsObject()->GetBoolField(TEXT("valid")) && ModelRequestsSubmitted==0);
+        DispatchAgentCommand(Temperatures); DelayCapture(); Decision(TEXT("G")); DelayCapture(); TogglePaused();
+        Check(TEXT("agent_thermal_bundle_cancellation_keeps_only_actual_first_result"),!Agent->Busy &&
+            Agent->Journal.Last()->AsObject()->GetStringField(TEXT("status"))==TEXT("cancelled_by_pause") &&
+            Agent->Journal.Last()->AsObject()->GetArrayField(TEXT("results")).Num()==1);
+        TogglePaused(); DispatchAgentCommand(Temperatures); DelayCapture();
+        Check(TEXT("agent_thermal_bundle_retry_starts_fresh_first_stage"),StageName()==TEXT("adhesive") && Agent->ThermalResults.IsEmpty());
+        TogglePaused(); TogglePaused();
+        FCommand Finish; Finish.Tool=TEXT("finish_body"); Finish.Reason=TEXT("Deliberately unchecked finish");
+        DispatchAgentCommand(Finish); CompleteMotion(Phase::HolderRetract);
+        Check(TEXT("agent_finish_retracts_then_advances_without_quality_veto"),!Agent->HolderEngaged && Agent->Busy && State.Phase==Phase::Departing && Agent->Failures>0);
+        CompleteMotion(Phase::Departing); CompleteMotion(Phase::Arriving);
+        DispatchAgentCommand(Finish);
+        Check(TEXT("agent_finish_without_holder_only_advances"),State.Phase==Phase::Departing && Agent->CompletedSteps.IsEmpty());
+        CompleteMotion(Phase::Departing);
+        Agent->Remote=true;
+        auto Arrival=MakeShared<FJsonObject>(); Arrival->SetStringField(TEXT("status"),TEXT("completed"));
+        QueueAgentHarnessEvent(TEXT("arrival"),Arrival);
+        auto Packet=AgentHarnessPacket();
+        Check(TEXT("edge_harness_packet_excludes_prompts_history_and_source_truth"),Packet->Values.Num()==10 &&
+            !Packet->HasField(TEXT("messages")) && !Packet->HasField(TEXT("system_prompt")) && !Packet->HasField(TEXT("tools")) &&
+            !Packet->HasField(TEXT("preassembled")) && Packet->GetStringField(TEXT("body_id"))==State.BodyId);
+        Check(TEXT("edge_harness_event_identity_and_sequence_are_application_owned"),Agent->HarnessSerial==1 &&
+            Packet->GetArrayField(TEXT("events"))[0]->AsObject()->GetNumberField(TEXT("seq"))==1 &&
+            Packet->GetArrayField(TEXT("events"))[0]->AsObject()->GetStringField(TEXT("call_id")).IsEmpty());
+        Agent->HarnessRequest=FHttpModule::Get().CreateRequest();
+        Agent->HarnessRequest->OnProcessRequestComplete().BindLambda([](FHttpRequestPtr,FHttpResponsePtr,bool) {});
+        const auto PendingHarness=Agent->HarnessRequest; const uint64 HarnessEpoch=Agent->Epoch;
+        CancelAgentDecision();
+        Check(TEXT("edge_cancel_preserves_unacknowledged_events_but_invalidates_http_scope"),!Agent->HarnessRequest &&
+            !PendingHarness->OnProcessRequestComplete().IsBound() && Agent->Epoch>HarnessEpoch && Agent->HarnessEvents.Num()==1);
+        State.bPaused=true;
+        Check(TEXT("edge_harness_pause_is_explicit_even_when_no_camera_is_running"),AgentHarnessPacket()->GetBoolField(TEXT("paused")));
+        State.bPaused=false;
+        Check(TEXT("edge_harness_close_includes_unacknowledged_final_events"),AgentHarnessPacket(true)->GetBoolField(TEXT("closed")) &&
+            AgentHarnessPacket(true)->GetArrayField(TEXT("events")).Num()==1);
+        Agent->Remote=false;
         CancelAgentDecision(); Agent.Reset(); State.bAgentControl=false; ProcessScene->SetAgentControl(false);
     }
     CancelInspection(); bReady=false; bModelRequestsEnabled=OriginalRequests; WeldingCell->SetAnimationEnabled(false);

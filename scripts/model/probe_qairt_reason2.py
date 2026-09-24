@@ -29,6 +29,12 @@ def sha_file(path):
     return h.hexdigest()
 
 
+def worker_execution(prefill_only=False, fused_processor=False):
+    if fused_processor and not prefill_only:
+        raise ValueError("The fused processor requires prefill-only execution")
+    return "prefill-fused-v1" if fused_processor else ("prefill-only-v1" if prefill_only else "pipeline-callback-v1")
+
+
 def score(reply, contract):
     if "error" in reply:
         raise ValueError(reply["error"])
@@ -154,7 +160,8 @@ def run(args, contract):
     report = {"scope": manifest["scope"], "backend": "QAIRT 2.45 / GenieX v0.3.17 / IQ9 NPU",
               "validation_source_sha256": manifest["source_sha256"],
               "candidate_provenance": provenance, "bundle_sha256": {f: sha_file(args.bundle / f) for f in files},
-              "worker_sha256": sha_file(args.worker), "decision_policy": contract["decision_policy"], "rows": []}
+              "worker_sha256": sha_file(args.worker), "decision_policy": contract["decision_policy"],
+              "worker_execution": worker_execution(args.prefill_only, args.fused_processor), "rows": []}
     if provenance.get("schema") != "automotive-qairt-candidate-v1" or provenance.get("bundle_sha256") != report["bundle_sha256"]:
         raise ValueError("Bundle does not match its recorded adapter export")
     if not set(r["stage"] for r in rows) <= set(provenance["stages"]):
@@ -162,7 +169,12 @@ def run(args, contract):
     if args.single_view:
         report.update(experiment=VERSION, adapter_single_view_validated=False,
                       label_scope="Whole-batch labels only; individual views have no ground truth")
-    worker = Worker([str(args.worker.resolve()), str(args.bundle.resolve()), str(args.qairt_lib.resolve())], args.output.with_suffix(".worker.log"))
+    command = [str(args.worker.resolve()), str(args.bundle.resolve()), str(args.qairt_lib.resolve())]
+    if args.prefill_only:
+        command.append("--prefill-only")
+    if args.fused_processor:
+        command.append("--fused-processor")
+    worker = Worker(command, args.output.with_suffix(".worker.log"))
     try:
         for index, source in enumerate(rows):
             stage = source["stage"]
@@ -211,6 +223,8 @@ def main():
     for option in ("manifest", "provenance", "bundle", "worker", "qairt-lib", "output"):
         probe.add_argument("--" + option, type=Path, required=True)
     probe.add_argument("--single-view", action="store_true")
+    probe.add_argument("--prefill-only", action="store_true", help="Experimental worker path; requires a compatible worker")
+    probe.add_argument("--fused-processor", action="store_true", help="Fixed grayscale preprocessing; requires --prefill-only")
     probe.add_argument("--timeout", type=float, default=30)
     probe.add_argument("--limit", type=int, default=0)
     args = p.parse_args()

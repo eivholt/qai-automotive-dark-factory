@@ -1,5 +1,15 @@
 # Automotive dark factory
 
+Agent mode now defaults to eight named tools with canonical job histories;
+see [current prompts and tool menu](docs/current_agent_prompts.md). IDs and
+timestamps stay outside model-visible history. Flow mode remains available.
+
+The **agent harness now runs on the IQ9 EVK by default**: it owns the prompt,
+conversation and tool dispatch. Unreal executes camera scans and robot jobs and
+returns actual results. F4 changes inference backends while the harness stays
+on the EVK. See [deployment and protocol](docs/edge_agent_runtime.md);
+`-AgentRuntime local` retains the former PC harness for comparison.
+
 Optional **live agent control** connects Ministral-3-3B Q4_K_M to actual Unreal jobs and
 adapted Reason2 camera tools: `-Process -ProcessControl agent -Enhancements`.
 The agent chooses inspections and jobs; an independent audit records process
@@ -7,20 +17,110 @@ mistakes without vetoing them. The default `-ProcessControl flow` remains the
 comparison controller. See [live agent control](docs/live_agent_control.md) for
 host/EVK startup, exact prompt, execution boundaries and validation.
 
+With both model stacks running, add **`-ProcessBackendSwitch`** to start on EVK
+and switch both Reason2 and the agent using **F4 / Xbox right-stick click**.
+The HUD shows the active backend. Pending requests are cancelled when switching;
+completed work and the real conversation are retained. See
+[live backend switching](docs/live_agent_control.md#switch-between-evk-and-host-gpu-in-the-running-demo).
+
 An Unreal Engine factory-inspection demo with **NVIDIA Cosmos-Reason2-2B**, host GPU and experimental Qualcomm IQ9 EVK inference, independent Xbox-controller navigation, and separate NIR and thermal camera views.
 
-## Current progress — 19 September 2026
+## Current progress — 23 September 2026
+
+The [agent-history reliability work](docs/agent_history_reliability.md) adds
+explicit job names, completed-job records and canonical field ordering while
+removing IDs/timestamps from the model input. It preserves one-token actions
+and application-owned arguments. Full-reset replay proved that JSON field order
+alone changed a live decision. The optional candidate passes **44/46** synthetic
+development cases and **34/34** reserved cases; two known policy failures remain,
+so the CPU-agent default is unchanged. Three canonical live runs completed
+**nine bodies / 84 decisions**, with **269 ms** median agent latency and no
+process-audit errors. Two small camera-angle QA exceptions are recorded in the
+report. New-body decisions cost about **5.3 s**, including a guarded cache reset.
+
+The [streaming plus split-HTP experiment](docs/streaming_dual_htp.md) now combines
+Reason2 on HTP0 with compiled Ministral on HTP1. Concurrent full agent prefill
+takes **4.67 s** while a streamed inspection still finishes in **2.73 s** from
+the first image. Live agent choices measured **269 ms median**, but the combined
+run **failed on body 3**: the agent skipped placement, welded, then held after
+the seating inspection. The error repeats with a full cache reset. The optional
+`-EvkAgentNpu` launcher/HUD preset and
+reusable EVK service launcher are available for research; the CPU-agent default
+is unchanged. No policy mask, hidden repair or fine-tuning was added.
+
+The [streamed Reason2 integration](docs/streamed_reason2.md) now uploads and encodes each actual
+camera image early and prefills one decoder block during camera
+travel. Both variants preserve all **192/192** baseline decisions and reported
+G/A/R probabilities exactly, retaining **191/192** development accuracy without
+fine-tuning. Camera-cadence replay saves **446–451 ms per inspection** (about 14%
+of the measured interval). The final answer still uses all three images jointly.
+Streaming is enabled on the prepared EVK service and negotiated automatically by
+the demo. `-NoProcessStreaming` retains the full-batch comparison path. Pause,
+backend changes and body turnover invalidate partial work; errors hold the gate.
+Actual flow and agent tests each completed three bodies. The agent made **26 choices
+and 13 streamed inspections**, with no audit failures; final HTTP medians are
+**591–763 ms**, while complete physical scans take **3.31–3.48 s**. Those final-call
+times exclude preparation already overlapped with camera motion. This is integration
+evidence, not a measured whole-cycle speedup or new held-out accuracy.
+Fresh rendered NIR testing rejects the proposed spot1+spot2 shortcut: **36/52**
+correct versus **52/52** with three views, including five wrong missing-panel
+branches. The live three-view contract remains unchanged.
+
+The [two-view NPU experiment](docs/two_view_npu_experiment.md) measures real
+concurrent Reason2 calls: a ready weld-image pair takes **727 ms** on two HTPs
+versus **1,364 ms** on one. With the moving camera's **962 ms** image-arrival gap,
+both finish around **1,645 ms**, so streaming to one HTP keeps up. Ministral stays
+resident on HTP1 and makes the following warm decision in about **245 ms**.
+Two independent views regress to **168/192** development decisions, with three
+false accepts; no configuration is promoted. Joint two-image NIR preserved
+**48/48** existing decisions, but failed the fresh follow-up above,
+while sealant coverage gaps and thermal classification failures retain the need
+for three-view validation. The study records 576 single-image calls, a 192-call
+joint two-image control, coverage audits and bounded scheduling measurements.
+
+The [dual-HTP pipeline follow-up](docs/dual_htp_pipeline.md) explains devices,
+resident weights/KV caches and which inference/motion stages can overlap. A new
+private replay experiment prepares the known agent policy early, reducing the
+first decision's remaining wait from **3.82 to 0.48 s** at a prior **3.58 s**
+preparation cost. All 120 replayed actions match. Preparing every small turn
+does not improve the **243 ms** median and adds work because most turns already
+fit one 64-token chunk. Production defaults are unchanged; the streaming
+encoding/prefill follow-up is now tested separately above.
+
+A new [IQ9 device-placement experiment](docs/npu_device_placement.md) keeps
+Reason2 on HTP device 0 and puts compiled Ministral on device 1. Actual device
+handles confirm the split. Under heavy concurrent requests, Reason2 latency
+falls from **3.81 to 1.33 s**; warm agent decisions stay around **250 ms**.
+Sequential latency is essentially unchanged. All 21 matched saved histories
+retain their winning actions across devices, with small score differences.
+The rendered three-body agent run passes with **269 ms median decisions**, two
+new-body prefix rewinds around **0.49 s**, and zero audit failures. This does
+not establish a faster total cycle or fix known policy errors. The candidate
+is opt-in and does not change the selected CPU-agent deployment. That successful
+run predates streaming; the combined follow-up above exposes a new live failure.
+
+The latest [inference optimization study](docs/inference_optimization_patterns.md)
+validates another lossless candidate: direct sensor tensor packing reduces
+isolated preprocessing from **60.0 to 5.5 ms**, with bit-identical pixels/tokens
+across all 192 development batches. Their model decisions, winning tokens and
+reported G/A/R probabilities also remain exactly unchanged. A matched 96-call
+study saves **62–63 ms per inspection**, about another **5% beyond prefill-only**.
+The actual three-body agent run passes with 24 choices, 12 inspections, no audit
+failures and **1.30 s median Reason2 latency**; it does not establish a faster
+assembly cycle. The candidate is opt-in and the normal launcher is unchanged. The study includes
+reproduction tools, validation scope and unsuccessful experiments.
 
 Reason2 now has a compiled **IQ9 NPU vision and text** runtime: W8 text with
 FP16 vision preserves the 191/192 development result, with no false accepts or
 wrong NIR decisions, at **1.41 s median per three-camera inspection**. The one
 error is a conservative cool-sealant hold. This is the existing development
 cohort, not new held-out accuracy. Both stage adapters remain loaded alongside
-Ministral-3-3B; the controller runs on the EVK CPU. See the
+Ministral-3-3B; the default controller runs on the EVK CPU. See the
 [compiled NPU guide](docs/evk_qairt_experiment.md) for validation and startup.
 The actual Unreal integration passed three departures, six thermal checks and
-15/15 fresh valid replies at **1.42 s median**. The current Python suite has
-178 passing tests.
+15/15 fresh valid replies at **1.42 s median**. Latest Python discovery ran
+241 tests with the native PNG fixture enabled, with one skipped; the separately enabled native SDK protocol fixture
+passes 16 tests.
 
 The Ministral EVK agent now supports **one-token action selection without
 fine-tuning**. Two cold three-body runs took **3m18s**, versus 4m14s with native
@@ -43,10 +143,52 @@ The policy stays editable and model weights unchanged; no future inspection
 result is guessed. See [the optimization study](docs/agent_optimization_research.md)
 for cache invalidation, measurements, rejected alternatives and limitations.
 
+The separate **SDK 2.50 compiled Ministral NPU candidate** passed an actual
+three-body run with **269 ms median decisions**, 28 choices, 14 Reason2 batches
+and zero audit failures or rejected calls. Its **185.940 s** cycle was longer
+than the earlier CPU run's 170.429 s because it made three extra cooling
+inspections and waits. CPU default 18196 is unchanged; the experimental compiled
+native 18206/proxy 18197 are stopped after testing. The original same-device
+contention measurements favor sequential dependent NPU work: warm independent
+sharing saves only 5.65% pair time, while full prefill slows Reason2 2.82–2.97×.
+The separate-device follow-up above reduces that contention.
+The earlier BF16-derived dynamic Q4_0 candidate remains rejected after two failed
+live runs. See the
+[NPU experiment record](docs/ministral_npu.md) for distinct candidate provenance,
+cache/placement limits and development evidence; no new accuracy is claimed.
+
+The [EVK GPU investigation](docs/ministral_gpu.md) now runs Ministral using a
+private Turnip driver, subgroup-64 mode and a Q6_K shader correction, with the
+original weights. It passes 33/33 saved decision probes but fails the actual
+three-body audit by omitting one sealant inspection. GPU decisions take 3.09 s
+median; Reason2 remains at 1.35 s. Exact-history replay also exposes this policy
+weakness on CPU. CPU remains the selected deployment; GPU is experimental.
+The driver and backend have reproducible private builders; system Mesa is unchanged.
+
+Further [CPU execution experiments](docs/ministral_cpu_tuning.md) reduce cached
+replay latency from **1.31 to 0.98 s** without training or prompt changes. The
+best candidate combines the native CPU worker pool with flash attention off.
+Its rendered run passes all three departures with **1.04 s median decisions**,
+but takes **182.62 s** overall because it performs three extra cooling checks.
+It remains opt-in. New thermal-order probes expose three policy failures in both
+the original and faster CPU configurations; the live pass is not a reliability
+claim. A separate [NPU prefix-rewind experiment](docs/ministral_npu.md#guarded-prefix-rewind-across-bodies--later-september-19-experiment)
+cuts two new-body requests from **3.82 to 0.48 s**, preserving all 21 NPU reset
+winners on the recorded histories. That export also has policy failures and
+remains experimental. Normal startup still selects the original CPU runtime.
+
+The latest [Reason2 prefill-only candidate](docs/reason2_prefill_optimization.md)
+removes unused KV-cache layout conversions, saving about **35 ms per inspection**.
+All 192 existing development decisions and reported G/A/R probabilities are
+unchanged, and the rendered three-body agent test passes. It remains opt-in;
+the extra live cooling retry means no total-cycle speedup is claimed. Further
+CPU affinity/polling and combined attention-tile experiments brought no gain.
+
 Earlier Ministral prompts skipped
 a thermal check; the revised prompt includes an explicit example requiring both
 thermal inspections. No code veto was added. The original Q4_K_M is retained;
-its NPU export attempt failed on unsupported `mistral3` architecture. See the
+the earlier SDK 2.47 export attempt failed on unsupported `mistral3` architecture.
+The SDK 2.50 candidate's runtime and live results are recorded above. See the
 [Ministral study](docs/ministral_controller.md) for cold-start timing, failures,
 reproduction and the limits of this development result. Qwen remains an explicit
 fallback; [its speed study](docs/agent_speed.md) retains the previous measurements.
@@ -296,6 +438,7 @@ Navigation, observer modalities and graphics controls work independently of mode
 | Input | Action |
 | --- | --- |
 | Xbox left / right stick | Fly / look |
+| F4 / Xbox right-stick click | Switch EVK / host GPU when launched with `-ProcessBackendSwitch` |
 | Xbox triggers | Down / up |
 | Xbox A / X | Procedural scene: reset with new seed / next case |
 | B / Xbox X | Imported scene: cycle five observer viewpoints; manual flight cancels the transition |

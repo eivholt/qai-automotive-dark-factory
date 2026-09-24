@@ -72,6 +72,13 @@ class QairtExperimentTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             probe.score(r, c)
 
+    def test_fused_processor_execution_requires_prefill(self):
+        self.assertEqual(probe.worker_execution(), "pipeline-callback-v1")
+        self.assertEqual(probe.worker_execution(True), "prefill-only-v1")
+        self.assertEqual(probe.worker_execution(True, True), "prefill-fused-v1")
+        with self.assertRaisesRegex(ValueError, "requires prefill"):
+            probe.worker_execution(False, True)
+
     def test_service_rejects_false_acceptance_and_mismatched_validation(self):
         c = probe.load_gate_contract()
         provenance = {"schema": "automotive-qairt-candidate-v1", "role": "primary",
@@ -85,6 +92,22 @@ class QairtExperimentTests(unittest.TestCase):
                     "decision_policy": c["decision_policy"], "rows": rows}
         with patch.object(serve, "validate_adapter_training"):
             serve.validate_evidence(provenance, evidence, "worker", "primary", c)
+            prefill = dict(evidence, worker_execution="prefill-only-v1",
+                           rows=[dict(row, execution="prefill-only-v1") for row in rows])
+            serve.validate_evidence(provenance, prefill, "worker", "primary", c, "prefill-only-v1")
+            fused = dict(evidence, worker_execution="prefill-fused-v1",
+                         rows=[dict(row, execution="prefill-fused-v1") for row in rows])
+            serve.validate_evidence(provenance, fused, "worker", "primary", c, "prefill-fused-v1")
+            for candidate, execution in ((fused, "prefill-only-v1"), (prefill, "prefill-fused-v1")):
+                with self.assertRaisesRegex(ValueError, "execution path"):
+                    serve.validate_evidence(provenance, candidate, "worker", "primary", c, execution)
+            with self.assertRaisesRegex(ValueError, "execution path"):
+                serve.validate_evidence(provenance, dict(fused, rows=prefill["rows"]), "worker", "primary", c, "prefill-fused-v1")
+            for candidate, execution in ((prefill, "pipeline-callback-v1"), (evidence, "prefill-only-v1"), (evidence, "unknown")):
+                with self.assertRaisesRegex(ValueError, "execution path"):
+                    serve.validate_evidence(provenance, candidate, "worker", "primary", c, execution)
+            with self.assertRaisesRegex(ValueError, "execution path"):
+                serve.validate_evidence(provenance, dict(prefill, rows=rows), "worker", "primary", c, "prefill-only-v1")
             false_g = copy.deepcopy(evidence)
             false_g["rows"][-1]["expected"] = "R"
             with self.assertRaisesRegex(ValueError, "accuracy"):

@@ -56,6 +56,67 @@ class DepartureProbeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             list(probes.cases(runtime, 1))
 
+    def test_legacy_score_denominator_is_unchanged(self):
+        rows = list(probes.cases(self.fixture(), 8))
+        self.assertEqual(len(rows), 16)
+        self.assertEqual([name for name, _ in rows],
+                         [f"id{variant}-retry{retry}" for variant in range(8) for retry in (0, 1)])
+
+    def test_thermal_order_suite_covers_both_missing_stages_and_completed_orders(self):
+        rows = {name: (messages, allowed) for name, messages, allowed in probes.thermal_order_cases(self.fixture())}
+        self.assertEqual(len(rows), 17)
+        self.assertEqual(rows["missing-weld"][1], (("inspect", "weld"),))
+        self.assertEqual(rows["missing-sealant"][1], (("inspect", "adhesive"),))
+        for name in ("both-adhesive-then-weld", "both-weld-then-adhesive", "adhesive-recovered", "weld-recovered"):
+            self.assertEqual(rows[name][1], (("act", "send_forward"),))
+        results = [json.loads(m["content"]) for m in rows["missing-sealant"][0] if m["role"] == "tool"]
+        self.assertEqual([(result["stage"], result["decision"], result["valid"]) for result in results],
+                         [("panel_presence", "G", True), ("weld", "G", True)])
+
+    def test_thermal_order_observations_are_paired_private_and_do_not_mutate_fixture(self):
+        runtime = self.fixture()
+        original = copy.deepcopy(runtime)
+        prefix = probes.compact_messages(runtime["agent"]["current_body_messages"][:3])
+        for name, messages, allowed in probes.thermal_order_cases(runtime):
+            self.assertEqual(messages[:3], prefix)
+            wire = json.dumps(messages)
+            for excluded in ("hidden_temperature", "source_preassembled", "allowed_choices", name):
+                self.assertNotIn(excluded, wire)
+            ids = [m["tool_calls"][0]["id"] for m in messages if m["role"] == "assistant"]
+            self.assertEqual(len(ids), len(set(ids)))
+            self.assertEqual(ids, [m["tool_call_id"] for m in messages if m["role"] == "tool"])
+            results = [json.loads(m["content"]) for m in messages if m["role"] == "tool"]
+            clocks = [result["completed_clock_seconds"] for result in results]
+            self.assertEqual(clocks, sorted(set(clocks)))
+            valid_cool_stages = {result["stage"] for result in results
+                                if result["decision"] == "G" and result["valid"]}
+            self.assertEqual(("act", "send_forward") in allowed,
+                             {"adhesive", "weld"} <= valid_cool_stages)
+        self.assertEqual(runtime, original)
+
+    def test_invalid_thermal_evidence_never_allows_departure_or_wrong_stage(self):
+        rows = {name: (messages, allowed) for name, messages, allowed in probes.thermal_order_cases(self.fixture())}
+        for stage, other in (("adhesive", "weld"), ("weld", "adhesive")):
+            for suffix in ("ambiguous", "invalid-green", "stale-green", "hot", f"stale-before-{other}"):
+                messages, allowed = rows[f"{stage}-{suffix}"]
+                self.assertEqual(set(allowed), {("inspect", stage), ("wait", 1), ("wait", 5), ("wait", 15), ("hold", None)})
+                evidence = [json.loads(m["content"]) for m in messages if m["role"] == "tool"
+                            and json.loads(m["content"])["stage"] == stage]
+                self.assertEqual(len(evidence), 1)
+                self.assertFalse(evidence[0]["decision"] == "G" and evidence[0]["valid"])
+                if suffix.startswith("stale"):
+                    self.assertFalse(evidence[0]["valid"])
+                    self.assertEqual(evidence[0]["reason"], "stale_reply")
+                    self.assertGreater(evidence[0]["capture_age_at_reply_seconds"], 8)
+
+    def test_thermal_order_requires_valid_preassembled_presence(self):
+        for decision, valid in (("R", True), ("A", True), ("G", False)):
+            runtime = self.fixture()
+            runtime["agent"]["current_body_messages"][2]["content"] = json.dumps({
+                "stage": "panel_presence", "decision": decision, "valid": valid})
+            with self.assertRaises(ValueError):
+                list(probes.thermal_order_cases(runtime))
+
 
 if __name__ == "__main__":
     unittest.main()

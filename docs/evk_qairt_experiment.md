@@ -90,7 +90,8 @@ Pinned source headers:
 | geniex-proc | `2ec6abcac6db8473fa26ea2f882f99652723cc7b` |
 
 Initialize only the `third-party/geniex-qairt` submodule and its
-`third-party/geniex-proc` submodule. Retain their included xtensor/xtl headers,
+`third-party/geniex-proc` submodule. Retain its `third-party/stb/stb_image.h`
+alongside the included xtensor/xtl headers,
 QNN `include` and `src` directories, and GenieX `sdk/include/external`.
 On the EVK, build with:
 
@@ -174,6 +175,13 @@ The existing 192-batch development cohort is not a new independent held-out
 test. Preserve all generated reports, compiler logs, bundles and images privately.
 
 ## Deployed service
+
+September 22 update: the prepared EVK now uses the validated
+[streaming router](streamed_reason2.md#live-transport-and-deployment) on the same
+18198 endpoint. It prepares actual images during R4 travel and keeps the final
+three-image contract. `start_evk_qairt.sh` detects the installed streaming worker
+and parity reports; `--baseline` explicitly selects the retained original path
+described below. The CPU Ministral one-token service remains on 18196.
 
 `serve_qairt_reason2.py` keeps both compiled bundles resident and selects them
 only by stage. The HTTP protocol, freshness, label-mass checks and one-batch

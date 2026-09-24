@@ -2,6 +2,12 @@ The factory wiring in qairt_score_worker.cpp is adapted from
 https://github.com/qualcomm/geniex-qairt-plugin at
 f00a37cd50645456c8fbf0eaf179fa59640fd5bf (models/qwen3_vl/qwen3_vl.cpp).
 
+The fixed processor's image layout and token-splicing conventions follow
+https://github.com/qualcomm/geniex-proc at
+2ec6abcac6db8473fa26ea2f882f99652723cc7b (src/processors/qwen2vl.cpp).
+Its STB decoder is included at build time from that pinned checkout, retaining
+the upstream stb_image.h public-domain/MIT license in the dependency.
+
 Copyright 2026 Qualcomm Technologies, Inc. and/or its subsidiaries.
 
 Redistribution and use in source and binary forms, with or without modification, are permitted

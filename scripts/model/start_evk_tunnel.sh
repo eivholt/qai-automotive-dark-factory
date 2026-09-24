@@ -19,3 +19,15 @@ for port in "${ports[@]}"; do
   echo "WSL tunnel service: ${unit}; health: http://127.0.0.1:${port}/health"
   echo "Stop with: systemctl --user stop ${unit}"
 done
+if [[ $# -eq 1 ]]; then
+  unit=dark-factory-edge-runtime-tunnel
+  if ! systemctl --user is-active --quiet "$unit"; then
+    systemd-run --user --unit="$unit" --collect -p Restart=on-failure -p RestartSec=3 \
+      ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 \
+      -o ServerAliveCountMax=3 \
+      -L 127.0.0.1:18210:127.0.0.1:18210 \
+      -R 127.0.0.1:18214:127.0.0.1:18194 "$host"
+  fi
+  echo 'EVK harness: http://127.0.0.1:18210/health; GPU comparison uses reverse loopback18214.'
+  echo "Stop with: systemctl --user stop ${unit}"
+fi

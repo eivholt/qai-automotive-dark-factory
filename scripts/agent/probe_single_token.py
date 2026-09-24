@@ -10,17 +10,26 @@ import time
 
 from single_token import Controller, VERSION
 from replay_latency import choice, fault_probes
-from probe_departure import cases as departure_cases
+from probe_departure import cases as departure_cases, thermal_order_cases
+
+
+def choice_matches(selected, expected=None, *, allowed_tools=None, allowed_choices=None):
+    """Keep legacy broad fault checks separate from exact thermal-stage choices."""
+    if allowed_choices is not None:
+        return selected is not None and tuple(selected) in allowed_choices
+    if allowed_tools:
+        return selected is not None and selected[0] in allowed_tools
+    return selected == expected
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--runtime", type=Path, required=True)
-    p.add_argument("--config", type=Path, default=Path("configs/live_agent.json"))
+    p.add_argument("--config", type=Path, default=Path("configs/live_agent_legacy.json"))
     p.add_argument("--prompt", type=Path, help="Explicit offline candidate prompt")
-    p.add_argument("--observation-format", choices=("json", "rows", "aliases"), default="json")
+    p.add_argument("--observation-format", choices=("json", "rows", "aliases", "named"), default="json")
     p.add_argument("--endpoint", default="http://127.0.0.1:18203")
-    p.add_argument("--suite", choices=("replay", "faults", "departure"), default="replay")
+    p.add_argument("--suite", choices=("replay", "faults", "departure", "thermal-order"), default="replay")
     p.add_argument("--continue-generated", action="store_true")
     p.add_argument("--output", type=Path, required=True)
     args = p.parse_args()
@@ -32,6 +41,8 @@ def main():
     messages = runtime["agent"]["current_body_messages"]
     if args.suite == "departure":
         cases = [(name, history, ["inspect", "weld"], None) for name, history in departure_cases(runtime, 8)]
+    elif args.suite == "thermal-order":
+        cases = [(name, history, None, allowed) for name, history, allowed in thermal_order_cases(runtime)]
     elif args.suite == "faults":
         cases = [(name, history, None, allowed) for name, history, allowed in fault_probes(messages)]
     else:
@@ -51,11 +62,15 @@ def main():
                 if message["role"] == "tool":
                     message["tool_call_id"] = call_ids.get(message["tool_call_id"], message["tool_call_id"])
         row = {"case": index, "expected": expected, "allowed": sorted(allowed) if allowed else None}
+        if args.suite == "thermal-order":
+            row.update(allowed=None, allowed_choices=allowed)
         start = time.monotonic()
         try:
             response, diagnostic = controller.decide(history)
             selected = choice(response["choices"][0]["message"])
-            agrees = selected[0] in allowed if allowed else selected == expected
+            agrees = choice_matches(selected, expected,
+                allowed_tools=allowed if args.suite != "thermal-order" else None,
+                allowed_choices=allowed if args.suite == "thermal-order" else None)
             row.update(choice=selected, agrees=agrees, response=response, diagnostic=diagnostic)
             if args.continue_generated and agrees:
                 generated[index] = response["choices"][0]["message"]

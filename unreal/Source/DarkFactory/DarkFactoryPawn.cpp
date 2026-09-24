@@ -379,6 +379,11 @@ void ADarkFactoryPawn::ToggleColliderOverlay() {
 }
 void ADarkFactoryPawn::ToggleWeldingMotion() { if (auto* W=Cell(GetWorld())) W->ToggleWeldingAnimation(); }
 void ADarkFactoryPawn::ToggleInspectionReplay() { if (auto* W=Cell(GetWorld())) if (auto* P=W->GetProcessController()) P->ToggleInspectionReplay(); }
+void ADarkFactoryPawn::ToggleModelBackend() { if (auto* W=Cell(GetWorld())) if (auto* P=W->GetProcessController()) P->ToggleModelBackend(); }
+void ADarkFactoryPawn::ControllerModelBackend() {
+    if (auto* W=Cell(GetWorld())) if (auto* P=W->GetProcessController()) { P->ToggleModelBackend(); return; }
+    ToggleHeatTransfer();
+}
 void ADarkFactoryPawn::PreviousInspectionReceipt() { if (auto* W=Cell(GetWorld())) if (auto* P=W->GetProcessController()) P->StepInspectionReplay(-1); }
 void ADarkFactoryPawn::NextInspectionReceipt() { if (auto* W=Cell(GetWorld())) if (auto* P=W->GetProcessController()) P->StepInspectionReplay(1); }
 void ADarkFactoryPawn::Normal() { if(auto* W=Cell(GetWorld())) W->SetScenario(0); }
@@ -417,7 +422,7 @@ void ADarkFactoryPawn::SetupPlayerInputComponent(UInputComponent* Input) {
     Input->BindKey(EKeys::J,IE_Pressed,this,&ADarkFactoryPawn::ToggleThermalFields);
     Input->BindKey(EKeys::O,IE_Pressed,this,&ADarkFactoryPawn::ToggleHeatTransfer);
     // SetHeatTransferEnabled explicitly returns in imported mode.
-    Input->BindKey(EKeys::Gamepad_RightThumbstick,IE_Pressed,this,&ADarkFactoryPawn::ToggleHeatTransfer);
+    Input->BindKey(EKeys::Gamepad_RightThumbstick,IE_Pressed,this,&ADarkFactoryPawn::ControllerModelBackend);
     Input->BindKey(EKeys::U,IE_Pressed,this,&ADarkFactoryPawn::CoolThermal);
     Input->BindKey(EKeys::Gamepad_DPad_Up,IE_Pressed,this,&ADarkFactoryPawn::ToggleThermalFields);
     Input->BindKey(EKeys::Gamepad_DPad_Down,IE_Pressed,this,&ADarkFactoryPawn::CoolThermal);
@@ -440,6 +445,7 @@ void ADarkFactoryPawn::SetupPlayerInputComponent(UInputComponent* Input) {
     Input->BindKey(EKeys::F11,IE_Pressed,this,&ADarkFactoryPawn::ToggleHardwareRayTracing);
     Input->BindKey(EKeys::F8,IE_Pressed,this,&ADarkFactoryPawn::ToggleColliderOverlay);
     Input->BindKey(EKeys::F5,IE_Pressed,this,&ADarkFactoryPawn::ToggleInspectionReplay);
+    Input->BindKey(EKeys::F4,IE_Pressed,this,&ADarkFactoryPawn::ToggleModelBackend);
     Input->BindKey(EKeys::PageUp,IE_Pressed,this,&ADarkFactoryPawn::PreviousInspectionReceipt);
     Input->BindKey(EKeys::PageDown,IE_Pressed,this,&ADarkFactoryPawn::NextInspectionReceipt);
     Input->BindKey(EKeys::Gamepad_LeftThumbstick,IE_Pressed,this,&ADarkFactoryPawn::ToggleColliderOverlay);

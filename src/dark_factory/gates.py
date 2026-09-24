@@ -108,9 +108,7 @@ class GateRequest:
     pngs: tuple[bytes, ...]
 
 
-def parse_gate_request(payload: Any, contract: dict) -> GateRequest:
-    if not isinstance(payload, dict) or set(payload) != {*IDENTITY_FIELDS, "images"}:
-        raise ProtocolError("Expected process identity fields and images only")
+def validate_gate_identity(payload: dict, contract: dict) -> None:
     if payload["contract_version"] != contract["version"]:
         raise ProtocolError("Process contract version mismatch")
     for k in ("request_id", "body_id"):
@@ -122,23 +120,31 @@ def parse_gate_request(payload: Any, contract: dict) -> GateRequest:
     timestamp = payload["captured_at_ms"]
     if isinstance(timestamp, bool) or not isinstance(timestamp, (int, float)) or not math.isfinite(timestamp) or timestamp < 0:
         raise ProtocolError("Invalid capture timestamp")
-    expected = contract["stages"][stage]["camera_ids"]
+def decode_gate_image(image: Any, camera_id: str) -> bytes:
+    if not isinstance(image, dict) or set(image) != {"camera_id", "png_base64"} or image["camera_id"] != camera_id:
+        raise ProtocolError("Camera batch order mismatch")
+    encoded = image["png_base64"]
+    if not isinstance(encoded, str) or len(encoded) > (MAX_PNG_BYTES + 2) // 3 * 4:
+        raise ProtocolError("Oversize camera PNG")
+    try:
+        png = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ProtocolError("Invalid camera PNG base64") from exc
+    validate_png(png)
+    return png
+
+
+def parse_gate_request(payload: Any, contract: dict) -> GateRequest:
+    if not isinstance(payload, dict) or set(payload) != {*IDENTITY_FIELDS, "images"}:
+        raise ProtocolError("Expected process identity fields and images only")
+    validate_gate_identity(payload, contract)
+    expected = contract["stages"][payload["stage"]]["camera_ids"]
     images = payload["images"]
     if not isinstance(images, list) or len(images) != len(expected):
         raise ProtocolError("Incomplete inspection camera batch")
     pngs = []
     for image, camera_id in zip(images, expected):
-        if not isinstance(image, dict) or set(image) != {"camera_id", "png_base64"} or image["camera_id"] != camera_id:
-            raise ProtocolError("Camera batch order mismatch")
-        encoded = image["png_base64"]
-        if not isinstance(encoded, str) or len(encoded) > (MAX_PNG_BYTES + 2) // 3 * 4:
-            raise ProtocolError("Oversize camera PNG")
-        try:
-            png = base64.b64decode(encoded, validate=True)
-        except (binascii.Error, ValueError) as exc:
-            raise ProtocolError("Invalid camera PNG base64") from exc
-        validate_png(png)
-        pngs.append(png)
+        pngs.append(decode_gate_image(image, camera_id))
     return GateRequest({k: payload[k] for k in IDENTITY_FIELDS}, tuple(expected), tuple(pngs))
 
 

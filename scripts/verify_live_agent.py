@@ -24,7 +24,9 @@ def verify(report):
     trace = a.get("trace", [])
     choices = [e for e in trace if e["event"] == "agent_choice"]
     results = [e for e in trace if e["event"] == "tool_result"]
-    inspections = [e for e in results if e["detail"]["tool"] == "inspect"]
+    bundled = a.get("tool_contract") == "darkfactory-live-agent-v2"
+    inspections = ([e for e in trace if e["event"] == "inspection_result"] if bundled else
+                   [e for e in results if e["detail"]["tool"] == "inspect"])
     check(len(choices) == a.get("requests") and len(choices) > 0, "missing agent decisions")
     # Current runtime records physical dispatch readiness. Older archived runs
     # predate this field and retain their original verification contract.
@@ -36,13 +38,15 @@ def verify(report):
     check([o.get("body_sequence") for o in a.get("outcomes", [])] == [1, 2, 3], "wrong departures")
     allowed_observation = {"body_id", "event", "clock_seconds", "tool_results", "holder_engaged"}
     allowed_result = {"status", "tool", "argument", "completed_clock_seconds", "holder_engaged", "stage", "decision",
-                      "valid", "reason", "latency_ms", "capture_age_at_reply_seconds", "images", "body_id", "body_sequence", "agent_turns", "error"}
+                      "valid", "reason", "latency_ms", "capture_age_at_reply_seconds", "images", "body_id", "body_sequence", "agent_turns", "error", "results", "completed_steps"}
     for event in trace:
         if event["event"] == "agent_observation":
             obs = event["detail"]
             check(set(obs) <= allowed_observation, "unexpected controller fields in agent observation")
             for row in obs["tool_results"]:
                 check(set(row) <= allowed_result, "unexpected source fields in tool result")
+                for nested in row.get("results", []):
+                    check(set(nested) <= allowed_result - {"results", "completed_steps"}, "unexpected nested inspection fields")
     for e in inspections:
         d = e["detail"]
         check(d.get("valid") is True, "invalid vision reply")
@@ -57,7 +61,8 @@ def verify(report):
             check(audit["sealant_apparent_c"] < 45 and audit["weld_apparent_c"] < 55, "hot release/departure")
     body_choices = {}
     for body in (1, 2, 3):
-        actions = [e["detail"]["argument"] for e in choices if e["body_sequence"] == body and e["detail"]["tool"] == "act"]
+        actions = ([e["detail"]["job"] for e in trace if e["body_sequence"] == body and e["event"] == "mechanical_step" and e["detail"]["status"] == "completed"] if bundled else
+                   [e["detail"]["argument"] for e in choices if e["body_sequence"] == body and e["detail"]["tool"] == "act"])
         # Outcome validation only: these expectations never reach the LLM.
         expected = ["send_forward"] if body == 2 else ["apply_sealant", "place_panel", "weld_panel", "release_holder", "send_forward"]
         check(actions == expected, f"body {body} incorrect jobs: {actions}")

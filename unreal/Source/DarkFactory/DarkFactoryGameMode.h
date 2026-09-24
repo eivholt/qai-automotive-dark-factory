@@ -45,6 +45,11 @@ public:
     // Actual procedural HUD draw bounds, excluding labels, scales and borders.
     TSharedRef<FJsonObject> GetThermalQARegions() const;
 private:
+    // Shared observer typography; measurements include the same one-point increase.
+    void DrawHUDText(const FString& Text,FLinearColor Color,float X,float Y,UFont* Font,float Scale=1.f,bool ScalePosition=false);
+    void MeasureHUDText(const FString& Text,float& Width,float& Height,UFont* Font,float Scale=1.f) const;
+    // Bracketed key names render yellow; descriptions render white, without brackets.
+    void DrawHUDControls(const FString& Text,float X,float Y,float Scale=1.f);
     FIntRect ThermalPreviewQARegion=FIntRect(0,0,0,0);
     FIntRect ThermalObserverQARegion=FIntRect(0,0,0,0);
     int32 ColliderOverlayMode=0;

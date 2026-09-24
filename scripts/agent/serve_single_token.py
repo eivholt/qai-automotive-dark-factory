@@ -1,4 +1,4 @@
-"""Loopback-only protocol adapter for the experimental one-token controller.
+"""Loopback-only protocol adapter for the default one-token controller.
 
 Unreal still owns jobs, observations, epochs and mechanical interlocks. This
 adapter only reformats the actual conversation, scores one token and translates
@@ -14,7 +14,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 
-from single_token import Controller, VERSION, ACTIONS, DecisionError
+from single_token import Controller, VERSION, ACTIONS, DecisionError, HISTORY_VERSION
 
 
 def validate_payload(payload, config):
@@ -36,15 +36,29 @@ def main():
     p.add_argument("--port", type=int, default=18196)
     p.add_argument("--config", type=Path, default=Path("configs/live_agent.json"))
     p.add_argument("--prompt", type=Path)
+    p.add_argument("--policy-examples", type=Path, help="Explicit static examples appended to the configured policy; never current-body evidence")
+    p.add_argument("--observation-format", choices=("json", "named"), default="named",
+                   help="named: explicit job results without body IDs or numerical timestamps")
     p.add_argument("--policy-cache", type=Path, help="Native launcher's private slot-save directory with identity.json")
     p.add_argument("--prefill-next-turn", action="store_true", help="After replying, prepare only the known next-turn envelope while the job runs")
+    p.add_argument("--benchmark-reset-cache", action="store_true",
+                   help="Offline measurement only: send cache_prompt=false on every decision; incompatible with policy cache and next-turn prefill")
     p.add_argument("--qa-log-dir", type=Path, help="Private bounded logs for at most 64 QA requests; disabled normally")
     args = p.parse_args()
+    if args.prompt and args.policy_examples:
+        p.error("Choose --prompt or --policy-examples, not both")
+    if args.benchmark_reset_cache and (args.policy_cache or args.prefill_next_turn):
+        p.error("--benchmark-reset-cache cannot use --policy-cache or --prefill-next-turn")
     url = urlsplit(args.backend)
     if url.scheme != "http" or url.hostname not in ("127.0.0.1", "localhost") or url.path or url.username or url.password:
         p.error("Backend must be an HTTP loopback origin")
     config = json.loads(args.config.read_text())
-    controller = Controller(args.backend, config, args.prompt.read_text() if args.prompt else None)
+    examples_text = args.policy_examples.read_text() if args.policy_examples else None
+    examples_hash = hashlib.sha256(examples_text.encode()).hexdigest() if examples_text is not None else None
+    controller = Controller(args.backend, config, args.prompt.read_text() if args.prompt else None,
+                            observation_format=args.observation_format,
+                            benchmark_reset_cache=args.benchmark_reset_cache,
+                            policy_examples=examples_text)
     cache_info = {"source": "disabled", "decision_reused": False}
     if args.policy_cache:
         from policy_cache import prepare
@@ -77,7 +91,11 @@ def main():
                 return
             self.respond(200, {"status": "ok", "version": VERSION, "backend": args.backend,
                 "config_sha256": config_hash, "prompt_sha256": controller.prompt_hash,
-                "actions": ACTIONS, "token_ids": controller.token_ids, "fine_tuned": False,
+                "observation_format": args.observation_format,
+                "history_version": HISTORY_VERSION if args.observation_format == "named" else "legacy-json-v1",
+                "policy_examples_sha256": examples_hash,
+                "actions": controller.actions, "token_ids": controller.token_ids, "fine_tuned": False,
+                "benchmark_reset_cache": args.benchmark_reset_cache,
                 "policy_cache": cache_info,
                 "next_turn_prefill": prefill,
                 "recipe_vetoes_enabled": False, **counters})
@@ -99,7 +117,9 @@ def main():
             if not lock.acquire(blocking=False):
                 self.respond(503, {"error": "Controller is busy; no request queued"})
                 return
-            record = {"version": VERSION, "prompt_sha256": controller.prompt_hash}
+            record = {"version": VERSION, "prompt_sha256": controller.prompt_hash,
+                      "observation_format": args.observation_format,
+                      "benchmark_reset_cache": args.benchmark_reset_cache}
             start = time.monotonic()
             preparation = None
             # At most one actual request waits for a previous envelope prefill.
@@ -109,9 +129,13 @@ def main():
             try:
                 counters["requests"] += 1
                 response, diagnostic = controller.decide(history)
+                # Controller has now validated the arrival. Keep this identity
+                # outside the model input; malformed requests still release locks.
+                record["request_body_id"] = json.loads(history[0]["content"])["body_id"]
                 record.update(diagnostic=diagnostic, response=response)
                 self.respond(200, response)
-                if args.prefill_next_turn and response["single_token"]["code"] not in ("I", "M"):
+                selected_tool = controller.actions[response["single_token"]["code"]]
+                if args.prefill_next_turn and selected_tool[0] not in ("finish_body", "hold") and selected_tool[2] != "send_forward":
                     preparation = (diagnostic["model_messages"], response["single_token"]["code"])
             except Exception as exc:
                 counters["errors"] += 1
@@ -145,7 +169,8 @@ def main():
                         print(f"QA log failure: {exc}", flush=True)
 
     print(json.dumps({"version": VERSION, "port": args.port, "backend": args.backend,
-                      "prompt_sha256": controller.prompt_hash, "token_ids": controller.token_ids}), flush=True)
+                      "prompt_sha256": controller.prompt_hash, "token_ids": controller.token_ids,
+                      "benchmark_reset_cache": args.benchmark_reset_cache}), flush=True)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     server.daemon_threads = True
     server.serve_forever()

@@ -25,6 +25,11 @@ param(
     [switch]$ProcessCapture,
     [switch]$SealantCoverageCapture,
     [switch]$ProcessSmoke,
+    [switch]$ProcessBackendSwitch,
+    [switch]$ProcessBackendSmoke,
+    [switch]$NoProcessStreaming,
+    [switch]$ProcessStreamingSmoke,
+    [switch]$EvkAgentNpu,
     [switch]$ProcessPolicySmoke,
     [ValidateRange(0,1024)][int]$ProcessEpisodes = 0,
     [int]$ProcessDatasetSeed = 701,
@@ -33,7 +38,10 @@ param(
     [string]$ProcessEndpoint = 'http://127.0.0.1:18191/v1/inspect',
     [ValidateSet('host_gpu','evk_hexagon')][string]$ProcessModelSource = 'host_gpu',
     [ValidateSet('flow','agent')][string]$ProcessControl = 'flow',
-    [string]$AgentEndpoint = 'http://127.0.0.1:18193/v1/chat/completions',
+    [string]$AgentEndpoint = 'http://127.0.0.1:18194/v1/chat/completions',
+    [ValidateSet('simple','legacy')][string]$AgentProfile = 'simple',
+    [ValidateSet('evk','local')][string]$AgentRuntime = 'evk',
+    [string]$AgentHarnessEndpoint = 'http://127.0.0.1:18210/v1/cell/exchange',
     [switch]$RealismSmoke,
     [switch]$ColliderSmoke,
     [switch]$CabinetSmoke,
@@ -154,8 +162,48 @@ function Assert-DarkFactoryCurtainReport {
 }
 
 $ErrorActionPreference = 'Stop'
+if ($ProcessControl -eq 'agent' -and $AgentRuntime -eq 'evk') {
+    if ($AgentProfile -ne 'simple') { throw 'The EVK harness uses the eight-tool profile. Use -AgentRuntime local for the legacy comparison.' }
+    if (-not $PSBoundParameters.ContainsKey('ProcessModelSource')) { $ProcessModelSource = 'evk_hexagon' }
+    if (-not $PSBoundParameters.ContainsKey('ProcessEndpoint')) {
+        $ProcessEndpoint = if ($ProcessModelSource -eq 'evk_hexagon') { 'http://127.0.0.1:18198/v1/inspect' } else { 'http://127.0.0.1:18191/v1/inspect' }
+    }
+    if (-not $PSBoundParameters.ContainsKey('AgentEndpoint')) {
+        $AgentEndpoint = if ($ProcessModelSource -eq 'evk_hexagon') { 'http://127.0.0.1:18196/v1/chat/completions' } else { 'http://127.0.0.1:18194/v1/chat/completions' }
+    }
+}
+if ($EvkAgentNpu) {
+    if ($ProcessControl -ne 'agent') { throw 'EvkAgentNpu requires -ProcessControl agent.' }
+    if (-not $PSBoundParameters.ContainsKey('ProcessModelSource')) { $ProcessModelSource = 'evk_hexagon' }
+    if ($ProcessModelSource -eq 'evk_hexagon') {
+        if (-not $PSBoundParameters.ContainsKey('ProcessEndpoint')) { $ProcessEndpoint = 'http://127.0.0.1:18198/v1/inspect' }
+        if (-not $PSBoundParameters.ContainsKey('AgentEndpoint')) { $AgentEndpoint = 'http://127.0.0.1:18197/v1/chat/completions' }
+    }
+}
+if ($ProcessBackendSmoke) { $ProcessBackendSwitch = $true; $ProcessSmoke = $true }
+if ($ProcessStreamingSmoke) {
+    if ($ProcessControl -ne 'flow' -or $ProcessModelSource -ne 'evk_hexagon' -or $NoProcessStreaming) { throw 'Streaming lifecycle smoke requires EVK flow with streaming enabled' }
+    $ProcessBackendSwitch = $true; $ProcessSmoke = $true
+}
+if ($ProcessBackendSwitch) {
+    if ($NoInference -or $ProcessCapture -or $ProcessPolicySmoke -or $GraphicsSmoke -or $CurtainSmoke) { throw 'Backend switching requires a live process.' }
+    $Process = $true
+    if (-not $PSBoundParameters.ContainsKey('ProcessModelSource')) { $ProcessModelSource = 'evk_hexagon' }
+    if (-not $PSBoundParameters.ContainsKey('ProcessEndpoint')) {
+        $ProcessEndpoint = if ($ProcessModelSource -eq 'evk_hexagon') { 'http://127.0.0.1:18198/v1/inspect' } else { 'http://127.0.0.1:18191/v1/inspect' }
+    }
+    if (-not $PSBoundParameters.ContainsKey('AgentEndpoint')) {
+        $AgentEndpoint = if ($ProcessModelSource -eq 'evk_hexagon') {
+            if ($EvkAgentNpu) { 'http://127.0.0.1:18197/v1/chat/completions' } else { 'http://127.0.0.1:18196/v1/chat/completions' }
+        } else { 'http://127.0.0.1:18194/v1/chat/completions' }
+    }
+}
 if ($ProcessControl -eq 'agent') {
     if ($NoInference -or $ProcessCapture -or $ProcessPolicySmoke -or $GraphicsSmoke -or $CurtainSmoke) { throw 'Live agent control requires actual inference and is separate from offline/policy/graphics/physics fixtures.' }
+    if ($AgentRuntime -eq 'evk') {
+        $RoutedAgentEndpoint = if ($ProcessModelSource -eq 'host_gpu') { 'http://127.0.0.1:18194/v1/chat/completions' } elseif ($EvkAgentNpu) { 'http://127.0.0.1:18197/v1/chat/completions' } else { 'http://127.0.0.1:18196/v1/chat/completions' }
+        if ($AgentEndpoint -ne $RoutedAgentEndpoint) { throw 'The EVK harness owns fixed agent inference routes. Use -AgentRuntime local for a custom -AgentEndpoint.' }
+    }
     $Process = $true
 }
 if ($GraphicsSmoke -and ($CurtainSmoke -or $ProcessCapture -or $ProcessSmoke -or $ProcessPolicySmoke -or $WeldingSmoke -or $RealismSmoke -or $ColliderSmoke -or $CabinetSmoke -or $Smoke -or $NightVisionSmoke -or $ThermalSmoke -or $ModalityScreenshots -or $ReadbackSmoke -or $BridgeSmoke -or $Dataset -gt 0 -or $Plan)) { throw 'GraphicsSmoke is a separate frozen process rendering fixture.' }
@@ -189,9 +237,17 @@ if ($SceneManifest) { $Arguments += "-DFSceneManifest=$([IO.Path]::GetFullPath($
 if ($WeldingSmoke) { $Arguments += '-DFWeldingSmoke' }
 if ($CurtainSmoke) { $Arguments += '-DFCurtainSmoke'; $Arguments += ('-ExecCmds=r.SetRes {0}x{1}w,t.MaxFPS 60' -f $Width,$Height); $Arguments += '-ForceRes' }
 if ($Process -or $ProcessCapture -or $ProcessSmoke -or $ProcessPolicySmoke) { $Arguments += '-DFProcess'; $Arguments += "-DFProcessEndpoint=$ProcessEndpoint"; $Arguments += "-DFProcessModelSource=$ProcessModelSource" }
-if ($ProcessControl -eq 'agent') { $Arguments += '-DFProcessControl=agent'; $Arguments += "-DFAgentEndpoint=$AgentEndpoint" }
+if ($ProcessControl -eq 'agent') {
+    $Arguments += '-DFProcessControl=agent'; $Arguments += "-DFAgentEndpoint=$AgentEndpoint"; $Arguments += "-DFAgentProfile=$AgentProfile"
+    $Arguments += "-DFAgentRuntime=$AgentRuntime"; $Arguments += "-DFAgentHarnessEndpoint=$AgentHarnessEndpoint"
+}
+if ($EvkAgentNpu) { $Arguments += '-DFEvkAgentNpu' }
 if ($ProcessCapture) { $Arguments += '-DFProcessCapture' }
 if ($ProcessSmoke) { $Arguments += '-DFProcessSmoke' }
+if ($ProcessBackendSwitch) { $Arguments += '-DFProcessBackendSwitch' }
+if ($ProcessBackendSmoke) { $Arguments += '-DFProcessBackendSmoke' }
+if ($NoProcessStreaming) { $Arguments += '-DFNoProcessStreaming' }
+if ($ProcessStreamingSmoke) { $Arguments += '-DFProcessStreamingSmoke' }
 if ($ProcessPolicySmoke) { $Arguments += '-DFProcessPolicySmoke' }
 if ($SealantCoverageCapture -and !$ProcessCapture) { throw 'SealantCoverageCapture requires ProcessCapture; it is an offline experiment.' }
 if ($SealantCoverageCapture) { $Arguments += '-DFSealantCoverageCapture' }
@@ -263,6 +319,10 @@ if ($ProcessSmoke -or $ProcessPolicySmoke) {
     # UE can record RequestExitWithStatus(1) yet return Windows exit code 0.
     # Require the actual native verdict and this launch's identity as well.
     Assert-DarkFactoryProcessReport -ReportPath $ProcessReportPath -Mode $ProcessCheckMode -SessionId $ProcessRunId -ModelSource $ProcessModelSource
+    if ($ProcessStreamingSmoke) {
+        $StreamReport = (Get-Content -LiteralPath $ProcessReportPath -Raw | ConvertFrom-Json).streaming
+        if ($StreamReport.qa_step -ne 4 -or $StreamReport.cancelled_batches -ne 2 -or $StreamReport.completed_batches -lt 11) { throw 'Streaming cancellation/fresh-resume fixture did not complete' }
+    }
     Write-Host "Process $ProcessCheckMode smoke passed: $ProcessReportPath"
 }
 

@@ -9,11 +9,11 @@ source_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source_file="${4:-${source_dir}/qairt_score_worker.cpp}"
 q="${headers}/third-party/geniex-qairt"
 proc="${q}/third-party/geniex-proc"
-g++ -O2 -std=c++20 \
+g++ -O2 -ffp-contract=off -std=c++20 \
   -I"${q}/core/include" -I"${q}/models" -I"${q}/qnn-api/include" \
   -I"${q}/qnn-api/include/HTP" -I"${q}/qnn-api/include/System" \
   -I"${q}/qnn-api/src" -I"${q}/qnn-api/src/config" \
-  -I"${proc}/include" -I"${proc}/third-party/xtensor/include" -I"${proc}/third-party/xtl/include" \
+  -I"${proc}/include" -I"${proc}/third-party" -I"${proc}/third-party/xtensor/include" -I"${proc}/third-party/xtl/include" \
   -I"${headers}/sdk/include/external" "${source_file}" \
   -L"${libs}" -lgeniex_vlm -lgeniex_core -lgeniex-proc-vision -lgeniex-proc \
   -Wl,-rpath,"${libs}" -o "${output}"

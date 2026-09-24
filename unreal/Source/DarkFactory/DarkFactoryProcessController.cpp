@@ -121,9 +121,13 @@ bool ADarkFactoryProcessController::Initialize(ADarkFactoryWorld* World,ADarkFac
     if (FParse::Value(FCommandLine::Get(),TEXT("DFProcessRunId="),RequestedSession)) {
         FGuid Parsed; if (!FGuid::Parse(RequestedSession,Parsed)) return false; SessionId=RequestedSession;
     }
-    Endpoint=TEXT("http://127.0.0.1:18191/v1/inspect");
+    FString Control=TEXT("flow"),AgentRuntime=TEXT("evk");
+    FParse::Value(FCommandLine::Get(),TEXT("DFProcessControl="),Control);
+    FParse::Value(FCommandLine::Get(),TEXT("DFAgentRuntime="),AgentRuntime);
+    const bool EdgeAgent=Control==TEXT("agent") && AgentRuntime==TEXT("evk");
+    Endpoint=EdgeAgent ? TEXT("http://127.0.0.1:18198/v1/inspect"):TEXT("http://127.0.0.1:18191/v1/inspect");
     FParse::Value(FCommandLine::Get(),TEXT("DFProcessEndpoint="),Endpoint);
-    ExpectedModelSource=TEXT("host_gpu");
+    ExpectedModelSource=EdgeAgent ? TEXT("evk_hexagon"):TEXT("host_gpu");
     FParse::Value(FCommandLine::Get(),TEXT("DFProcessModelSource="),ExpectedModelSource);
     if (ExpectedModelSource!=TEXT("host_gpu") && ExpectedModelSource!=TEXT("evk_hexagon")) return false;
     // Dedicated local experimentation endpoint; never silently fall back to the parcel bridge.
@@ -258,7 +262,9 @@ bool ADarkFactoryProcessController::Initialize(ADarkFactoryWorld* World,ADarkFac
     Light->SetVisibility(false); Light->RegisterComponent(); NIRLights.Add(Light);
     State.bEnabled=true; State.Backend=bCaptureQA ? TEXT("OFFLINE CAPTURE"):bModelRequestsEnabled ? (ExpectedModelSource==TEXT("evk_hexagon") ? TEXT("Reason2 IQ9 EVK"):TEXT("Reason2 host GPU")):TEXT("INFERENCE DISABLED");
     if (!InitializeAgent()) return false;
+    if (!InitializeModelBackends()) return false;
     bReady=true; SessionStarted=FPlatformTime::Seconds(); CaptureCase=QAStartCase-1;
+    RefreshStreamingCapability();
     if (!bCaptureQA && !bPanelMotionQA) BeginBody();
     if (bPanelMotionQA) { State.Backend=TEXT("PHYSICAL QA / NO MODEL"); Cell->SetAnimationEnabled(false); }
     if (bPolicyQA) { const bool Passed=RunPolicySmoke(); bReady=false; FPlatformMisc::RequestExitWithStatus(false,Passed ? 0:1); }
@@ -290,6 +296,9 @@ void ADarkFactoryProcessController::BeginBody() {
     const int32 Present=bModelQA ? (State.BodySequence==2 ? 1:0):ForcedPreassembled;
     ProcessScene->BeginBody(State.BodySequence,State.ClockSeconds,Present);
     EnterPhase(EDarkFactoryProcessPhase::Arriving);
+    // Explicit QA only: exercise both real backends without changing choices,
+    // prompts or branch evidence. Interactive selection is exclusively manual.
+    if (bBackendSwitchSmoke) SelectModelBackend(State.BodySequence==2 ? TEXT("host_gpu"):TEXT("evk_hexagon"));
 }
 void ADarkFactoryProcessController::EnterPhase(EDarkFactoryProcessPhase Phase) {
     CancelInspection();
@@ -317,9 +326,11 @@ void ADarkFactoryProcessController::EnterPhase(EDarkFactoryProcessPhase Phase) {
 void ADarkFactoryProcessController::Tick(float DeltaSeconds) {
     Super::Tick(DeltaSeconds);
     if (!bReady || !ProcessScene.IsValid() || !WeldingCell.IsValid()) return;
+    PumpAgentHarness(); // Equipment heartbeat continues during pause and motion.
     if (bPanelMotionQA) { PanelMotionQATick(DeltaSeconds); return; }
     if (!SensorResourcesReady()) return;
     if (bCaptureQA) { CaptureQATick(); return; }
+    StreamingQATick();
     // Only the overall QA run budget changes for edge inference. Per-request
     // deadlines, sensor age and every gate threshold remain unchanged.
     const double ModelQABudgetSeconds=ExpectedModelSource==TEXT("evk_hexagon") ? 480.:240.;
@@ -391,6 +402,7 @@ void ADarkFactoryProcessController::TogglePaused() {
     NextInspection=FPlatformTime::Seconds()+.4; RecordEvent(TEXT("pause"));
 }
 void ADarkFactoryProcessController::CancelInspection() {
+    CancelStream();
     for (auto& Receipt:InspectionReceipts) if (Receipt.Id==ActiveRequestId && !Receipt.bComplete) {
         Receipt.bComplete=true; Receipt.bValid=false; Receipt.Action=TEXT("Cancelled / discarded; no acceptance");
     }
@@ -401,10 +413,13 @@ void ADarkFactoryProcessController::CancelInspection() {
     // Detached encoder owns only pixels. Poll it before starting any new work.
 }
 void ADarkFactoryProcessController::StartCapture() {
-    if (bCaptureActive || Request.IsValid() || Readback.IsBusy() || EncodeFuture.IsValid() || StageName().IsEmpty()) return;
+    if (State.bRequestPending || bCaptureActive || Request.IsValid() || Readback.IsBusy() || EncodeFuture.IsValid() || StageName().IsEmpty()) return;
     CaptureBodyId=State.BodyId; CaptureStage=StageName();
     ExpectedImages=3; BatchImages.Reset(); BatchInspectionViews.Reset(); CaptureSlot=0;
     bCaptureActive=true; State.bRequestPending=true; ++BatchSerial;
+    ActiveRequestId=FGuid::NewGuid().ToString(EGuidFormats::Digits);
+    bBatchStreaming=bStreamingAvailable && ExpectedModelSource==TEXT("evk_hexagon") && !bCaptureQA;
+    StreamPreparedImages=0; StreamImageHashes.Reset(); bStreamCommitPending=false;
     BatchStarted=FPlatformTime::Seconds(); CapturedAtMs=BatchStarted*1000.;
     State.Gates[State.ActiveGate]=EDarkFactoryGateState::Inspecting;
     State.Steps[static_cast<int32>(State.Phase)]=EDarkFactoryStepState::Active;
@@ -457,7 +472,8 @@ void ADarkFactoryProcessController::CaptureTick() {
                 PendingInspectionView.Reset();
             }
             BatchImages.Add(MoveTemp(Bytes)); ++CaptureSlot;
-            if (CaptureSlot>=ExpectedImages) SubmitBatch(); else CaptureNext();
+            PumpStreamPreparation();
+            if (bCaptureActive) { if (CaptureSlot>=ExpectedImages) SubmitBatch(); else CaptureNext(); }
         }
     }
     TArray<FColor> Pixels; uint64 Id=0;
@@ -565,6 +581,8 @@ void ADarkFactoryProcessController::SubmitBatch() {
     }
     bCaptureActive=false;
     for (const auto& Light:NIRLights) if (Light) Light->SetVisibility(false);
+    if (bBatchStreaming && StreamPreparedImages<3) { bStreamCommitPending=true; return; }
+    bStreamCommitPending=false;
     // Keep complete ordered triplets in runtime evidence. A canceled partial
     // scan never survives in this history or leaks into a later model batch.
     if (BatchInspectionViews.Num()==3) {
@@ -616,7 +634,7 @@ void ADarkFactoryProcessController::SubmitBatch() {
         UE_LOG(LogTemp,Display,TEXT("DF_PROCESS_CAPTURE case=%d stage=%s expected=%s images=%d"),CaptureCase,*CaptureStage,*Expected,BatchImages.Num());
         State.bRequestPending=false; BatchImages.Reset(); bCasePrepared=false; return;
     }
-    auto Payload=MakeShared<FJsonObject>(); ActiveRequestId=FGuid::NewGuid().ToString(EGuidFormats::Digits);
+    auto Payload=MakeShared<FJsonObject>();
     Payload->SetStringField(TEXT("contract_version"),ContractVersion); Payload->SetStringField(TEXT("request_id"),ActiveRequestId);
     Payload->SetStringField(TEXT("body_id"),CaptureBodyId); Payload->SetStringField(TEXT("stage"),CaptureStage);
     Payload->SetNumberField(TEXT("captured_at_ms"),CapturedAtMs);
@@ -632,6 +650,11 @@ void ADarkFactoryProcessController::SubmitBatch() {
 
     Request=FHttpModule::Get().CreateRequest(); Request->SetURL(Endpoint); Request->SetVerb(TEXT("POST"));
     Request->SetHeader(TEXT("Content-Type"),TEXT("application/json")); Request->SetContentAsString(Json(Payload)); Request->SetTimeout(ResponseDeadlineSeconds);
+    if (bBatchStreaming) {
+        Request->SetHeader(TEXT("X-DF-Stream-Session"),SessionId);
+        Request->SetHeader(TEXT("X-DF-Stream-Epoch"),FString::Printf(TEXT("%llu"),BatchSerial));
+        StreamEvent(TEXT("submit"));
+    }
     RequestStarted=FPlatformTime::Seconds(); const FString Id=ActiveRequestId,Body=CaptureBodyId,Stage=CaptureStage; const double Stamp=CapturedAtMs;
     TWeakObjectPtr<ADarkFactoryProcessController> WeakThis(this);
     Request->OnProcessRequestComplete().BindLambda([WeakThis,Id,Body,Stage,Stamp](FHttpRequestPtr,FHttpResponsePtr Response,bool Success) {
@@ -670,6 +693,7 @@ void ADarkFactoryProcessController::SubmitBatch() {
                     for (int32 I=0;I<4;++I) { double Value=0; PolicyMatches &= (*Policy)->TryGetNumberField(Keys[I],Value) && FMath::IsFinite(Value) && FMath::IsNearlyEqual(Value,Expected[I],1.e-7); }
                 }
                 Valid &= PolicyMatches;
+                if (Self->bBatchStreaming) Valid &= Self->ValidateStreamReply(Result);
                 if (Valid) {
                     const TSharedPtr<FJsonObject>* Scores=nullptr;
                     Bound=ScoringMethod==TEXT("gar-unmasked-topk-intervals-v1");
@@ -689,11 +713,18 @@ void ADarkFactoryProcessController::SubmitBatch() {
                 if (!Valid) { Decision=TEXT("A"); Reason=TEXT("Invalid or mismatched model reply; holding"); }
             }
         } else if (Age>=Self->MaxCaptureAgeSeconds) Reason=TEXT("Stale model result discarded");
+        if (Self->bBatchStreaming) {
+            auto Detail=MakeShared<FJsonObject>(); Detail->SetBoolField(TEXT("valid"),Valid);
+            Detail->SetNumberField(TEXT("final_http_ms"),Latency); Detail->SetNumberField(TEXT("capture_to_reply_ms"),Age*1000.);
+            Self->StreamEvent(TEXT("complete"),Detail);
+            if (Valid) { ++Self->StreamingCompletedBatches; Self->bBatchStreaming=false; }
+            else Self->CancelStream();
+        }
         Self->ActiveRequestId.Empty(); Self->ApplyDecision(Decision,Valid,Reason,Latency,Backend);
         Self->CompleteInspectionReceipt(Id,Valid,Decision,Latency,Confidence,Mass,Bound);
     });
     if (Request->ProcessRequest()) ++ModelRequestsSubmitted;
-    else { Request.Reset(); State.bRequestPending=false; ApplyDecision(TEXT("A"),false,TEXT("Cannot start model request"),0,State.Backend);
+    else { CancelInspection(); ApplyDecision(TEXT("A"),false,TEXT("Cannot start model request"),0,State.Backend);
         CompleteInspectionReceipt(Id,false,TEXT("A"),0,-1,-1,false); ActiveRequestId.Empty(); }
 }
 void ADarkFactoryProcessController::ApplyDecision(const FString& Code,bool Valid,const FString& Reason,float Latency,const FString& Backend) {
@@ -808,6 +839,7 @@ void ADarkFactoryProcessController::RecordEvent(const FString& Name) {
     Event->SetNumberField(TEXT("clock_seconds"),State.ClockSeconds); Event->SetNumberField(TEXT("latency_ms"),State.LastLatencyMs);
     Event->SetStringField(TEXT("model"),LastModel); Event->SetStringField(TEXT("adapter"),LastAdapter);
     Event->SetStringField(TEXT("scoring_method"),LastScoringMethod); Event->SetStringField(TEXT("backend_alias"),LastBackendAlias);
+    Event->SetStringField(TEXT("model_source"),ExpectedModelSource);
     Events.Add(MakeShared<FJsonValueObject>(Event)); if (Events.Num()>256) Events.RemoveAt(0);
     UE_LOG(LogTemp,Display,TEXT("DF_PROCESS_EVENT %s"),*Json(Event)); WriteReport();
 }
@@ -818,6 +850,15 @@ TSharedRef<FJsonObject> ADarkFactoryProcessController::BuildMetadata() const {
     Report->SetStringField(TEXT("source"),bPanelMotionQA ? TEXT("physical_qa"):bPolicyQA ? TEXT("policy_test"):bCaptureQA ? TEXT("offline_capture"):bModelRequestsEnabled ? ExpectedModelSource:TEXT("disabled"));
     Report->SetStringField(TEXT("body_id"),State.BodyId); Report->SetStringField(TEXT("phase"),PhaseName(State.Phase));
     Report->SetStringField(TEXT("endpoint"),Endpoint); Report->SetStringField(TEXT("model"),LastModel); Report->SetStringField(TEXT("adapter"),LastAdapter);
+    auto Switching=MakeShared<FJsonObject>(); Switching->SetBoolField(TEXT("enabled"),bBackendSwitchEnabled);
+    Switching->SetStringField(TEXT("selected"),ExpectedModelSource); Switching->SetNumberField(TEXT("switches"),BackendSwitches);
+    Switching->SetBoolField(TEXT("smoke"),bBackendSwitchSmoke);
+    Switching->SetBoolField(TEXT("evk_agent_npu"),bEvkAgentNpu); Report->SetObjectField(TEXT("backend_switch"),Switching);
+    auto Streaming=MakeShared<FJsonObject>(); Streaming->SetBoolField(TEXT("available"),bStreamingAvailable);
+    Streaming->SetNumberField(TEXT("completed_batches"),StreamingCompletedBatches);
+    Streaming->SetNumberField(TEXT("cancelled_batches"),StreamingCancelledBatches);
+    Streaming->SetArrayField(TEXT("events"),StreamingEvents); Report->SetObjectField(TEXT("streaming"),Streaming);
+    Streaming->SetNumberField(TEXT("qa_step"),StreamingQAStep);
     Report->SetStringField(TEXT("scoring_method"),LastScoringMethod); Report->SetStringField(TEXT("backend_alias"),LastBackendAlias);
     Report->SetStringField(TEXT("message_layout"),TEXT("independent-camera-images-newline-v1"));
     auto Hashes=MakeShared<FJsonObject>(); for (const auto& Pair:PromptHashes) Hashes->SetStringField(Pair.Key,Pair.Value); Report->SetObjectField(TEXT("prompt_hashes"),Hashes);
@@ -874,7 +915,9 @@ bool ADarkFactoryProcessController::WriteReport() const {
     return Saved;
 }
 void ADarkFactoryProcessController::EndPlay(const EEndPlayReason::Type Reason) {
+    if (StreamHealthRequest) { StreamHealthRequest->OnProcessRequestComplete().Unbind(); StreamHealthRequest->CancelRequest(); StreamHealthRequest.Reset(); }
     CancelAgentDecision();
+    CloseAgentHarness();
     CancelInspection();
     // Completed model QA already saved the live scene before shutdown. Portal
     // EndPlay may tear down constraints first; preserve that completed snapshot.

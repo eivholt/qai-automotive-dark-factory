@@ -1,10 +1,13 @@
 import copy
+import contextlib
+import io
 import importlib.util
 import json
 import math
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 
 agent_dir = Path(__file__).resolve().parents[1] / "scripts/agent"
@@ -29,6 +32,43 @@ def arrival():
 
 
 class SingleTokenTests(unittest.TestCase):
+    def test_benchmark_reset_changes_only_cache_reuse_on_every_decision(self):
+        class Backend(st.Controller):
+            def post(self, path, body):
+                if path == "/tokenize":
+                    return {"tokens": [1065 + ord(body["content"]) - ord("A")]}
+                if path == "/apply-template":
+                    return {"prompt": json.dumps(body, separators=(",", ":"))}
+                self.requests.append(copy.deepcopy(body))
+                return {**raw(), "timings": {"prompt_n": 100, "prompt_ms": 12}}
+
+        normal = Backend("http://127.0.0.1", {}, prompt="policy")
+        measured = Backend("http://127.0.0.1", {}, prompt="policy", benchmark_reset_cache=True)
+        normal.requests, measured.requests = [], []
+        for _ in range(2):
+            normal_reply, normal_debug = normal.decide([arrival()])
+            measured_reply, measured_debug = measured.decide([arrival()])
+            self.assertEqual(normal_debug["model_messages"], measured_debug["model_messages"])
+            self.assertEqual(normal_debug["response"], measured_debug["response"])
+            self.assertEqual(normal_reply["single_token"], measured_reply["single_token"])
+            self.assertFalse(normal_debug["benchmark_reset_cache"])
+            self.assertTrue(measured_debug["benchmark_reset_cache"])
+        self.assertEqual(normal.prompt_hash, measured.prompt_hash)
+        self.assertEqual(normal.token_ids, measured.token_ids)
+        for ordinary, uncached in zip(normal.requests, measured.requests):
+            self.assertTrue(ordinary["cache_prompt"])
+            self.assertFalse(uncached["cache_prompt"])
+            self.assertEqual({**ordinary, "cache_prompt": False}, uncached)
+
+    def test_benchmark_reset_rejects_disk_cache_and_next_turn_preparation_before_backend_use(self):
+        for conflict in (["--policy-cache", "unused-cache"], ["--prefill-next-turn"]):
+            args = ["serve_single_token", "--benchmark-reset-cache", *conflict]
+            with patch.object(sys, "argv", args), patch.object(server, "Controller") as controller, \
+                    contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                server.main()
+            self.assertEqual(error.exception.code, 2)
+            controller.assert_not_called()
+
     def test_experimental_rows_round_trip_without_filling_missing_evidence(self):
         for value in ({"status": "completed", "holder_engaged": False, "completed_clock_seconds": 1.125},
                       {"status": "observed", "stage": "weld", "valid": False, "decision": "G", "reason": "stale_reply"}):

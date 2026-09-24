@@ -32,6 +32,9 @@ public:
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;
     void CaptureTick(); // Called by World after physics and thermal LUT updates.
     void TogglePaused();
+    void ToggleModelBackend();
+    bool CanSwitchModelBackend() const { return bBackendSwitchEnabled; }
+    FString GetModelBackendLabel() const;
     const FDarkFactoryProcessStatus& GetStatus() const { return State; }
     UTextureRenderTarget2D* GetPreviewTexture(int32 Slot) const;
     void ToggleInspectionReplay() { bInspectionReplay=!bInspectionReplay; ReplaySelection.Empty(); }
@@ -53,7 +56,27 @@ private:
     FDarkFactorySensorReadback Readback;
     TFuture<TArray<uint8>> EncodeFuture;
     TSharedPtr<IHttpRequest,ESPMode::ThreadSafe> Request;
+    TSharedPtr<IHttpRequest,ESPMode::ThreadSafe> StreamRequest,StreamHealthRequest,StreamCancelRequest;
+    bool bStreamingAvailable=false,bBatchStreaming=false,bStreamCommitPending=false;
+    int32 StreamPreparedImages=0,StreamingCompletedBatches=0,StreamingCancelledBatches=0;
+    TArray<FString> StreamImageHashes;
+    TArray<TSharedPtr<FJsonValue>> StreamingEvents;
+    int32 StreamingQAStep=0;
+    double StreamingQAResumeAt=0;
+    void StreamingQATick();
+    void RefreshStreamingCapability();
+    void PumpStreamPreparation();
+    void CancelStream();
+    TSharedRef<FJsonObject> StreamEnvelope() const;
+    void StreamEvent(const FString& Event,const TSharedPtr<FJsonObject>& Detail=nullptr);
+    bool ValidateStreamReply(const TSharedPtr<FJsonObject>& Reply) const;
     FString SessionId,Endpoint,ExpectedModelSource,ContractVersion,ActiveRequestId,CaptureBodyId,CaptureStage,OutputRoot,LastModel,LastAdapter,LastScoringMethod,LastBackendAlias;
+    struct FModelBackend { FString Source,VisionEndpoint,AgentEndpoint; };
+    TArray<FModelBackend> ModelBackends;
+    bool bBackendSwitchEnabled=false,bBackendSwitchSmoke=false,bEvkAgentNpu=false;
+    int32 BackendSwitches=0;
+    bool InitializeModelBackends();
+    bool SelectModelBackend(const FString& Source);
     TMap<FString,FString> PromptHashes;
     struct FPreviewStamp { FString Body,Stage; double At=0; };
     TArray<FPreviewStamp> PreviewStamps;
@@ -104,7 +127,13 @@ private:
     void BeginAgentBody();
     void AgentTick();
     void RequestAgentDecision();
+    void PumpAgentHarness();
+    void CloseAgentHarness();
+    void QueueAgentHarnessEvent(const FString& Kind,const TSharedRef<FJsonObject>& Result);
+    TSharedRef<FJsonObject> AgentHarnessPacket(bool Closing=false) const;
+    void RecordAgentObservation();
     void DispatchAgentCommand(const DarkFactoryAgent::FCommand& Command);
+    void StartAgentMechanicalStep(const FString& Job);
     void CompleteAgentTool(const TSharedRef<FJsonObject>& Result);
     void AgentInspectionResult(const FString& Code,bool Valid,const FString& Reason,float Latency);
     void CancelAgentDecision();

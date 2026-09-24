@@ -8,6 +8,32 @@ Latest implementation: three-edge sealant beneath a panel raised 5 mm, conducted
 
 Build an Unreal Engine factory simulation demonstrating sensor cameras feeding NVIDIA Cosmos-Reason2-2B to detect anomalies. The simulation should react to model results. Begin with several sensing modalities and use experiments to refine the concrete manufacturing scenarios.
 
+September 23 user priority: the central purpose is to visibly demonstrate an
+LLM agent choosing tools to sense and act, including VLM-backed inspection and
+simulated actuator jobs. Reducing the complexity of the agentic task is expressly
+acceptable. Prioritize a clear, repeatable agent demonstration over maximizing
+the number of planning branches, independent subjobs or recovery permutations.
+Keep actual LLM tool choices and VLM observations; present the deterministic
+work inside each tool honestly. No need to preserve the current thirteen-choice
+tool menu as a product requirement. This permission changes future experiment
+scope, not historical validation results or the current runtime by itself.
+
+September 23 implementation: the user selected canonical named history as the
+default despite known planning failures. `configs/live_agent.json` is now v2 with
+eight globally available tools: inspect_panel, prepare_panel, inspect_temperatures,
+weld_panel, inspect_seating, finish_body, wait (5 s), hold. Prepare bundles sealant
++ placement/hold; temperatures always obtains actual adhesive and weld results;
+finish retracts only an engaged holder before departure. No acceptance, retry,
+cooling or branch decisions are hidden in these macros. Preserve partial steps,
+cancellation, actual result validity, and source-truth-independent execution.
+The old contract is configs/live_agent_legacy.json; -AgentProfile legacy requires
+a matching proxy config. Current named-jobs-v4 removes model-visible IDs/times,
+canonically orders nested fields, and records actual completed_jobs/steps.
+Prompts and sensor contracts remain separate; Reason2 prompts are unchanged.
+See docs/agent_demo_scope.md and docs/current_agent_prompts.md. The earlier
+44/46 policy result belongs to the old menu; the new 42-case development probe
+must retain all failures, including unnecessary waits and invalidation mistakes.
+
 ## Production-line sequence and inspection gates
 
 Use 3D assets to depict a section of a production line. Sensor-camera observations and the model's inspection results should act as a gate for subsequent production steps: the simulation advances only when the inspection outcome permits it, and otherwise holds or follows the defined anomaly response.
@@ -1604,3 +1630,904 @@ README, one-token guide, research and validation updated. Unreal, host/Vulkan/Q8
 candidates and temporary tunnel stopped. Normal 18196 cache+overlap ready, QA logs
 off; 18195 and unchanged 18198 active, no automatic restarts, about 16.9 GiB available.
 No commit/push requested; preserve pre-existing uncommitted work.
+
+## Vulkan timeout diagnosis follow-up - 19 September 2026
+
+User requested elaboration after commit ef4f7b6. Retrieved the existing EVK kernel
+journal, without rerunning inference or changing services. At 14:38:55 UTC, one
+second after Vulkan llama-server accepted the request, Adreno reported gpu fault
+ring 0 / hangcheck recover and explicitly named the tested llama-server process.
+A subsequent synchronous external abort occurred in the GPU recovery/crash-state
+path (_a6xx_get_gmu_registers -> a6xx_gpu_state_get -> msm_gpu_crashstate_capture
+-> recover_worker), kernel 6.8.0-1077-qcom. The 115 s client timeout is therefore
+a symptom of observed GPU execution and recovery failures, not measured slow
+throughput. Original fault cause remains unknown; do not blame flash attention,
+a shader, Mesa, hardware, OOM or kernel alone without isolation. A whole-machine
+panic/reboot is not established. Model loaded in 5.4 s; service peak memory 3.2 GB
+under 7 GB limit; SIGKILL ultimately stopped it. Future diagnostics should start
+from a clean reboot and isolate tiny inputs/batches, flash attention off and
+partial offload. Those variants remain untested. CPU Ministral and NPU Reason2
+completed the later live validations. Private journal evidence and research
+notes updated; no new code changes, inference tests, commit or push this follow-up.
+
+## Ministral NPU / Reason2 contention - 19 September 2026
+
+User requested actual Ministral NPU execution and shared-NPU measurements. A clean
+EVK reboot preceded this work. The isolated dynamic candidate uses official BF16
+source quantized directly to Q4_0 decoder / Q8_0 tied head; pinned llama.cpp
+0eadefeb plus GenieX 0.6.1. Q4_K/Q6_K matrices in the selected CPU GGUF cannot use
+this backend's matrix path. HTP buffers/session prove decoder offload; the large
+tied vocabulary head remains CPU. Do not interpret the generic 27/27 layer log
+as every operation running on NPU. See docs/ministral_npu.md for exact hashes.
+
+Dynamic candidate is REJECTED for live control. Original prompt passes 33 saved
+probes but actual three-body run chooses departure while the holder remains
+engaged (one mechanical reject). A holder reminder passes 41 offline probes,
+then its actual run releases at 194.368 C without post-weld seating/cooling
+confirmation: four independent audit failures, zero mechanical rejections.
+Actual choices were not corrected. Both runs have about 269 ms median agent
+latency and 1.415 s Reason2 batches; speed does not establish correctness.
+The reminder was removed. Original a6bb5d37 prompt and c47aa777 base config stay
+selected; normal CPU 18195/18196 and NPU Reason2 18198 remain the working fallback.
+
+Forced-full-prefill contention (five measured plus one warmup per mode) gives
+presence agent/Reason2 alone 2.193/1.229 s, simultaneous 2.184/3.263 s; weld alone
+2.926/1.408 s, simultaneous 2.924/4.181 s. Pair completion improves only 3.6-4.4%
+over serial. This demonstrates shared-compute contention, not an out-of-memory
+limit: about 17 GiB remained with both candidates plus fallback resident.
+Reason2 decisions remained unchanged on repeated saved inputs. Actual serial
+agent/tool flow retains normal Reason2 latency. Avoid overlapping speculative
+NPU agent prefill with a needed vision request. Warm CPU replay uses a different
+cache regime and cannot establish matched CPU/NPU full-prefill speedup.
+
+New benchmark_reset_cache is offline-only/default false; never change prompt,
+action selection or normal cache behavior for a benchmark. The compiled SDK2.50
+candidate, exact tokenizer/YaRN preflight, native full-vocabulary Genie sampler
+and reset/append transport are documented separately in
+docs/ministral_qairt_export.md and docs/ministral_npu.md. Compilation, token
+parity, action correctness and useful cache reuse require separate evidence;
+source hashes alone do not establish numerically identical exported inference.
+Private evidence is artifacts/ministral-npu-contention-20260919. No fine-tuning,
+new held-out accuracy, Reason2 adapter changes or new deterministic recipe veto.
+
+The subsequent compiled SDK 2.50.40 / Genie 1.20 path PASSED actual integration.
+It exports the original Q4_K_M source into QNN mixed 4/8-bit weights and FP16
+activations, with source-faithful Tekken, explicit YaRN and a 4096-token context.
+This is not bitwise GGUF execution. Build/preflight/finalizer provenance is
+recorded separately; see docs/ministral_qairt_export.md. Both HTP binaries total
+3.417 GB. All 22 native prompt token arrays, 33 reset probes and 9 growing-history
+choices pass. Append retains only an exact prior input plus the actual sampled
+token; otherwise reset. Returned action probabilities differ by up to 0.01349
+from reset, so do not claim exact cache-score parity. One-token selection is
+unmasked global-vocabulary argmax, with no LLM adapter or changed policy.
+
+Actual compiled run: 185.940 s, 28 choices/14 Reason2 batches, zero rejects/audit
+failures; agent median 269.146 ms, first 3852.963 ms; Reason2 median 1332.105 ms.
+All 28 raw-winner/history/dispatch checks and 2726 physical-camera telemetry
+checks pass. Faster decisions do not make this run faster than the earlier
+CPU 170.429 s/22 choices/11 batches: it needed three extra cooling inspections and
+waits. This is development integration, not a held-out correctness score.
+
+Compiled full-prefill concurrency slows the agent 22-25% and Reason2 by 2.82-2.97x;
+pair completion improves only 3-4%. Warm append stress (1231 retained tokens,
+60 submitted, 3 measured plus 1 warmup per mode) is less disruptive: agent alone
+252 ms vs 365 ms concurrent; Reason2 alone 1316 ms vs 1481 ms concurrent; pair 1570 ms
+serial vs 1482 ms concurrent. All decisions stable. An independent checksum read
+overlapped only the excluded first warmup/untimed prime, not measured requests.
+About 15.1 GiB was available with compiled agent, both Reason2 bundles and CPU
+fallback resident. Shared compute limits overlap; memory is adequate. Keep
+dependent agent/vision requests serial and preserve existing overlap with R4
+withdrawal rather than speculating future inspection results.
+
+Final state: compiled NPU native 18206 and normal one-token proxy 18197 are active
+on EVK, with an 18197 WSL tunnel. Benchmark-reset mode and QA logging are off.
+These are explicit transient candidate services; normal startup/default agent
+18196 remains CPU with its policy cache/prefill, Reason2 stays 18198. Both rejected
+dynamic services and unused experimental tunnels are stopped. Unreal is closed.
+Python discovery: 216 tests, one skipped; the separately enabled SDK 2.50 native
+protocol/scoring fixture passes 12 tests. No commit/push requested this turn.
+
+## IQ9 GPU agent experiment — 19 September 2026
+
+Keep Reason2 on NPU and Ministral CPU endpoint 18196 as the selected deployment.
+The compiled NPU agent is stopped. GPU placement is now executable but is NOT
+accepted for live process correctness or a speed improvement. See
+docs/ministral_gpu.md and docs/private_turnip.md; private evidence is under
+artifacts/ministral-gpu-20260919. Earlier NPU-active session notes are historical.
+
+Stock Mesa 25.2.8 fails batched pipeline creation. Isolated Mesa 26.1.8 changes
+that into a GPU/kernel-recovery fault at subgroup size 128. Real driver option
+tu_restrict_subgroup_size_64=true avoids the observed fault. CPU-reference tests
+then exposed gross Q6_K errors. The opt-in llama-q6-scale32.patch reads the same
+signed scale bytes through packed16 and explicit int32 sign extension, preserving
+the GGUF. Ten selected numerical cases pass; compiler-matched pristine source
+still fails. Reproducible host builders are build_private_turnip.sh and
+build_private_q6_vulkan.sh. System drivers and original runtime are unchanged.
+Use an isolated executable/plugin directory: GGML_BACKEND_PATH is additive and
+does not replace a normally discovered backend. The tested GPU candidate uses
+context 4096, batch/ubatch 64, four CPU threads, all 27 layers offloaded, flash attention
+ON and the unchanged action prompt. FA off hits a Mesa workgroup-occupancy error
+above 1024 cached tokens. start_evk_vulkan.sh is opt-in, never normal startup.
+
+All 33 saved probes pass, but actual three-body ProcessSmoke FAILS: 194.089 s,
+21 choices/10 Reason2 batches, agent median 3093.15 ms, vision 1354.67 ms. Body 2
+preassembled takes presence->weld inspection->departure without sealant evidence.
+Independent audit records one missing_cool_sealant_observation; no veto repairs
+it. Zero rejected/transport calls. All 21 raw-token/history comparisons match;
+overall audit remains failed. Physical-camera telemetry passes 1950 checks.
+Static policy preparation of 35.15 s is excluded from live time; next-turn prefill
+completes 18 times without error. These are development results, not new accuracy.
+
+Exact-history cache-reset comparison: CPU chooses sealant D first, GPU weld G;
+both then choose invalid departure I when given the weld-first history without
+sealant. Matching rendered-prompt hashes rule out different prompt strings;
+different contexts (8192/4096) and backend arithmetic remain comparison limits. This is
+a shared policy counterexample, not solely a GPU-cache fault. Extend future
+policy tests to both thermal orders and each missing stage; do not silently
+mask actions, add recipe vetoes or claim that 33 probes validate arbitrary paths.
+
+Final state: CPU 18195/18196 and Reason2 NPU 18198 healthy; CPU policy cache restored.
+GPU native 18204/proxy 18207 and their tunnels stopped; NPU-agent candidates stopped;
+Unreal closed. GPU --check succeeds on the prepared EVK. Python 216 tests pass
+with one skip; shell syntax and diff whitespace pass. No commit/push requested.
+
+## Further model speed experiments — later 19 September 2026
+
+The user asked to keep looking for speed gains. Normal deployment remains
+original Ministral CPU 18195/18196 plus Reason2 NPU 18198. Preserve the editable
+policy, original Q4_K_M, one unmasked action token and no recipe veto or training.
+See docs/ministral_cpu_tuning.md and the final section of docs/ministral_npu.md.
+Private evidence: artifacts/ministral-cpu-tuning-20260919.
+
+CPU tests used 21 exact saved GPU-run histories, known policy/tool-envelope
+preparation, a single serial candidate and matching prompt hashes. Original
+8-thread median: 1316 ms, repeat 1305; six threads 1561; four threads 2079;
+microbatch 64/256 both about 1320. Flash attention off: 1176/1100; matched
+OpenMP control: 1333; native worker pool: 1133; 16-row attention tile: 1097;
+native pool plus flash attention off: 984 ms. All retain the same 21 CPU winners,
+including its known error. build_private_cpu.sh builds pinned A78C dynamic CPU
+plugins for omp-control/noomp/tile16. Initial linked-only packages failed to
+register before inference; corrected DL=ON plugins export ggml_backend_init.
+Only the CPU plugin changes in copied private runtimes. Tile16 changes the
+numerical attention path; no numerical-equivalence claim. The best combination
+needs no custom attention patch. The normal runtime is unchanged.
+
+Tuned CPU ProcessSmoke PASSED: 182.6177 s, 28 choices / 14 Reason2 batches,
+agent median 1036.30 ms / maximum 1386.51; Reason2 median 1415.55 ms; zero
+rejections or audit failures. All 28 token/history/dispatch checks and 2726
+camera checks pass. Extra cooling inspections and waits erase the cycle-time
+benefit relative to 170.429 s / 22 choices / 11 batches. Keep opt-in; this is not
+faster full-cycle performance or new held-out accuracy. benchmark_cached_suffix.py
+records source/prompt hashes and separate preparation costs, primes only known
+input, and never dispatches tools. A real CLI replay also passed after the run.
+
+The separate 17-case thermal-order suite in probe_departure.py and
+probe_single_token.py passes 14/17 on both original and tuned CPU. Failures:
+missing sealant after weld G; stale adhesive G before valid weld G; stale weld G
+before valid adhesive G. One accepted wait/reinspect choice differs. Historical
+16-departure / 33-probe denominators remain unchanged. Do not mask failures or
+claim the original CPU is universally correct. These are synthetic probes.
+
+Genie now has opt-in --cache-mode append_rewind for guarded interior-prefix
+rewind on API 1.20.0, preserving exact append first. Boundary/repeated/shorter
+cases reset. Every completion requires one fresh global sampler callback,
+matching emitted winner, END and exact occupancy. The former ordinary-token
+path could accept a missing END; this is now rejected. Bridge health includes
+its source hash. API eligibility alone does not certify another SDK build;
+actual SDK 2.50.40 library, worker and bridge hashes are recorded privately.
+
+The 42 device calls compare cached versus independent reset on 21 histories.
+Token arrays and all 21 NPU winners match; maximum absolute action-probability
+delta is 0.005653. New-body arrivals fall from 3823/3827 ms to 481/482 ms,
+with 948 shared prefix tokens and 68/74 fresh tokens. Cold first call remains
+3821 ms; ordinary append takes about 242–244 ms. These are direct worker round
+trips, not HTTP/HUD timing, and only two arrival transitions. No new contention
+measurement or live NPU integration is claimed. Both modes also select premature
+sealant inspection before placement in requests 3/15 and missing-sealant departure
+in request 12. These policy/export limitations remain; they are not cached action
+reuse. The NPU agent remains experimental and stopped.
+
+Next unmeasured lead: AR64 exports 64 x 131072 FP16 logits but consumes one final
+row. The SDK supports prefill without logits followed by a smaller final-head
+graph. This needs a separate export and new cache/numerical validation; do not
+assume a gain or combine untested changes.
+
+Final state: original CPU and Reason2 healthy, original policy cache restored;
+CPU candidate 18208 / proxy 18209 / tunnel stopped, Genie worker closed, Unreal
+closed. Python discovery: 231 tests, one optional fixture skipped; explicitly
+enabled SDK protocol fixture: 16 pass. Helper clean/incremental builds, shell
+syntax and whitespace checks pass. No commit or push requested this turn.
+
+
+## Continued speed experiments — 20 September 2026
+
+The user asked to continue optimizing. Preserve original editable Ministral
+policy/weights, unmasked global-vocabulary one-token decisions and no recipe
+veto. Normal CPU deployment remains unchanged. Evidence root:
+artifacts/model-speed-20260920. See docs/ministral_cpu_tuning.md and
+new docs/reason2_prefill_optimization.md.
+
+CPU noomp/FAoff baseline reproduced at 984.22 ms, repeat 987.50. Strict affinity
+986.37, poll0 988.26, poll100 986.98; no useful gain. Actual thread masks confirm
+strict pinning. Native pool + tile16 with FA on 1027.26 ms, slower than FAoff.
+All six configurations retain 21 rendered hashes/winners, including the known
+wrong departure. build_private_cpu.sh now supports noomp-tile16; clean build
+passed. Measured private plugin ba3b9854... differs from generalized helper's
+3657b4f0... build; exact hashes/provenance are documented, not conflated.
+
+Reason2 qairt_score_worker.cpp has optional --prefill-only. Same selected
+three-image request, processor/DeepStack/MRoPE/prefill/native global sample and
+full 151936-logit scoring; skip unused prefill-to-decode-to-prefill KV reshaping.
+Require fresh cache and clear providers/reset on failure; compare sampled ID
+with independent global argmax, including EOS. No new adapter or prompt.
+Do not describe the deployed three-image route as three independent single-image
+calls: that earlier changed-prompt experiment remains offline after 6/9 accuracy.
+
+Twenty-four paired batches save 34.88 ms median per case (~2.5–3%), identical
+winners/decisions/GAR probabilities. Full existing 192 cases retain 119/120 primary
+and 72/72 weld, same one conservative sealant hold, zero false G. All 192 serialized
+GAR probabilities and raw winners exactly match retained device validation;
+not all vocabulary scores are serialized. Candidate medians 1362.06/1344.12 ms.
+New probe/server --prefill-only flags bind evidence to binary, bundle, policy
+AND execution path, including every validation row/native reply. Default path
+is retained. Do not reuse ordinary-path evidence for candidate activation.
+
+Actual candidate Reason2 + original CPU agent ProcessSmoke passes at 177.5615 s
+wall (171.7048 simulation), 24 choices / 12 vision batches, 0 rejections/audit failures.
+R2 median 1357.65 ms / max 1399.12; agent 1464.87 ms. All 24 raw-token/history/dispatch
+and 2338 physical-camera checks pass. One extra sealant retry/wait makes this
+longer than earlier 170.429 s / 22 choices / 11 batches; no full-cycle gain or new heldout
+accuracy claim. Original 18195/18196/18198 services restored, experimental vision
+18210/proxy 18211 and tunnel stopped; Unreal confirmed closed.
+
+Next Reason2 source lead: AR128 head emits 128 x 151936 logits. A runtime-indexed
+Gather of the final valid hidden row before full-vocab lm_head may avoid unused
+rows while preserving all decoder/KV computations. Index must be current chunk
+length-1, never fixed 127 (actual finals 84/100/108/30). Requires separate graph
+export, registered input provider, row 0 scorer and new exact model validation;
+not implemented or measured here.
+
+Ministral AR64 prefill-head investigation: SDK 2.50 graph audit removes 535 ops
+(8196 -> 7661), retaining 26 KV outputs. DlcModule.save silently saves the original
+container; reload detects the unchanged graph. Direct IrDlcSerializer successfully
+saves the unmodified graph but exits with failure on both manually pruned and
+native-remove-disconnected versions, including eager weights. No candidate was
+compiled or deployed and no speed gain is claimed. prepare_ministral_prefill.py is
+audit-only; --compile fails before SDK/source access. Six focused tests cover it.
+An AR64-KV-only/AR1-logits graph would also disable the current scheduler and lose
+the previously measured prefix-rewind benefit; do not assume those gains combine.
+See docs/ministral_npu.md. Private graph experiments remain ignored.
+
+Final September 20 checks: Python discovery 238 tests, one skipped; separately
+enabled Genie SDK protocol fixture 16 passed. Rendered three-body ProcessSmoke
+and token/physical-camera audits passed as recorded above. Original CPU agent,
+proxy and Reason2 services are restored; candidate services/tunnel and Unreal are
+stopped. No default deployment change and no commit/push in this turn.
+
+## Exact image preprocessing study — later 20 September 2026
+
+User wants more implementation optimizations useful to production LLM/VLM
+tutorial readers. See docs/inference_optimization_patterns.md. New opt-in
+--prefill-only --fused-processor uses execution prefill-fused-v1, direct final
+patch packing and a 3 KiB per-channel 256-byte normalization LUT. Same pinned
+STB decoder/tokenizer, same 448x256/P16/T2/M2 layout and original prompt; reject
+non-grayscale/nonopaque/wrong-size/16-bit PNGs. No camera-result caching,
+quantization, prompt edit or retraining. Compiler uses -ffp-contract=off.
+Builder needs the pinned geniex-proc third-party/stb/stb_image.h as well as the
+previous headers. Model bundle and final unmasked vocabulary scoring unchanged.
+
+Retrieved private processor-bench.json covers all 192 development batches:
+396,361,728 floats bit-identical, tokens and grids identical. Twelve synthetic
+comparisons add L/LA/RGB/RGBA, all byte values, spatially asymmetric pixels,
+one/two/three images and a Unicode prompt. Four invalid cases rejected, valid
+case after failures passes. Reference/candidate medians 61.635818/5.5214345 ms;
+median per-case saving 56.1491765 ms. Processor-only, order alternates. A final
+nonfinite-LUT/IHDR-bit-depth guards and probe input/response guards were added locally after
+these device checks and still need a fresh target build.
+
+Partial actual model pilot console: primary prefill-only 1171.8933 ms, fused
+1112.8961, fused repeat 1118.8682, private terminal-KV variant 1110.2171 (18
+batches each). Weld fused-repeat 1283.8428 and terminal 1288.2695 (six each).
+These are block medians, not completed paired statistics. Terminal KV omission
+has no consistent gain and remains private; do not add it to public execution.
+
+CRITICAL CURRENT STATE: EVK 192.168.1.158 became unreachable to ping/SSH during
+later weld worker startup. Cause unestablished. Cannot retrieve complete pilot
+report, verify its raw winners/probabilities, or run full classification/live
+validation. Original automotive services had not been changed/stopped before
+the outage; do not claim currently healthy. No USB/serial recovery connection
+was found on this host. Asked user asynchronously to check power/network and
+power-cycle. User previously authorized reboot. The local hung SSH client PID
+119819 was terminated; remote experiment had timeout 400 s and per-worker
+finally cleanup, but its final state is unknown until connectivity returns.
+No new candidate service/tunnel was started. Never reuse the prior prefill-only
+validation to enable fused; router enforces separate complete execution evidence.
+
+Resume by restoring EVK connectivity, collecting
+/home/ubuntu/qai-dark-factory/experiments/model-fused-20260920/inference-bench.json
+and matching sources/logs/binaries, then rebuilding final worker/probe. Run
+scripts/model/verify_qairt_processor.py against both validation manifests, full
+probe_qairt_reason2.py with --prefill-only --fused-processor for both roles,
+compare original 192 scores, then actual agent ProcessSmoke. Existing private
+build.sh/processor_bench.py/inference_bench.py are under artifacts/model-fused-20260920;
+adapt previous model-speed-20260920 live scripts to a new output/execution.
+
+Local Python discovery 240 tests, one optional skip; packing permutation/byte
+normalization/invalid-input tests and cross-execution validation checks pass.
+Rendered verify_unreal_bridge.py passes G/A/R/disconnected with async readbacks;
+this is MOCK transport evidence only, not fused model accuracy. Unreal exited.
+Documentation records incomplete device acceptance. No default launcher change,
+commit or push requested. Preserve all earlier unrelated dirty work.
+
+## Follow-up after user "Proceed" — 20 September 2026
+
+EVK remains unavailable: .158 times out/no route; saved Windows iq9075-evk alias
+points at .92, which refuses SSH. Confirmed local Ethernet 192.168.1.108/24.
+Bounded port-22 discovery across that local /24 found one SSH service but no
+match for the known EVK ed25519 host key. No unrelated host login attempted.
+No serial port found. Asked user whether power/network or address changed;
+no answer yet. Do not claim remote services healthy or stopped.
+
+Added tests/qairt_fixed_processor_png_test.cpp and its optional Python harness:
+DF_GENIEX_PROC_SOURCE points to pinned geniex-proc. It compiles the production
+fixed processor with the real STB decoder on the local CPU; tests all supported
+PNG channel forms, multiple images, 1-/16-bit rejection, alpha/color/size/malformed
+inputs, partial-batch failure and a valid subsequent request. Full discovery with
+this fixture enabled: 241 tests, one optional Genie fixture skipped. No model
+inference. No new rendered run needed; prior bridge fixture remains its own evidence.
+
+Prepared private artifacts/model-fused-20260920/validate_final.sh for a NEW EVK
+experiment directory with current copied model sources. It serializes worker use,
+rebuilds both binaries, records source/binary/STB/runtime hashes, verifies all 192
+processor batches, runs both role score validations and demands exact original
+decisions/winners/GAR probabilities plus matching input metadata. Completed stages
+can be retained; incomplete/mismatched reports fail closed and must use fresh output.
+This script has shell syntax validation but has NOT run on the unreachable EVK.
+Use bounded SSH keepalives and a device-owned bounded systemd job when reconnecting,
+so the client network loss cannot silently erase the test run. Original deployment
+and services were untouched in this turn; Unreal is not running. No commit/push.
+
+## EVK reboot recovery and completed fused validation — 20 September 2026
+
+This supersedes the unreachable/pending state above. User reboot restored SSH
+at 192.168.1.158. Original model services were inactive after boot. Retrieved old
+pilot report is 125801 NUL bytes, unusable; no outage root cause established.
+Fresh bounded device-owned jobs serialize worker loads with flock. Timing saves
+use atomic replacement plus fsync, preserving completed results across SSH loss.
+
+Private evidence: artifacts/model-fused-final-20260920, same directory under
+/home/ubuntu/qai-dark-factory/experiments on the EVK. Final sources/worker/probe,
+pinned STB and runtime hashes recorded in build-identity.json. Processor repeat:
+all 192 batches / 396361728 floats, tokens and grids identical; reference/fused
+medians 60.001135/5.5037675 ms, paired saving 54.5093315 ms (~10.9x preprocessing).
+Final input guards are included. Full model validation: 119/120 primary, 72/72
+weld, same conservative cool-sealant hold, zero false G/errors. Every raw winner,
+decision and serialized GAR probability exactly equals retained original reports.
+Not new held-out accuracy; only GAR probabilities are serialized, so do not
+claim identity of every vocabulary score.
+
+Counterbalanced same-binary timing: 18 primary +6 weld cases, two repeats per
+path/input, 96 measured requests, one warmup per block, reversed second case
+order. Primary ABBA and weld BAAB, where A=prefill-only/B=fused. Per-case mean
+medians primary 1188.4183/1126.7957 ms, weld 1360.9163/1298.4913; median paired
+saving 63.4478/62.1580 ms (~5% incremental beyond prefill-only). All reported
+scores/winners/decisions/token counts match. No combined original-path timing
+claim. Terminal-KV variant remains private/unproven and was not used.
+
+Actual candidate ProcessSmoke with Enhancements and original CPU agent passes:
+177.0125 s process wall, 171.0394 s simulation, 24 choices/12 camera batches.
+Reason2 median/max 1298.97/1349.07 ms; agent 1458.59 ms. Zero rejects/audit failures;
+24 single-token/history/dispatch checks and 2338 physical-camera checks pass.
+Preassembled body had one sealant A, then agent wait/reinspection. Prior prefill
+177.5615 s has same counts; 0.55 s difference alone is no cycle-speed claim.
+Launcher including UE startup/shutdown 200.6611 s recorded separately.
+
+Original 18195 CPU agent, 18196 single-token proxy, 18198 Reason2 restored and checked
+healthy on device AND Windows. dark-factory-fused-candidate/proxy and WSL fused
+tunnel stopped; Unreal process count 0. Candidate remains explicit opt-in with
+prefill-fused-v1 evidence binding. Normal launcher unchanged. README, optimization
+notes and validation record updated. Local suite remains 241 tests / one optional
+SDK skip from prior turn; no code change here requiring repetition. No commit/push.
+
+## Live EVK / GPU switch — 21 September 2026
+
+User requested both backends running with EVK selected, and explicitly chose an
+in-demo switch. `run.ps1 -Process -ProcessControl agent -Enhancements
+-ProcessBackendSwitch` defaults to EVK; F4 / Xbox right-stick click switches both
+Reason2 and the agent. EVK is Reason2 NPU (18198) plus CPU Ministral token proxy
+(18196). Host is Reason2 CUDA (18191) plus CUDA Ministral token proxy (18194,
+native 18193). Existing launches without the option keep their defaults. This
+does not promote the experimental prefill-only/fused Reason2 workers.
+
+Switching cancels pending HTTP/capture batches and queued decisions, advances
+the agent cancellation epoch and rejects old image encodes. A canceled actual
+inspection becomes a `cancelled_by_backend_switch` tool result. Body, mechanical
+job, pause, completed tool conversation and turn budget survive. Explicit agent
+holds remain holds; transport failures can retry on the selected backend. No
+fallback, recipe repair, source truth or automatic agent reinspection is added.
+HUD and private trace identify the backend; model-visible evidence is unchanged.
+
+UE 5.8 build passed. Python discovery: 245 tests, one optional SDK skip; launcher
+fixtures: 52 checks; native policy: 151 checks including nine switch cases.
+Private evidence: artifacts/backend-switch-20260921. Actual flow switching smoke
+passed assembly/preassembled/assembly with 16 camera batches, six thermal checks
+and three departures at 151.997 s simulation time. Routing auditor passes and
+physical-camera auditor passes 3114 checks. QA-only ProcessBackendSmoke selects
+EVK/GPU/EVK on bodies 1/2/3; interactive runs switch only on user input.
+
+Preserve the failed agent run: routing succeeded on both transitions, but after
+two departures Ministral skipped panel placement on body 3, made thermal checks,
+tried releasing an unengaged holder, then inspected seating and chose hold.
+26 choices / 14 valid camera batches, one mechanical rejection, zero transport
+errors. No full agent pass is claimed. Camera audit passes 2726 checks; routing
+auditor correctly rejects the incomplete process despite correct endpoints.
+Do not mask this with deterministic policy vetoes or discard the failed evidence.
+Both EVK/host HUD screenshots were reviewed and shown in chat. Interactive agent
+launch uses dark mode, headlamp off and the normal 2560x1440/v-sync settings.
+
+### HUD presentation follow-up — 21 September 2026
+
+User requested removal of "Raw sensor inputs exclude...", yellow key/controller
+names with white descriptions, and all HUD font sizes increased by one point.
+Shared observer text draw/measure helpers apply that size increase consistently
+to status, steps, previews, thermal scales, replay and collider legends. Explicit
+key spans cover backend switching, graphics, replay and navigation controls.
+The note is removed and its panel shortened. These are observer HUD changes only;
+sensor generation and model decisions are unchanged. Private rendered evidence
+is under artifacts/hud-labels-20260921.
+
+UE 5.8 build and the actual 2560x1440 EVK flow ProcessSmoke passed: three bodies
+departed with thermal acceptance checks respected. Reviewed startup and welding
+HUD screenshots, including thermal scales, and showed the captures in chat.
+Interactive agent mode is relaunched with EVK selected and both backends ready.
+
+## Separate IQ9 HTP devices and live prefix rewind — 21 September 2026
+
+User authorized trying cached Ministral NPU alongside Reason2, including separate
+accelerator placement, and explicitly requires the demo closed when finished.
+Runtime QNN inventory exposes device 0/core 0 and device 1/core 0 (SoC 77/v73).
+Actual worker handles confirm Reason2 on fastrpc-cdsp-secure and relocated
+Ministral on fastrpc-cdsp1-secure. Select device_id, not core_id=1 or num_cores=2.
+New read-only probe_qnn_devices.cpp and prepare_genie_device.py reproduce the
+inventory/private config without changing source weights or bundle. Public
+helper was used for the actual live run. See docs/npu_device_placement.md;
+private evidence artifacts/npu-placement-20260921.
+
+Same saved weld requests: five warm trials/mode, three full-prefill trials/mode,
+one separate warmup each. Warm primes excluded from timing and actual append
+verified (1231 retained +60 fresh tokens); full requests all confirmed reset.
+Shared/split concurrent medians: warm agent 352.9/250.1 ms, Reason2
+1432.7/1286.2 ms; full agent 6027.8/4898.5 ms, Reason2 3805.5/1325.3 ms.
+Sequential latency essentially unchanged. Device blocks are not counterbalanced;
+HTTP overlap is not per-kernel profiling. No power measurement or causal
+parallelization of a decision with its unseen observation is claimed.
+
+Corrected HTTP history replay: all 21 winners match cached/reset on device 1
+(max action-probability delta .01158), and all 21 exact token arrays/winners
+match fresh reset on device 0 vs 1 (max delta .006925). Historical direct-worker
+replay omitted BOS whereas live HTTP adds it; comparing those different inputs
+failed two choices. Preserve that failed report, do not attribute it to device
+placement. With correct HTTP inputs the two premature sealant choices disappear,
+but the existing missing-sealant departure remains. No reliability claim.
+
+Actual agent ProcessSmoke passed first run: assembly/preassembled/assembly,
+185.490 s wall, 30 choices/15 actual Reason2 batches, zero rejects/audit failures.
+Agent median/max 269.183/3852.907 ms; Reason2 median/max 1332.401/1349.102 ms.
+30 token/history/dispatch checks and 2920 camera telemetry checks pass. Native
+cache modes: one cold reset, 27 appends, two body-prefix rewinds at proxy
+489.9/488.9 ms, retaining 949 tokens. No recipe veto/mask or new fine-tuning.
+More cooling/ambiguity retries prevent a whole-cycle speedup claim. Screenshot
+of actual welding was inspected and displayed in chat. Python discovery passes
+246 tests in configured WSL environment with two optional SDK fixtures skipped;
+native process policy passes 151 checks. Windows system Python lacks Pillow;
+its initial suite attempt is preserved separately, not used as a pass.
+
+Temporary placement native/proxy/tunnel services stopped after agent testing;
+original CPU agent/proxy and Reason2 18195/18196/18198 remain healthy. Normal
+CPU-agent defaults unchanged. The backend-switch EVK preset still selects CPU
+18196, so do not combine that flag with this candidate launch. No commit/push.
+
+Final actual flow regression also passes: three departures, 15 batches, six
+thermal acceptance checks, 153.279 s simulation time and 2920 camera telemetry
+checks. Both fixtures exited; confirmed no Unreal demo process remains.
+
+## Dual-HTP pipeline investigation — 21 September 2026
+
+User requested further optimizations and an explanation of devices, weights,
+inference dependencies and one/two/many resident models. See
+docs/dual_htp_pipeline.md. This turn changes documentation only; private research
+code/evidence stays ignored under artifacts/dual-htp-overlap-20260921. The original
+CPU-agent selection and all production workers/contracts remain unchanged.
+
+Private device-1 worker prototype prepares only the exact known policy or chosen
+action envelope, retaining input KV while discarding the partial-prefix score.
+No invented observation or speculative physical action. Existing END scoring
+still executes during preparation; it is not zero-compute prefill. Exact prefix,
+BOS/input hashes, occupancy and fresh actual score checks remain required.
+Four blocks baseline/prepare/prepare/baseline replay 30 actual prior histories:
+120/120 unmasked winners match, all 30 token hashes match, all prepared envelopes
+match, max action-probability delta .00970 (not bitwise equality or accuracy).
+First decision 3823.7 -> 481.7 ms with 3581.4 ms policy preparation done earlier
+(944 known tokens, 71 actual suffix). Warm median 243.27/243.31 ms unchanged.
+Typical 29-60 token suffixes still need one AR64 block after six-token envelope
+preparation; two 66-token turns cross to 60 and save ~238 ms. Preparing every
+turn adds ~6.31 s net worker time per 30-history replay. Do not enable it broadly.
+Startup-only preparation is promising but not promoted; requires lifecycle,
+cancellation/provenance tests and actual rendered integration first.
+
+Three independent overlapping startup preparations and saved Reason2 weld
+requests: medians 3597/1357 ms, pair3598 ms, all valid G. This is safe overlap
+evidence, not a whole-cycle gain or a new accuracy test. Prior actual trace has
+15 inspection jobs at 4278 ms median, including scans and 1332 ms Reason2; all
+15 following agent calls (~269 ms median) fit within camera withdrawal dispatch
+gaps (~793 ms median). Do not count already-hidden time as recoverable cycle time.
+
+Current Reason2 is one JOINT classification of three separately framed images
+(112 visual tokens each). Both encoder and decoder use HTP0. Do not describe this
+as three independent classifications or distribute answers by camera voting.
+Next candidates: stream each actual image into encoding during R4 movement;
+incremental decoder prefill with exact positions/DeepStack/epoch/freshness;
+AR16/32 warm agent graph variants; combine existing fused Reason2 and split HTP
+candidates; separately authored harmless mechanical staging. These remain
+untested opportunities, not enabled features. Three compiled model instances
+(two complete adapted Reason2 bundles plus Ministral) already coexist on two
+accelerators; residency is limited by memory/runtime, execution by resources and
+dependencies. Weight sharing is not automatic between the current exports.
+
+Final check: bounded research service inactive, no private probe worker, original
+18195/18196/18198 health HTTP200, zero Unreal/demo processes. No commit/push.
+
+## Two-view / concurrent Reason2 tests — 22 September 2026
+
+User authorized testing two-image coverage, independent classification and one
+versus two HTP workers, keeping Ministral on NPU between inspections. See
+docs/two_view_npu_experiment.md and private artifacts/two-view-htp-20260922.
+Production defaults, shaders, motion, capture contract and workers unchanged.
+No demo was launched; user still requires it closed when testing ends.
+
+576 actual single-image calls cover the existing 192 development batches, using
+the original FP16-vision/W8-text bundles and versioned single-view prompts.
+All three pairs evaluated offline. Selected pair1+2 for primary, pair2+3 for
+weld: presence16/24, sealant65/72, seating18/24, weld69/72 =168/192, three falseG
+(ambiguous welds) and two wrong presenceR branches. All-three-independent =164/192;
+weld alone72/72 with zero falseG. Every two-view weld pair has falseG (69/71/69
+correct of72). Whole-batch truth never becomes per-image training labels. .98/.5
+unchanged. All27 pilot single-image winners/probabilities exactly reproduce the
+earlier probe; same worker hash. Nine original joint3 controls all correct.
+
+192 new JOINT two-image controls preserve primary stage scores24/24,71/72,24/24,
+but weld68/72 has four ambiguous falseG (total187/192). Medians882/1061/884/1067ms
+for presence/sealant/seating/weld. Two joint NIR views (48/48 development) are a
+promising targeted follow-up without assuming new training is necessary, but
+need compatible explicit contract/provenance, physical motion and fresh validation.
+No new held-out accuracy or two-view rendered integration is claimed.
+
+Coverage reprojects78 sealant samples and6 weld centers across18+18 existing
+mounting-frame train/development captures; test split excluded. Sealant pair1+2,
+1+3,2+3 fail9/18,18/18,9/18 rows; all3 pass. Example89.06C contact: view1 samples
+20C foreground, view2 out of frame, view3 sees89.02C. Weld pair1+3/2+3 passes all
+six-center checks in this limited set, but that does not validate classification.
+Matching coarse batch labels cannot override missing contact coverage.
+
+Scheduling uses recorded0.962-0.966s inter-capture gaps, actual timed native calls,
+one warmup and5 measured trials/mode/stage, rotated/reversed order. Weld pair
+already ready: one/twoHTP1364/727ms. Staggered two views:1645/1646ms, no useful
+concurrency benefit. Presence ready1106/574ms, staggered1524/1527ms; sealant
+ready1469/763ms, staggered1708/1710ms. Current camera motion/settle cadence lets
+one single-image worker finish before next input arrives. Three streamed weld
+views ready2607ms vs3231ms batch-after-scan, but independent semantics are not
+generally validated; prefer streaming encoding/compatible prefill with the
+original joint answer for general implementation.
+
+Ministral compiled QAIRT2.50 remains resident onHTP1 alongside Reason2QAIRT2.45;
+actual handles confirm both. Following 30 measured weld observations, agent
+uses fresh59-token append and244-246ms native decisions, all expected releaseH.
+Untimed full-history priming recorded separately. Five compiled instances plus
+CPUfallback resident, MemAvailable4622260KiB (~4.41GiB), no swap configured.
+These are saved-image/history timing replays with no physical actions, not fresh
+live approvals or whole-cycle improvements. No new CPU/GPU comparison needed
+to establish the successful NPU co-residency.
+
+All seven reports complete; all ten original source-bundle hashes per adapter
+verified unchanged. Private workers exit; original18195/18196/18198 HTTP200.
+No production test-suite or rendered pass claimed for the unimplemented contract.
+
+## Streamed joint Reason2 prototype — 22 September 2026
+
+User approved the recommended follow-up. Implemented standalone native
+scripts/model/qairt_stream_worker.cpp and reproducible probe_streamed_reason2.py,
+documented in docs/streamed_reason2.md. This is offline only, not wired to Unreal
+early-image HTTP uploads; the existing live bridge rejects its execution identity.
+Keep the live three-view contract, thresholds, adapters and default services.
+Do not describe these timing replays as a live deployment or assembly speedup.
+
+Vision-only streaming retains actual per-image main embeddings plus all three
+DeepStack levels. Optional --incremental prepares original full-sequence MRoPE
+once and prefills only complete AR128 blocks backed by actual arrived pixels.
+One 128-token block is available after image2; no invented future pixels,
+independent per-image classifications, partial-answer release or new fine-tuning.
+Original full-vocabulary greedy/logit comparison and .98/.5 scoring remain.
+One bounded batch, 2–3 ordered images, eight-second lifetime, explicit cancellation,
+replacement and complete clearing on error/end. Last encoder runtime allocations
+remain bounded; no cross-batch feature reuse. Owned concatenated features peak
+at 10.5 MiB, excluding KV, text/position buffers and runtime allocations.
+
+Both initial vision-only and incremental builds independently match all192
+original/paired decisions, raw winners, token counts and serialized GAR
+probabilities exactly. Full arrays were read but not compared/persisted bitwise.
+Retain191/192 development accuracy, with the same conservative sealant hold.
+Incremental full parity uses private HTP1 clones; all ten source-model hashes
+are recorded. Timings use HTP0 after competing inference has finished.
+
+One warmup +5 measured alternating timing pairs per stage, input arrivals at
+recorded .963s NIR/weld and .966s sealant gaps: presence3078->2628ms,
+sealant3261->2813ms, seating3066->2622ms, weld3249->2803ms from first image
+availability. Paired saving446–451ms; vision-only264–269ms. All timing pairs
+retain exact GAR probabilities. Early decoder block~181–183ms. Baseline already
+uses fixed preprocessing/prefill-only. Excludes initial deployment/network/
+live integration/agent time; cooling retry count could change whole-cycle gain.
+Earlier schedule-* files overlapped parity and are excluded; use
+incremental-schedule-* / vision-schedule-* for cited timing.
+
+Fresh UE capture32episodes seed220922 with Enhancements, camera audit63893checks.
+Only26whole train/development episodes'52NIR batches classified; six reserved
+test episodes untouched by the model. Original3views52/52; jointspot1+spot2
+36/52: presence17/26, seating19/26. All9installed-presence examples regress
+(5wrongR,4holds), all7correctly-seated regress(1R,6holds). No falseG but wrong
+presenceR chooses the wrong assembly branch. Reject this two-view candidate;
+earlier48/48 retained-image score does not generalize. Do not alter physical
+scans or relax adapter compatibility. Other possible pairs are not tested here.
+Raw actual counterexample images were inspected and shown in chat.
+
+Native lifecycle checks24per variant include duplicates/order/identity errors,
+partial-prefix cancellation/replacement, decode failure, unexpected fields,
+expiry and fresh-score recovery. Python249tests pass with2optionalSDKskips;
+native policy151checks pass; rendered capture exits normally. No streamed live
+ProcessSmoke is claimed. Next live integration must bind prepared features to
+body/epoch/stage/prompt/capture time and exact final PNG hashes, retain freshness,
+and verify pause/backend-switch/turnover cancellation with actual agent+flow runs.
+Private evidence: artifacts/streamed-reason2-20260922. Keep demo closed after work.
+
+## September 22 live streaming integration
+
+Supersedes the preceding prototype-only deployment status. Actual PNG uploads now
+start as each R4 image finishes encoding. `DarkFactoryProcessStreaming.cpp` probes
+`/v1/stream/capabilities` and uses `ordered-three-view-prefill-v1` when the selected
+EVK supports it. Host GPU/older services retain final-batch transport. No image,
+prompt, camera pose, settling render, stage route or .98/.5/8s/one-batch policy changed.
+Exactly three real images still produce ONE joint Reason2 result; two-view remains rejected.
+
+`serve_streamed_reason2.py` requires full paired incremental evidence bound to the
+actual native binary and original HTP0 bundle/config hashes. Final native binary
+reran all192 pairs on original device/config: identical GAR probabilities, raw top
+IDs, prompt counts and decisions, same191/192 reused development score. Native ABI
+execution remains named offline-stream-prefill-v1; live HTTP version is separate.
+Prepared features bind body/request/session/epoch/stage/prompt/time/PNG hashes.
+The unchanged final request repeats the original PNGs, whose hashes must match.
+Preparation ACKs cannot release gates; invalid/stale/missing input holds. Pause,
+backend selection, body turnover and EndPlay cancel preparation and final requests.
+One in-flight upload, one server batch,16sessions/64retired epochs, bounded telemetry.
+No failed streamed batch silently falls back to the baseline path.
+
+Deployment is ACTIVE under normal user service dark-factory-edge-qairt on18198,
+using runtime/qairt_stream_worker and models/qairt-{primary,weld}/streaming-validation.json.
+`start_evk_qairt.sh` autodetects these files, or accepts --streaming/--baseline.
+Original native worker/validation remain intact for rollback. Incomplete/mismatched
+streaming files fail startup. CPU Ministral18195/one-token proxy18196 remain selected;
+this task does not promote the optional NPU agent. No boot autostart installed.
+Do not co-load a second full pair on HTP0: FastRPC mapping/PD capacity failed despite
+available host RAM. Stop the old automotive pair before loading its replacement.
+
+Actual flow:3departures assembly/preassembled/assembly,16streamed completed gates,
+6thermal acceptance checks;2deliberately canceled partial batches. Pause afterimage1
+and EVK/GPU/EVK switch after early prefill recovered with fresh images; the switch
+fixture does not submit a GPU inspection. Camera audit3114checks.
+Actual agent on deployed18198:3departures,26choices,13streamed gates,179.872s,
+zero audit failures/rejected calls. Two thermal A responses led to agent-selected
+waits and fresh inspections. Agent median1481ms; camera audit2532checks.
+All29completed gates overlap first preparation with travel toview2 and second
+preparation/128token prefill with travel toview3. Agent finalHTTP medians591/763/591/756ms
+for presence/sealant/seating/weld; firstPNG-to-answer2601/2767/2606/2749ms;
+scan-start-to-answer3308/3482/3314/3465ms. FinalHTTP excludes early preparation.
+No matched whole-cycle speedup, new held-out accuracy or real-camera claim.
+
+HTTP lifecycle probe passes8cases: exact baseline/streamed scores and PNGs, no
+partial acceptance, consumed/reordered/canceled epochs, changed/missing images,
+incomplete final headers and fresh recovery. Python259tests pass with2optionalSDK
+skips; native policy151checks pass. ReadbackSmoke passes exact sync/async PNG parity,
+stale rejection and GPU previews with no CPU preview uploads. Private artifacts:
+artifacts/live-streaming-20260922. Actual flow welding screenshot shown in chat.
+See docs/streamed_reason2.md for live protocol, reproduction and measured scopes.
+Final rendered legacy bridge G/A/R/disconnected checks all pass with actual async
+readbacks and zero CPU preview uploads. UE5.8 build and git diff --check pass.
+Temporary candidate service/tunnel are stopped; production18198/18195/18196 stay
+healthy. Confirmed zero Unreal demo processes at completion, as requested.
+
+## September 23 streaming plus split-HTP agent follow-up
+
+User's "continue with 1" selected compiled Ministral on HTP1 alongside the
+newly deployed streaming Reason2 HTP0 service. Runtime handles confirm both
+Reason2 workers use fastrpc-cdsp-secure and Ministral uses cdsp1-secure.
+Same native binaries/configs as reviewed September 21/22; SDK2.45 Reason2 and
+SDK2.50.40 Ministral remain in separate process library environments. Candidate
+uses append_rewind, original one-token prompt, no next-envelope prefill.
+
+Independent saved-input replay: one warmup+5 samples per workload/mode,
+36trials total. Warm agent isolated/concurrent medians282/235ms and streamed
+vision2705/2775ms from first image. Full history agent4685/4672ms and vision
+2742/2729ms. Three images arrive963ms apart. All24streamed replies (including
+warmups) retain exact baseline scores, raw winner, pixels and token counts;
+all24agent calls preserve the selected action and verified cache mode. No
+large split-device contention observed; small sample variation is not proof
+concurrency speeds individual models. Available memory15491MiB, no swap, with
+CPU fallback also resident. No power or sustained thermal claim.
+
+IMPORTANT: first actual combined agent run FAILED on body3. Two departures,
+27choices,14streamed inspections,156.227s. Agent median269.275ms, cold3836ms;
+Reason2 finalHTTP median713.643ms (early preparation excluded). New-body
+rewinds retain949tokens and take487/489ms at proxy. Body3 chose inspect sealant
+instead of placement, then weld_panel without placement. Evaluator recorded
+welding_without_placement and did not veto. Later seating R caused agent hold.
+All27actual unmasked tokens match actual model-visible history and dispatch;
+camera2726checks pass, no streaming transport/overlap errors. Overall agent,
+token and streaming acceptance reports still FAIL due to failed process.
+
+Exact-token full-reset replay of requests18/20/25 reproduces all3NPU choices;
+this is not stale KV. At20 NPU picks inspect(.440) over place(.433), CPU picks
+place(.541). At25 both choose invalid welding on the already incomplete
+history: NPU .727, CPU .655. Thus near-tie backend variation plus a broader
+policy weakness. Do not imply CPU fixes all such histories. No prompt edits,
+action masks, thresholds, scene-truth repair or fine-tuning introduced.
+Do not promote split NPU based on speed or erase failure after later passes.
+
+Added optional -EvkAgentNpu preset/HUD selection and reusable
+scripts/agent/start_evk_compiled_agent.sh (native18206/proxy18197, guarded
+append_rewind, explicit prepared private dependencies, readiness/occupied-port
+checks). CPU-agent default18196 stays unchanged; F4 EVK profile honors NPU
+selection when requested. See docs/streaming_dual_htp.md. Private evidence in
+artifacts/streaming-dual-htp-20260923. Actual welding/failure screenshots shown
+in chat. Subsequent routing/flow completion evidence follows below.
+
+Follow-up actual EVK/GPU/EVK agent routing PASSES:3departures,30choices,
+15inspections (11EVK/fourGPU),166.165s, no audits/rejections. Correct18197->18194
+->18197agent endpoints, camera2920checks pass. Warm mixed-backend result does
+not erase first full-EVK failure or prove matched cycle speedup. Flow lifecycle
+passes3departures/16gates/6thermal checks and pause/switch cancellation; camera
+has1failure/3114checks: batch7 weld spot1 actual/authored Euler difference
+.0001038516deg versus.0001deg tolerance. Exact joints and physical capture/lens
+match; no motion or tolerance changes. Preserve exception rather than reporting
+clean full QA. Python260tests pass/2optional skips; UE5.8build/nativepolicy151pass.
+Optional compiled-agent services and temporary18197/18206tunnel stopped;
+original streaming18198/CPU18195+18196remain healthy. CPU remains default.
+Final policy fixture on the final DLL passes151checks; zero Unreal processes
+confirmed after it exits. No demo or experimental compiled controller left running.
+
+## September 23 canonical named history and HTP reliability
+
+User requested simpler model-visible history, then further reliable Ministral
+HTP1 testing alongside Reason2 HTP0. Implemented opt-in `named-jobs-v3` in
+single_token.py: explicit job/inspection names, literal ordered completed_jobs,
+no body IDs/numerical timestamps in model input, and fixed JSON member order.
+Identity/timing remain in actual transport/audits; invalid/stale results retain
+valid=false and reasons. Only actual status=completed act results enter the
+ledger. No source truth, state-derived permissions/suggested-next-action fields,
+recipe veto, action mask or fine-tuning. Still one unmasked token, all13actions available.
+Body IDs in private proxy logs are outside model input. The token auditor now
+reconstructs actual named messages byte-for-byte, including canonical order.
+
+Policy stays in configs/live_agent.json. Explicit --policy-examples appends
+configs/agent_policy_examples.txt; it does not replace the configured business
+policy. Launcher env flags DF_AGENT_OBSERVATION_FORMAT=named and
+DF_AGENT_POLICY_EXAMPLES select this research candidate. Normal history remains
+json and CPU18196 remains default. Candidate prompt hash
+becd0677fd2c8334bbc9ac77b2c7792dfcc1893b65d52e7da36c145e167ec65d.
+
+Important finding: initial named-v2 live run FAILED after sealant with M hold,
+where equivalent synthetic facts yielded C placement. Only JSON property order
+differed. Full-reset replay reproduced M; changing only that order produced C;
+canonical v3 also C. Reordered v2 is exactly equal to the synthetic fixture.
+All120permutations now normalize identically in regression tests. Do not assume
+semantically identical JSON necessarily gives identical LLM decisions.
+
+Named original policy:40/46synthetic development on NPU and CPU; NPU full-reset
+retains6failures. Static examples + canonical history:44/46development and
+34/34reserved (reserved first evaluated for v2, reused for canonical v3; not new
+held-out evidence). Remaining errors: preassembled/weld-G without adhesive
+inspection wrongly departs; placement without sealant wrongly permits welding.
+Wrong-action probabilities .792/.897, not just near ties. Keep candidate opt-in.
+Shorter prompts, flat logs, descriptive labels, extra summaries and a second
+one-token self-review did not beat it. Self-review29/46, semantic single-token
+commands43/46, explicit missing-result index40/46; these remain private/offline.
+
+Three fresh canonical live runs (seeds42/43/44) PASS process/token/stream audits:
+9bodies,84actualchoices,42streamed inspections,zero process audits/rejections/
+finalholds. Nine thermal A results led to actual waits/reinspections. Wall times
+178.338/178.520/178.466s. Unreal agent median269.153ms;75warm proxycalls median
+255.169ms;9new-body resets median5306.556ms. Removing IDs makes new arrival a
+shorter exact prefix: guarded native reuse correctly resets it. Added policy
+examples also lengthen prefill. Do not claim former0.49snew-body rewind applies;
+no guard relaxed. Reason2 finalHTTP median713.684ms excludes early preparation;
+firstPNG stage medians~2.54-2.71s. No matched cycle speedup or image accuracy claim.
+
+Camera QA exceptions preserved: seed43 all2726checks pass; seeds42/44 each fail
+one authored/actual Euler comparison at weld spot1 (.000203578/.000123168deg vs
+.0001deg). Physical capture/lens and exact joints pass; no camera/tolerance edits.
+Concurrent actual flow completed3bodies/16gates and passed3114camera checks plus
+stream audit while HTP1 probes ran. Actual handles confirm Reason2 cdsp-secure,
+Ministral cdsp1-secure; about15GiBavailable, no swap. Native weights/binaries/SDKs
+unchanged. Full-reset old failure replays: request20 D->C,25 E->C; control3 C->C,
+seating defect27 M->M. Reused regressions, not new held-out scores.
+
+Python274tests pass/2optionalSDKskips; native policy151checks pass; git diff check
+passes. Actual welding screenshot shown in chat. See
+docs/agent_history_reliability.md and private artifacts/agent-named-history-20260923.
+Experimental compiled services and own18197/18206tunnel stopped after testing;
+original18198/18195/18196healthy. Confirmed zero Unreal processes at completion.
+
+## September 23 simplified agent default validation
+
+Current prompt hash is f0ad9a8322fa0249991bae38d95b2ebe8a39c57eb8cffd453e8f36bf6504c11f.
+Both host 18194 and EVK CPU proxy 18196 use v2 eight-tool policy, named-jobs-v4
+history, and one unmasked token. The HTP1 agent experiment remains stopped;
+promoting named history does not change the default compute device. Model-visible
+IDs/times are removed while transport epochs and freshness remain intact.
+UE 5.8 build, 164 native policy checks and Python discovery (280 tests, two skipped)
+passed. Actual host and EVK three-body agent runs passed with zero audit errors,
+23 choices and 21 actual three-view Reason2 batches each. All host choices matched
+raw model token logs; all 21 EVK batches passed the streaming verifier. Separate
+flow ProcessSmoke passed three bodies and six thermal acceptance audits.
+42 synthetic development cases returned identical GPU/CPU choices: 37 expected,
+three unnecessary pre-weld waits and two unsafe reuse-of-invalidated-evidence
+choices (thermal before preparation; seating/weld before a repeat weld). Keep
+these failures visible and do not insert recipe repair. See docs/agent_demo_scope.md.
+Demo closed after verification; normal model services retain the new defaults.
+
+## September 23 EVK-owned agent harness
+
+User requested moving the actual agent harness onto the EVK by default.
+`-ProcessControl agent` now defaults to `-AgentRuntime evk`, EVK inference and
+the eight-tool v2 profile. Explicit `-AgentRuntime local` retains the previous
+Unreal-owned loop; flow remains the default control-mode comparison. The EVK
+loads configs/live_agent.json, maintains per-body conversations, calls Ministral
+and dispatches its actual tool choice. Unreal is a polling equipment worker:
+camera capture/Reason2 streaming, authored motion, HUD and independent audit.
+It sends incremental actual arrival/start/result events, never a prompt, schema,
+full history, source truth, recommended action or evaluator feedback.
+
+scripts/agent/edge_runtime.py and serve_edge_runtime.py run as the separate
+dark-factory-edge-runtime service on EVK loopback18210. start_evk_qairt.sh --agent
+starts it; start_evk_tunnel.sh --agent adds forward18210 and reverse18214->host18194.
+F4 switches inference profiles while keeping the conversation and dispatch on
+the EVK. The default remains Ministral CPU18196 + Reason2 HTP0 streaming18198;
+the HTP1 Ministral experiment is still optional/stopped. Runtime uses no additional
+model weights. Conflicting custom AgentEndpoint values require AgentRuntime local.
+
+Preserve monotonic event acknowledgements, exact replay hashes, matching actual
+starts/results, body/epoch scoping, one active worker and five-second heartbeat
+lease. Pause/switch discards unstarted/late choices but retains actual running
+atomic jobs and completed observations; partial temperature bundles report only
+real results. No recipe veto, automatic cooling/reinspection, substitute action
+or inference fallback. Final smoke departure must be acknowledged before exit.
+History is in-memory: a service restart mid-body requires a fresh demo session,
+never reconstruction from source truth or automatic replay of actuator jobs.
+Unreal's local conversation mirror is for audit only. See docs/edge_agent_runtime.md.
+
+Private actual evidence: artifacts/edge-agent-20260923. EVK-only three bodies:
+21 decisions,19 streamed Reason2 batches,203.557s,zero process audits/rejections.
+EVK/GPU/EVK three bodies:23 decisions,21 batches (8/5/8),211.606s,zero audits or
+rejections. Cross-machine audit matches all44 choices and94 equipment events to
+actual EVK conversations, aarch64 PID and final acknowledgements. Backend verifier
+now recognizes each actual v2 inspection_result (the old version only read v1
+inspect tool_result). Known policy failures remain; no new held-out accuracy or
+matched speedup claim. Unchanged one-token prompt hash remains
+f0ad9a8322fa0249991bae38d95b2ebe8a39c57eb8cffd453e8f36bf6504c11f.
+
+Camera QA: EVK-only3696checks has one panel_seated spot0 Euler discrepancy
+0.000130225deg vs0.0001deg; physical capture/lens and exact joints pass. No pose
+or tolerance changes. Mixed backend4084camera checks all pass. EVK-only19batches
+pass streaming audit. UE5.8 build/native policy169 and launcher52checks pass;
+Python discovery303tests succeeds with two optional skips. Normal EVK runtime
+restored without private QA logging after both runs; models/tunnels stay ready.
+Separate final flow regression passes three departures,14inspections,six thermal
+acceptance checks and2726camera checks. Confirmed zero Unreal processes. Actual
+welding screenshot showing IQ9 AGENT / REMOTE TOOLS was displayed in chat.

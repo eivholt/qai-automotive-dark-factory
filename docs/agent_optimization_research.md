@@ -67,11 +67,41 @@ headers/tools are extracted under this project's private runtime; no system
 driver or adjacent project's service is replaced. GPU test processes receive
 the render group only within their dedicated systemd service.
 
-The real Adreno device was opened and the model became ready, but its first
-controller request timed out after **115 s**, without a usable action. The GPU
-candidate was stopped. This particular driver/build/configuration is rejected;
-it does not establish that every IQ9 GPU backend is unusable. No drivers, system
-packages or existing Reason2 services were changed.
+The real Adreno device was opened and the model became ready in about 5.4 s,
+but its first controller request timed out after **115 s**, without a usable
+action. A subsequent kernel-journal review identified a more specific failure:
+at 14:38:55 UTC, one second after request dispatch, Adreno reported `gpu fault
+ring 0` and `hangcheck recover`, naming the exact Vulkan `llama-server` process
+as the offending task. The kernel then reported a synchronous external abort
+in `_a6xx_get_gmu_registers`, through `a6xx_gpu_state_get`,
+`msm_gpu_crashstate_capture` and `recover_worker` on kernel 6.8.0-1077-qcom.
+Thus the observed GPU execution fault was followed by a second failure while
+collecting crash state during recovery. The client timeout was the visible
+symptom; this is not a completed GPU throughput measurement.
+
+The original GPU fault's cause remains undiagnosed. The trace does not identify
+a particular shader, flash-attention issue, Mesa/kernel/firmware defect, memory
+exhaustion or defective hardware. It does not establish a whole-machine panic or
+reboot. The candidate did not stop promptly and was terminated with SIGKILL;
+its recorded peak service memory was 3.2 GB under a 7 GB limit. The tested setup
+used full Vulkan offload, context 8192, batch 256/ubatch 128 and flash attention
+on. At that point smaller inputs/batches, disabled flash attention and partial
+offload were untested. The subsequent investigation below started from clean
+reboots after recovery faults rather than increasing request timeouts.
+
+This particular driver/build/configuration is rejected; it does not establish
+that every IQ9 GPU backend is unusable. No drivers, system packages or existing
+Reason2 services were changed. Private evidence now also includes
+`vulkan-kernel-window.txt` and `vulkan-journal.txt` under the experiment directory.
+
+The [later GPU investigation](ministral_gpu.md) builds private Mesa 26.1.8,
+restricts actual subgroups to 64 lanes, and corrects Q6_K scale loading in the
+Vulkan shader. Ten numerical cases and 33 saved decision probes pass. However,
+the actual three-body run fails one process audit and measures 3.09 s median
+agent decisions. Exact-history replay exposes a shared CPU/GPU policy weakness
+when weld inspection precedes the still-missing sealant inspection. The new
+private driver/backend and opt-in launcher are retained for experiments; CPU
+remains selected and system Mesa is unchanged.
 
 An official publisher **Q8_0** CPU export was also tested, not a re-quantization of
 Q4. Its first two replay decisions took 14.41/1.22 s, but its third decision
@@ -215,3 +245,94 @@ is not required for exact prefix reuse, GPU offload or reversible mechanical
 preparation, so it is not the first choice for this task.
 
 Private evidence root: `artifacts/agent-prefill-20260919/`.
+
+## Follow-up: compiled NPU controller and shared accelerator
+
+The [Ministral NPU experiment](ministral_npu.md) now has an actual passed
+three-body run using a compiled export of the original Q4_K_M source, without
+fine-tuning or changing the one-token policy. Incremental context reuse gives
+269 ms median controller latency; the first decision of a body takes about
+3.85 seconds. Reason2 remains on NPU. The run made 28 choices and 14 inspections
+without rejected actions or audit failures, but took 185.94 seconds versus the
+earlier CPU run's 170.43 seconds because it needed three extra cooling
+inspections and waits. Faster inference is not equivalent to a shorter cycle.
+
+Simultaneous full-prompt requests compete for NPU compute: Reason2 latency rises
+about 2.8-3 times, with only 3-4% pair throughput benefit. A short, verified
+60-token append increases Reason2 latency about 12.5%; the pair completes in
+1.48 seconds versus 1.57 seconds serial. About 15 GiB remains available even
+with the CPU fallback resident. Prefer serialized dependent model calls and
+overlap with existing mechanical work; do not fabricate future observations
+to fill the accelerator. The rejected dynamic Q4_0 path and its live policy
+failures remain documented separately. No new held-out accuracy is claimed.
+
+## Follow-up: CPU kernels and NPU reuse across new bodies
+
+Later September 21 evidence: [separate IQ9 HTP placement](npu_device_placement.md)
+keeps Reason2 on device 0 and runs compiled Ministral on device 1. Verified
+device handles accompany the benchmark: heavy concurrent Reason2 falls from
+3.81 to 1.33 s, while sequential times are essentially unchanged. The actual
+three-body candidate passes with 269 ms median decisions and two live prefix
+rewinds around 0.49 s; there is no whole-cycle speedup claim. The study also
+corrects the old direct-worker replay's missing BOS when comparing it with
+live HTTP input, and retains known policy failures. Defaults remain unchanged.
+
+[Cached-suffix CPU tests](ministral_cpu_tuning.md) found the useful combination
+of the native worker pool and flash attention off: 1.31 -> 0.98 s on the same
+21 recorded inputs, retaining their action winners. Fewer CPU threads and
+different microbatch limits did not help. A 16-row attention tile was also
+tested, but is unnecessary for the best candidate. The rendered candidate
+passed at 1.04 s median agent latency, with 28 choices / 14 camera batches and
+182.62 s total. Extra cooling checks made the full process slower than the
+earlier 170.43 s CPU run. It remains opt-in.
+
+[Guarded Genie rewind](ministral_npu.md#guarded-prefix-rewind-across-bodies--later-september-19-experiment)
+preserves the common policy prefix across real new-body histories. Two measured
+arrivals fell from 3.82 to 0.48 s; all 21 winners matched independent NPU reset,
+although action probabilities are not bitwise identical. Strict divergence,
+fresh sampler, matching output, END and occupancy checks exclude saved-token
+reuse. No model recompilation, LoRA or hypothetical observations were needed.
+
+Broader evidence exposes policy limitations independently of cache speed:
+CPU original/tuned both pass only 14/17 new thermal-order probes; the compiled
+NPU also requests sealant inspection before placement in two saved histories.
+Do not infer reliability from matching speed-test winners. The default CPU
+deployment is unchanged. A future NPU export with no intermediate prefill
+logits is a separate unmeasured lead, documented in the NPU record.
+
+## Follow-up: removing unused Reason2 decode preparation
+
+The [prefill-only worker](reason2_prefill_optimization.md) removes KV layout
+conversions for a decode that never occurs. Twenty-four paired batches save
+34.88 ms median per case; all 192 existing development winners and G/A/R
+probabilities remain identical. The candidate passes an actual three-body run
+with 24 choices, 12 inspections and no audit failures. Its 177.56 s cycle is
+longer than the earlier 170.43 s run because of an extra cooling retry/wait.
+The worker and router expose an explicit opt-in path bound to complete matching
+validation. Normal deployment remains unchanged.
+
+Further CPU strict affinity, polling and native-pool/tile16 combinations did
+not improve the earlier noomp/FAoff candidate. The remaining larger compute
+lead is to avoid unused output-head rows, while preserving every vocabulary
+choice and the last *valid* token rather than a padded row. No additional model
+fine-tuning is needed for these implementation experiments.
+
+## Follow-up: exact fixed sensor preprocessing
+
+The [production-oriented optimization notes](inference_optimization_patterns.md)
+add direct patch packing and exact per-channel byte lookup tables. IQ9 isolated
+preprocessing falls from 60.001 to 5.504 ms in the final-build repeat; all 192
+existing batches retain bit-identical floats, tokens and grids. Following the
+user's EVK reboot, complete model validation retains the same 191/192 result,
+with identical winning IDs and serialized G/A/R probabilities. A counterbalanced
+96-call comparison saves 63.45 ms primary / 62.16 ms weld versus prefill-only,
+with unchanged results. The earlier interrupted pilot file was corrupted and is
+not used for this acceptance. The outage's cause remains unestablished.
+The candidate requires separate matching evidence and is not selected by default.
+Actual three-body integration passes at 177.01 s, 24 choices / 12 inspections,
+zero audit failures or rejects, 1,298.97 ms median Reason2 and 1,458.59 ms median
+CPU agent latency. Token/history/dispatch and physical-camera audits pass.
+The 0.55 s cycle difference from the prior prefill-only run is not evidence of
+a repeatable process speedup. Normal services are restored; Unreal is closed.
+Skipping terminal KV writeback did not establish a consistent gain and remains
+a private experiment. No fine-tuning, new prompt or input resolution is involved.

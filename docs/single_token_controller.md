@@ -1,15 +1,20 @@
 # One-token Ministral controller — 19 September 2026
 
+September 23 update: canonical named histories and the eight-tool menu are now
+the default at the user's request. See [current prompts](current_agent_prompts.md)
+and [implemented tool scope](agent_demo_scope.md). Historical measurements below
+retain their original thirteen-choice scope; known policy failures are not erased.
+
 The unmodified Ministral-3-3B-Instruct-2512 Q4_K_M can choose a high-level factory
 action with **one output token, without fine-tuning**. A small loopback protocol
 adapter converts that token into the existing Unreal tool call. Reason2 and its
 two vision adapters are unchanged. See [live agent control](live_agent_control.md)
 for physical execution and observation boundaries.
 
-## How selection works
+## Original thirteen-choice comparison
 
 `scripts/agent/single_token.py` derives a separate prompt from
-`configs/live_agent.json`: it retains the task, inspection meanings and acceptance
+`configs/live_agent_legacy.json`: it retains the task, inspection meanings and acceptance
 criteria, replaces the JSON/reason output instruction, and appends this fixed menu:
 
 | Code | Tool |
