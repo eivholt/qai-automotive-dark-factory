@@ -6,6 +6,12 @@ Latest implementation: three-edge sealant beneath a panel raised 5 mm, conducted
 
 ## Demonstration objective
 
+Tutorial authoring preference (24 September 2026): the user writes
+docs/unreal_dark_factory_tutorial.md by hand. Do not edit that file unless the
+user explicitly changes this instruction. Keep assistant topic suggestions in
+docs/unreal_dark_factory_tutorial_topics.md; use bullet-level outlines until
+the user requests expansion.
+
 Build an Unreal Engine factory simulation demonstrating sensor cameras feeding NVIDIA Cosmos-Reason2-2B to detect anomalies. The simulation should react to model results. Begin with several sensing modalities and use experiments to refine the concrete manufacturing scenarios.
 
 September 23 user priority: the central purpose is to visibly demonstrate an
