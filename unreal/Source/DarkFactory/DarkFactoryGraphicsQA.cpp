@@ -13,6 +13,10 @@
 #include "Components/SpotLightComponent.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
+#include "Engine/GameViewportClient.h"
+#include "GameFramework/InputSettings.h"
+#include "InputKeyEventArgs.h"
+#include "GenericPlatform/GenericPlatformInputDeviceMapper.h"
 #include "EngineUtils.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "ImageUtils.h"
@@ -39,6 +43,9 @@ struct FDarkFactoryGraphicsQA {
     TArray<TSharedPtr<FJsonValue>> Samples;
     TArray<TArray<uint8>> Reference;
     TArray<TWeakObjectPtr<USceneCaptureComponent2D>> Cameras;
+    TSharedPtr<FJsonObject> StartupGraphics;
+    FIntPoint ViewportSize=FIntPoint::ZeroValue;
+    EWindowMode::Type WindowMode=EWindowMode::Windowed;
 };
 namespace {
 TArray<uint8> GraphicsPNG(UTextureRenderTarget2D* Target) {
@@ -76,6 +83,7 @@ void ADarkFactoryWorld::GraphicsSmokeTick(double Now) {
         Report->SetNumberField(TEXT("startup_wait_seconds"),QA.ActiveStarted>0 ? QA.ActiveStarted-QA.Started:Now-QA.Started);
         Report->SetNumberField(TEXT("model_http_requests"),ProcessController ? ProcessController->BuildMetadata()->GetNumberField(TEXT("model_http_requests")):-1);
         Report->SetArrayField(TEXT("samples"),QA.Samples);
+        if (QA.StartupGraphics) Report->SetObjectField(TEXT("startup_graphics"),QA.StartupGraphics);
         Report->SetArrayField(TEXT("observer_scene_roi"),{MakeShared<FJsonValueNumber>(410),MakeShared<FJsonValueNumber>(320),MakeShared<FJsonValueNumber>(1200),MakeShared<FJsonValueNumber>(770)});
         QA.Passed &= QA.Samples.Num()==32 && Report->GetNumberField(TEXT("model_http_requests"))==0;
         for (const auto& Sample:QA.Samples) QA.Passed &= IFileManager::Get().FileExists(*FPaths::Combine(QA.Root,Sample->AsObject()->GetStringField(TEXT("screenshot"))));
@@ -110,6 +118,10 @@ void ADarkFactoryWorld::GraphicsSmokeTick(double Now) {
         if (Compiling) { QA.ReadySince=0; return; }
         if (QA.ReadySince==0) QA.ReadySince=Now;
         if (Now-QA.ReadySince<5.) return;
+        QA.StartupGraphics=Observer->BuildGraphicsMetadata();
+        if (auto* Viewport=GetWorld()->GetGameViewport()->Viewport) {
+            QA.ViewportSize=Viewport->GetSizeXY(); QA.WindowMode=Viewport->GetWindowMode();
+        }
         ProcessController->SetActorTickEnabled(false); WeldingCell->SetAnimationEnabled(false); ThermalRig->SetFrozen(true);
         Observer->SetCaptureAutomation(true); Observer->SetNightVisionSmokeFrame(11);
         if (IQ9Props) IQ9Props->SetLedTimeForQA(109.);
@@ -160,12 +172,24 @@ void ADarkFactoryWorld::GraphicsSmokeTick(double Now) {
     static const int32 Modes[]={0,3,1,2};
     const int32 Mode=Modes[QA.Index/8],Bits=QA.Index%8;
     if (QA.Configure) {
-        Observer->SetGraphicsOptions((Bits&1)!=0,(Bits&2)!=0,(Bits&4)!=0);
+        // Exercise the actual viewport F11 route, including the fullscreen
+        // shortcut that runs BEFORE PlayerController input, for every state.
+        Observer->SetGraphicsOptions((Bits&1)!=0,(Bits&2)!=0,(Bits&4)==0);
         Observer->SetObserverMode(Mode);
+        auto* Client=GetWorld()->GetGameViewport();
+        if (!Client || !Client->Viewport) { Finish(TEXT("missing input viewport")); return; }
+        const auto Device=IPlatformInputDeviceMapper::Get().GetDefaultInputDevice();
+        Client->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::F11,IE_Pressed,1.f,1,Device,false,Client->Viewport));
+        Client->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::F11,IE_Released,0.f,1,Device,false,Client->Viewport));
         if (FactoryLights) FactoryLights->SetStartupTimeForQA(3.f);
         QA.Configure=false; QA.Next=Now+2.; return;
     }
     auto Sample=Observer->BuildGraphicsMetadata();
+    const auto* Viewport=GetWorld()->GetGameViewport()->Viewport;
+    Sample->SetBoolField(TEXT("f11_fullscreen_disabled"),!GetDefault<UInputSettings>()->bF11TogglesFullscreen);
+    Sample->SetBoolField(TEXT("window_mode_unchanged"),Viewport && Viewport->GetWindowMode()==QA.WindowMode);
+    Sample->SetBoolField(TEXT("viewport_size_unchanged"),Viewport && Viewport->GetSizeXY()==QA.ViewportSize);
+    QA.Passed &= Sample->GetBoolField(TEXT("f11_fullscreen_disabled")) && Sample->GetBoolField(TEXT("window_mode_unchanged")) && Sample->GetBoolField(TEXT("viewport_size_unchanged"));
     const FString Stem=FString::Printf(TEXT("mode%d_d%d_l%d_r%d"),Mode,Bits&1,(Bits>>1)&1,(Bits>>2)&1);
     const FString Screen=Stem+TEXT("_observer.png"); Sample->SetStringField(TEXT("screenshot"),Screen);
     const bool Infrared=Mode==1 || Mode==2;

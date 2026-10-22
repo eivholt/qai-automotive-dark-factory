@@ -397,7 +397,7 @@ void ADarkFactoryWorld::BeginPlay() {
         EnvironmentDetails=GetWorld()->SpawnActor<ADarkFactoryEnvironmentDetails>();
         CellMechanisms=GetWorld()->SpawnActor<ADarkFactoryCellMechanisms>();
         Soundscape=GetWorld()->SpawnActor<ADarkFactorySoundscape>();
-        if (!EnvironmentDetails->Initialize(WeldingCell) || !CellMechanisms->Initialize(WeldingCell) || !Soundscape->Initialize(WeldingCell)) {
+        if (!EnvironmentDetails->Initialize(WeldingCell) || !CellMechanisms->Initialize(WeldingCell) || !Soundscape->Initialize(WeldingCell,!bWeldingSmoke || FParse::Param(FCommandLine::Get(),TEXT("DFAudioSmoke")))) {
             UE_LOG(LogTemp,Error,TEXT("DF_REALISM_INITIALIZE_FAILED")); FPlatformMisc::RequestExitWithStatus(false,1); return;
         }
         AddTickPrerequisiteActor(CellMechanisms); AddTickPrerequisiteActor(Soundscape);
@@ -426,6 +426,7 @@ void ADarkFactoryWorld::BeginPlay() {
                 WeldingSmoke->AddTickPrerequisiteActor(ProcessController);
                 IQ9Props->AddTickPrerequisiteActor(ProcessController);
                 CellMechanisms->AddTickPrerequisiteActor(ProcessController);
+                Soundscape->AddTickPrerequisiteActor(ProcessController);
                 if (ControlCabinet) ControlCabinet->AddTickPrerequisiteActor(ProcessController);
                 ThermalRig->AddTickPrerequisiteActor(ProcessController);
             }

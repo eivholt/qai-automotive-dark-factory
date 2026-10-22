@@ -1,5 +1,7 @@
 #include "DarkFactorySoundscape.h"
 #include "DarkFactoryWeldingCell.h"
+#include "DarkFactoryRecordedAudio.h"
+#include "Engine/World.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "HAL/FileManager.h"
@@ -161,9 +163,18 @@ ADarkFactorySoundscape::ADarkFactorySoundscape() {
     PrimaryActorTick.bCanEverTick=true; PrimaryActorTick.TickGroup=TG_PostPhysics;
     SceneRoot=CreateDefaultSubobject<USceneComponent>(TEXT("SoundscapeRoot")); SetRootComponent(SceneRoot);
 }
-bool ADarkFactorySoundscape::Initialize(ADarkFactoryWeldingCell* Cell) {
+bool ADarkFactorySoundscape::Initialize(ADarkFactoryWeldingCell* Cell,bool PreferRecorded) {
     if (bInitialized) return Cell==SourceCell.Get();
     if (!IsValid(Cell)) return false;
+    if (PreferRecorded) {
+        auto* Candidate=GetWorld()->SpawnActor<ADarkFactoryRecordedAudio>();
+        if (Candidate && Candidate->Initialize(Cell)) {
+            Recorded=Candidate; SourceCell=Cell; bInitialized=true; AddTickPrerequisiteActor(Cell);
+            UpdateFromCell(); return true;
+        }
+        if (Candidate) Candidate->Destroy();
+        UE_LOG(LogTemp,Warning,TEXT("DF_RECORDED_AUDIO unavailable; using procedural fallback. Run scripts/audio/prepare_runtime_audio.py for the private bank."));
+    }
     TArray<USceneComponent*> Components; Cell->GetComponents(Components);
     for (int32 I=0;I<4;++I) {
         const auto Timing=Cell->GetRobotTiming(I,Cell->GetMotionTime());
@@ -182,12 +193,16 @@ bool ADarkFactorySoundscape::Initialize(ADarkFactoryWeldingCell* Cell) {
 }
 void ADarkFactorySoundscape::Tick(float DeltaSeconds) { Super::Tick(DeltaSeconds); UpdateFromCell(); }
 void ADarkFactorySoundscape::EndPlay(const EEndPlayReason::Type Reason) {
+    if (Recorded) { Recorded->Destroy(); Recorded=nullptr; }
     for (const auto& S:Sources) if (S) { S->SetLevels(0,0,0); S->Stop(); }
     Super::EndPlay(Reason);
 }
 void ADarkFactorySoundscape::SetEnabled(bool Enabled) { bEnabled=Enabled; UpdateFromCell(); }
 void ADarkFactorySoundscape::SetMuted(bool Muted) { bMuted=Muted; UpdateFromCell(); }
+void ADarkFactorySoundscape::NotifyObserverMode(int32 Mode) { if (Recorded) Recorded->NotifyObserverMode(Mode); }
+void ADarkFactorySoundscape::NotifyInspectionCapture() { if (Recorded) Recorded->NotifyInspectionCapture(); }
 void ADarkFactorySoundscape::UpdateFromCell() {
+    if (Recorded) { Recorded->UpdateFromCell(bEnabled,bMuted); return; }
     const auto* Cell=SourceCell.Get();
     const FAudioFrame F=EvaluateFrame(Cell,Cell ? Cell->GetMotionTime():0);
     const float Gate=Cell && bInitialized && bEnabled && !bMuted && Cell->IsAnimating() ? 1.f:0.f;
@@ -202,6 +217,10 @@ void ADarkFactorySoundscape::UpdateFromCell() {
     }
 }
 TSharedRef<FJsonObject> ADarkFactorySoundscape::BuildMetadata() const {
+    if (Recorded) {
+        auto O=Recorded->BuildMetadata(); O->SetBoolField(TEXT("initialized"),bInitialized);
+        O->SetBoolField(TEXT("enabled"),bEnabled); O->SetBoolField(TEXT("muted"),bMuted); return O;
+    }
     auto O=MakeShared<FJsonObject>();
     O->SetStringField(TEXT("model"),TEXT("phase-synced-procedural-factory-audio-v1"));
     O->SetStringField(TEXT("scope"),TEXT("Authored spatial ambience; no measured machinery acoustics, alarms or model telemetry"));

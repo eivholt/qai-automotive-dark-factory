@@ -2537,3 +2537,177 @@ restored without private QA logging after both runs; models/tunnels stay ready.
 Separate final flow regression passes three departures,14inspections,six thermal
 acceptance checks and2726camera checks. Confirmed zero Unreal processes. Actual
 welding screenshot showing IQ9 AGENT / REMOTE TOOLS was displayed in chat.
+
+## October 18 observer HUD simplification
+
+The imported demo omits the top-left title/mode/FPS and graphics-status panels,
+capture-panel header/footer, flow recipe reminder and observer thermal-scale
+captions; keep the actual scales, camera labels and live process information.
+All imported observer shortcuts, including F6/F7/F11 and conditional F4/F5/replay
+history, live in the bottom help panel. It starts hidden, slides up over 0.3 s
+after five seconds without input, and hides on meaningful input. Keyboard/mouse
+is the default; only the last used device's bindings are shown. Ignore idle axis
+reports/stick drift and keep help hidden while digital inputs remain held.
+Use wall time independently of process pause; preserve procedural fixture HUDs.
+ADarkFactoryPlayerController observes input without changing sensor/render paths.
+The opt-in -DFHUDSmoke rendered fixture tests startup, idle threshold, animation,
+held keys, device switching and drift, and closes itself. UE5.8 build succeeds;
+303 Python tests pass with 32 optional skips, and all nine rendered HUD checks
+pass at 1280x720. Private captures/logs: artifacts/hud-trim-20261018. This offline
+UI check performs no model inference; demo closed after validation.
+
+The observer thermal scale is aligned under the right-hand inspection preview
+column, above the resting keybinding panel. Reserve its 50 px height plus gaps
+when fitting process camera tiles; use the actual wrapped help height even when
+help is hidden, so its idle animation cannot overlap the scale.
+
+October 19 startup diagnosis: the manually launched Unreal client waited on
+Build.bat QueryTargets behind an unrelated Overland build. Do not interrupt that
+other project's build. Both EVK models and WSL tunnels also stopped immediately
+after shell exit because user lingering was disabled. Enabled loginctl lingering
+for WSL eivho and EVK ubuntu and restarted the existing stack/tunnels. Windows
+health checks for 18198/18196/18210 pass and all four EVK services are active.
+This is service-manager persistence, not model boot autostart. Startup guidance
+is in docs/edge_agent_runtime.md; preserve private model/deployment files.
+
+October 19 follow-up: lingering alone does not keep a WSL VM alive. The VM shut
+down at 19:57, removing all transient SSH tunnels while the EVK services and
+agent history remained healthy. run.ps1 now owns a hidden foreground WSL sleep
+process for live EVK inference, backend switching or an EVK agent harness, and
+ensures the needed tunnels before launching Unreal. It releases that keepalive
+in finally after the client exits; it does not start model hosts. The reusable
+scripts/model/keep_wsl_alive.ps1 can also watch an existing Unreal demo PID.
+Applied that watcher to the existing client without resetting the EVK runtime.
+After transport recovery, Space twice reconnects a heartbeat-held conversation
+through the existing cancellation/epoch protocol. Do not fabricate equipment
+events or reconstruct conversation from source truth to bypass the hold.
+
+Also fixed an actual outage-recovery bug: a late completed tool result cleared
+cell.held while leaving the heartbeat error. Result ingestion now preserves an
+existing hold until explicit resume changes epoch. A regression covers expiry,
+late completion, exact replay, no autonomous retry and successful pause/resume.
+Deployed only edge_runtime.py (retaining the previous file) and restarted the
+harness with a fresh Unreal session; existing model services were not restarted.
+Validation: 304 Python tests pass (32 optional skips), 52 launcher checks, 169
+native policy checks, actual EVK agent three-body smoke and separate EVK flow
+three-body smoke both pass. Flow retains all six thermal acceptance audits.
+Private evidence: artifacts/wsl-session-20261019. Reopened the interactive agent
+demo through the updated launcher; new EVK session is connected, unpaused, with
+no hold/error. Models and demo intentionally remain running for the user.
+
+October 19 F11/default graphics: disabled bF11TogglesFullscreen in project input
+and the player controller's runtime settings to override older saved preferences.
+F11 now reaches only the existing hardware-RT toggle; the viewport no longer
+consumes it as a fullscreen transition. Supported DLSS Quality, Lumen GI and
+reflections and hardware RT already default on in visible views, and their
+actual startup activation is now checked. run.ps1 also enables the enhancement
+pack by default for interactive runs unless explicitly -Enhancements:$false;
+automated fixtures keep their explicit selection and original defaults. Infrared
+observer and fixed/model capture isolation remains unchanged.
+GraphicsSmoke now sends F11 through the real viewport route in all 32 graphics
+states, verifies unchanged window mode/size, actual RT preferences, and all four
+fixed/R4 sensor PNGs. UE5.8 build succeeds; 304 Python tests (32 optional skips),
+52 launcher checks and 2112 rendered graphics/parity checks pass. Reviewed the
+bright all-enabled screenshot and displayed it in chat. Private evidence is in
+artifacts/f11-graphics-20261019. The offscreen verification demo exited normally.
+
+October 19 taskbar capture: interactive run.ps1 now passes DFTaskbarOverlay by
+default, with -NoTaskbarOverlay as opt-out. The standalone Windows observer
+centers its initial borderless window against full monitor bounds, preserves
+native client size and uses HWND_TOPMOST only while foreground. It drops topmost
+when another window takes focus and never forces normal-launch activation.
+No exclusive/fullscreen transition, global taskbar changes or sensor rendering
+changes. Automated/offscreen fixtures retain ordinary window stacking. Native
+HUD verification explicitly requests foreground once only in its visible fixture;
+the first unattended attempt correctly stayed non-topmost while unfocused.
+UE5.8 build, 304 Python tests (32 optional skips), 52 launcher checks and ten
+visible HUD/native-window checks pass. Actual stacking was above the monitor's
+taskbar, with unchanged 2560x1440 client and screenshot dimensions. Reviewed and
+displayed the full-size image; private evidence is under
+artifacts/taskbar-window-20261019/render-focused. Verification demo closed.
+
+
+October 22 audio review: ElevenLabs effects remain private auditions, with no
+Unreal integration yet. First pass has 18 clips; revision 2 replaces seven and
+reuses eleven original sources without new requests. Preserve both batches at
+assets/audio/review-20261022 and its revision-2 subdirectory. Reproducible prompt
+plans are configs/audio_review.json and configs/audio_review_v2.json; authoring
+uses scripts/audio/generate_sound_review.py with an explicit local key file.
+No credentials or generated audio belong in Git. Keep unknown paid-request
+outcomes recorded rather than automatically retrying them.
+User direction: softer electric stepper arm travel and precision sounds; cooling
+sheet metal should buckle/oil-can; fluorescent starter chatter/flicker should
+settle into a stable hum; NIR and thermal activation should resemble old portable
+camera flash capacitors charging; extraction should be soft large heavy fans.
+Revised robot/fan previews are attenuated 6-8 dB; all seven have previous-take
+comparison players and an updated editorial 55-second mix. Source hashes,
+format/peak checks and comparison links pass; perceptual approval is pending.
+
+
+October 22 sound review revision 3 supersedes the stepper-motor direction.
+User approved the other takes from revision 2 and requested research-based robot
+motors, quieter cooling, half-length NIR and a similar thermal variant.
+Manufacturer research supports synchronous permanent-magnet servos and precision
+reduction gears; continuous motor/gear whirr is a design inference, not a measured
+recording of this asset. References are in docs/audio_sound_design.md.
+configs/audio_review_v3.json and the private revision-3 folder retain two new
+travel alternatives and a new precision loop (three paid recordings, 154 reported
+credits). Cooling reuses its source at -9 dB; NIR is 1.5 s, preserving its source
+pitch with a short overlap edit; thermal uses that same NIR source two semitones
+lower and also lasts 1.5 s. Thirteen approved preview WAVs remain byte-identical
+to revision 2. All prior raw sources are preserved. All 25 audio player links,
+format/level checks and both exact cue lengths pass. Still review-only; do not
+wire the new motor takes into Unreal before the user's perceptual review.
+
+
+October 22 sound review revision 4: generated servo takes are still rejected.
+The user provided youtube.com/shorts/FtQbSdRHS6s (ABB IRB140), then explicitly
+requested extraction from youtube.com/watch?v=idbnX6iUvtM (Eurobots ABB IRB6700).
+Extracted the second video's 41-second audio to private
+assets/audio/robot-reference-20261022, preserving source metadata and SHA256.
+Private revision-4 review has raw/lightly-cleaned versions of 0.5-7.8 s plus
+12.0-21.8 s; original robot pitch and speed are preserved. Cleanup is bounded,
+not claimed to yield an isolated motor stem. Code/recipe are
+scripts/audio/prepare_recorded_robot_review.py and
+configs/recorded_robot_review.json. Dependencies are private assets/audio/.tools.
+Thermal is now one octave (-12 semitones) below NIR, both exactly 1.5 s; the
+approved NIR file is unchanged. All prior revision-3 files are preserved.
+Format, peaks, intervals, hashes and all seven review player links pass.
+No paid generation calls, no Unreal integration; perceptual review remains open.
+
+October 22 approved audio integration supersedes the review-only notes above.
+The user approved the recorded robot extracts and the final effect revisions.
+scripts/audio/prepare_runtime_audio.py now packs 17 roles into private
+assets/audio/runtime/bank.dfau with source hashes and edit provenance. Runtime
+robot travel uses revision-4 recorded_travel_clean, retaining original speed
+and pitch; NIR/thermal use the final 1.5-second cues, with thermal one octave
+lower. Remaining effects use approved revision-3 previews. No new paid API calls.
+
+DarkFactoryRecordedAudio replaces the procedural pool with six bounded voices
+when the private bank exists: four spatial robot/tool sources, spatial carriage,
+and centered room/UI. Actual tool translation/rotation drives travel levels;
+actual jobs drive sealant, pickup/placement/release, pinch and weld cues. One
+shutter follows each submitted settled R4 readback; observer mode changes drive
+charging/fluorescent cues. These hooks observe state only and do not affect
+model requests, sensor pixels, gates or mechanical scheduling. Legacy fixtures
+and code-only checkouts retain procedural audio. Pause/mute silence all layers;
+queue epochs reject stale events, including a pause missed by the audio callback.
+PCM is immutable; callback-owned playback has no UObject/file/lock access, eight
+queued events and four concurrent one-shots per source.
+
+User feedback found the initial runtime mix too quiet. Recorded output now
+defaults to +10 dB, adjustable with run.ps1 -FactorySoundGainDb (-12..18).
+The per-voice soft-knee bound of 0.11 is before this output gain. The rendered
+native audio fixture plays all 17 roles, checks stale-event rejection, bounded
+overload and exact muted silence, and records the actual Unreal master mix.
+At the new default that recording measured peak 0.1702, RMS 0.02671 and zero
+clipped samples; this is fixture evidence, not a guarantee for every overlap.
+Build, 304 Python tests (32 optional skips), 52 launcher checks, 169 native
+process policy checks, 681 legacy realism checks and a real three-body EVK flow
+run pass. Private verification is under artifacts/audio-integration-20261022.
+The initial agent run was explicitly exited after two bodies and is preserved
+as interrupted evidence, not counted as a pass. See docs/audio_sound_design.md.
+The final offscreen EVK agent run also passes with the +10 dB mix: three bodies
+in 205.2 seconds, zero agent audits/rejected calls, 57 actual captures matched
+by 57 shutter cues, and no dropped audio events. The QA demo exited normally.
+verification-summary.json records both live runs and the native master levels.

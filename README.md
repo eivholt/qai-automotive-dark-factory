@@ -10,6 +10,10 @@ returns actual results. F4 changes inference backends while the harness stays
 on the EVK. See [deployment and protocol](docs/edge_agent_runtime.md);
 `-AgentRuntime local` retains the former PC harness for comparison.
 
+Live EVK launches keep WSL active and ensure the SSH tunnels for the client's
+lifetime. Model hosts must still be started separately; systemd lingering alone
+does not prevent WSL from shutting down its VM.
+
 Optional **live agent control** connects Ministral-3-3B Q4_K_M to actual Unreal jobs and
 adapted Reason2 camera tools: `-Process -ProcessControl agent -Enhancements`.
 The agent chooses inspections and jobs; an independent audit records process
@@ -419,6 +423,8 @@ The current preparation produces 91 source mesh components plus three auxiliary 
 
 Ten [researched realism additions](docs/realism_additions.md) add floor markings, overhead utilities, extraction hoods, animated body clamps, a stack light, entry/exit presence sensors, spatial machinery sound, production progress, five smooth observer viewpoints and persistent weld witness marks. **B / Xbox X** cycles viewpoints; **M** mutes sound. The existing control cabinet now has an [illuminated LCD and LED buttons](docs/control_cabinet.md), with GPU gauges driven by the simulated production cycle. In the default visual cycle these details follow the authored schedule. In process mode the cabinet, stack lights and HUD show actual gate-controller status, with explicit labels for offline capture and policy tests.
 
+The interactive scene uses the [approved factory recordings](docs/audio_sound_design.md#unreal-integration) when its private audio bank is present: recorded robot motors, carriage travel, panel handling, sealant, pinch welding/cooling, inspection captures, mode changes and factory ambience. Run `scripts/audio/prepare_runtime_audio.py` after preparing the local review sources. The mix defaults to +10 dB output gain; `run.ps1 -FactorySoundGainDb 6` overrides that level. Code-only checkouts retain procedural audio; recordings and the generated bank are excluded from Git.
+
 `run.ps1` defaults to `-Scene auto`: it selects the prepared local cell when available, otherwise the procedural reference. `-Scene welding` requires a valid local manifest and meshes. Use **Space / Xbox View** to pause or resume the car, robot, particle and curtain motion; observer movement and modality switching remain independent. The six visible roof-light proxies are adjustable with `-WeldingRoofLightLumens` (default 80 each). The fixed NIR camera retains its own illumination. The sensor panel shows colored thermal and monochrome thermal together, sharing one camera render. The observer defaults to the iron color palette when entering thermal; K / Xbox D-pad left retains white-hot and black-hot options.
 
 Run the imported visual/motion and camera-isolation check:
@@ -431,9 +437,19 @@ See [asset preparation, geometry and validation](docs/welding_cell_asset_import.
 
 Visible observer views enable [DLSS Quality and Lumen hardware ray tracing](docs/observer_graphics.md) when supported. NIR and thermal observer modes suspend these effects, and all fixed/model cameras keep their independent raster capture settings. Install the official UE 5.8 plugin locally with `unreal/Scripts/setup_dlss.ps1`, then rebuild; third-party plugin files remain ignored.
 
+Interactive `run.ps1` launches also enable the visual enhancement pack by default;
+use `-Enhancements:$false` for the previous basic presentation. Automated fixtures
+retain their explicit enhancement selection. F11 controls ray tracing only; its
+Unreal fullscreen shortcut is disabled, including older saved input preferences.
+
+The focused borderless demo also sits above the Windows taskbar at the requested
+capture size. Alt-Tab restores normal stacking; `-NoTaskbarOverlay` disables this.
+
 ## Controls
 
 Navigation, observer modalities and graphics controls work independently of model inspection. Procedural case selection, legacy NIR capture/inference controls and bulk heat exchange remain disabled in the imported cell. Imported `-Process` uses its own four-stage capture/controller; imported visual-preview mode follows its separate authored cycle.
+
+In the imported demo, shortcut help slides up from the bottom after five seconds without input and hides as soon as input resumes. It shows keyboard/mouse bindings by default, switching to gamepad bindings after controller use. Graphics shortcuts F6/F7/F11 are included in the keyboard help panel.
 
 | Input | Action |
 | --- | --- |
@@ -442,7 +458,7 @@ Navigation, observer modalities and graphics controls work independently of mode
 | Xbox triggers | Down / up |
 | Xbox A / X | Procedural scene: reset with new seed / next case |
 | B / Xbox X | Imported scene: cycle five observer viewpoints; manual flight cancels the transition |
-| M | Imported scene: mute / unmute synthesized factory sounds |
+| M | Imported scene: mute / unmute factory sounds |
 | F6 | Toggle visible-observer NVIDIA DLSS Quality (requires the official compatible plugin and supported GPU) |
 | F7 | Toggle visible-observer Lumen indirect lighting and reflections |
 | F11 | Toggle Lumen hardware ray tracing; off uses software Lumen when available |

@@ -1,0 +1,21 @@
+{
+  "title": "Dark factory — recorded robot motors and distinct thermal cue",
+  "reference_url": "https://www.youtube.com/watch?v=idbnX6iUvtM",
+  "reference_id": "idbnX6iUvtM",
+  "sample_rate": 44100,
+  "motor_peak_dbfs": -9,
+  "excerpts": [
+    {"id": "recorded_travel", "label": "Recorded motor — first movement", "start_seconds": 0.5, "duration_seconds": 7.3, "cleanup": false},
+    {"id": "recorded_travel_clean", "label": "Same movement — light cleanup", "start_seconds": 0.5, "duration_seconds": 7.3, "cleanup": true},
+    {"id": "recorded_travel_second", "label": "Recorded motor — second movement", "start_seconds": 12.0, "duration_seconds": 9.8, "cleanup": true}
+  ],
+  "cleanup": {
+    "highpass_hz": 70,
+    "highpass_order": 2,
+    "noise_reference_start_seconds": 8.5,
+    "noise_reference_duration_seconds": 2.0,
+    "maximum_spectral_attenuation_db": 4,
+    "noise_subtraction_strength": 0.7
+  },
+  "thermal": {"kind": "compact_charge", "duration_seconds": 1.5, "pitch_semitones": -12}
+}

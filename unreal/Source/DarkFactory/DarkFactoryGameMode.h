@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
 #include "GameFramework/HUD.h"
+#include "GameFramework/PlayerController.h"
 #include "DarkFactoryColliderOverlay.h"
 #include "DarkFactoryGameMode.generated.h"
 class UMaterialInstanceDynamic;
@@ -11,6 +12,29 @@ class ADarkFactoryWeldingCell;
 class ADarkFactoryProcessController;
 class ADarkFactoryWorld;
 class FJsonObject;
+/** Observer help follows actual device input, independently of the cell clock. */
+UCLASS()
+class DARKFACTORY_API ADarkFactoryPlayerController : public APlayerController {
+    GENERATED_BODY()
+public:
+    virtual void BeginPlay() override;
+    virtual void PlayerTick(float DeltaTime) override;
+    virtual bool InputKey(const FInputKeyEventArgs& Params) override;
+    bool UsesGamepadHints() const { return bGamepadHints; }
+    float GetControlsReveal() const;
+    TSharedRef<FJsonObject> BuildObserverWindowMetadata() const;
+private:
+    void UpdateObserverWindow();
+    void* ObserverWindowHandle=nullptr;
+    int32 ObserverWindowTopmost=-1;
+    FIntPoint ObserverWindowInitialClient=FIntPoint::ZeroValue;
+    double LastObserverInputSeconds=0;
+    bool bGamepadHints=false;
+    TSet<FKey> HeldObserverKeys;
+    void TickControlsSmoke();
+    int32 ControlsSmokeStep=0;
+    double ControlsSmokeTime=0;
+};
 UCLASS()
 class DARKFACTORY_API ADarkFactoryGameMode : public AGameModeBase {
     GENERATED_BODY()
@@ -50,6 +74,7 @@ private:
     void MeasureHUDText(const FString& Text,float& Width,float& Height,UFont* Font,float Scale=1.f) const;
     // Bracketed key names render yellow; descriptions render white, without brackets.
     void DrawHUDControls(const FString& Text,float X,float Y,float Scale=1.f);
+    float DrawObserverControls(const ADarkFactoryProcessController* Process,float Margin);
     FIntRect ThermalPreviewQARegion=FIntRect(0,0,0,0);
     FIntRect ThermalObserverQARegion=FIntRect(0,0,0,0);
     int32 ColliderOverlayMode=0;
@@ -70,7 +95,7 @@ private:
     UPROPERTY() TArray<TObjectPtr<UMaterialInstanceDynamic>> ThermalScaleMaterials;
     void DrawProductionStatus(const ADarkFactoryWeldingCell* Cell,float RightPanelX);
     void DrawProcessStatus(const ADarkFactoryProcessController* Process,float RightPanelX);
-    void DrawProcessCaptures(const ADarkFactoryProcessController* Process,const ADarkFactoryWorld* World,float RightPanelX,float PanelWidth);
+    void DrawProcessCaptures(const ADarkFactoryProcessController* Process,const ADarkFactoryWorld* World,float RightPanelX,float PanelWidth,float MaxBottom);
     void DrawInspectionReplay(const ADarkFactoryProcessController* Process,float RightPanelX,float PanelWidth);
     void InitializeThermalScales(UMaterialInterface* Parent);
     void DrawThermalScale(int32 Palette,float MinC,float MaxC,float X,float Y,float Width,float Scale=1.f);

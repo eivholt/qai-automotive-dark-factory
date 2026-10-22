@@ -21,6 +21,12 @@ def verify(directory: Path) -> dict:
     check("actual_capture_priming", report.get("capture_prime_frames") == 3)
     check("fixed_sensor_render_sequence", report.get("sensor_render_sequence") == 0)
     check("meaningful_thermal_display_range", report.get("observer_thermal_range") == "0-120 C")
+    startup = report.get("startup_graphics", {})
+    check("all_graphics_requested_by_default", all(startup.get(k) is True for k in
+          ("dlss_requested", "lumen_requested", "hardware_rt_requested")))
+    check("default_visible_dlss_enabled_when_supported", startup.get("dlss_enabled") is (startup.get("dlss_supported") is True))
+    check("default_visible_lumen_enabled", startup.get("lumen_enabled") is True)
+    check("default_visible_hardware_rt_enabled_when_supported", startup.get("hardware_rt_enabled") is (startup.get("hardware_rt_supported") is True))
     samples = report.get("samples", [])
     check("all_32_states", len(samples) == 32)
     if len(samples) != 32:
@@ -36,6 +42,8 @@ def verify(directory: Path) -> dict:
     sensor_names = {"r4_nir", "r4_thermal", "fixed_nir", "fixed_thermal"}
     for index, sample in enumerate(samples):
         name = f"state_{index}"
+        for field in ("f11_fullscreen_disabled", "window_mode_unchanged", "viewport_size_unchanged"):
+            check(name+"_"+field, sample.get(field) is True)
         flags = tuple(sample.get(k) for k in ("dlss_requested", "lumen_requested", "hardware_rt_requested"))
         check(name+"_boolean_preferences", all(type(v) is bool for v in flags))
         mode = sample.get("observer_mode")

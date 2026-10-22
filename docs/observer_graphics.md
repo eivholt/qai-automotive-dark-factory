@@ -6,10 +6,24 @@ with ordinary windowed mode, so the requested size is retained instead of
 expanding to the desktop resolution. Automated capture and smoke fixtures
 default to 1600 × 900; sensor targets remain 448 × 256.
 
+On Windows, interactive launches center the borderless window within the full
+monitor bounds and place it above the taskbar while focused. Alt-Tab removes
+that topmost placement so other applications remain accessible; focusing the
+demo restores it. This changes native window stacking only, preserving the
+requested client/capture dimensions and ordinary windowed mode. Pass
+`-NoTaskbarOverlay` to the launcher to retain normal Windows taskbar stacking.
+
 V-sync is enabled by default for interactive launches. The launcher passes
 `-vsync`, overriding older saved preferences, while automated capture/smoke
 runs pass `-novsync` to preserve their existing timing. The 60 FPS limit is
 retained; V-sync does not request a higher frame rate.
+
+Interactive visible views request DLSS Quality, Lumen GI/reflections and hardware
+ray tracing by default when supported; F6/F7/F11 remain their individual toggles.
+F11's built-in fullscreen action is disabled in the project and at runtime so
+saved input settings cannot consume it before the ray-tracing binding. The
+interactive launcher also defaults the visual enhancement pack on; explicit
+`-Enhancements:$false` disables it. Automated fixtures preserve their prior defaults.
 
 ## OBS capture
 

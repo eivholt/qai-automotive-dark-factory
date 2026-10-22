@@ -104,6 +104,8 @@ public:
     static double GetPanelAdhesiveProgress(int32 Bead,double PhaseSeconds);
     void SetPanelSupplyCount(int32 Count);
     void SetPanelMotionState(EDarkFactoryProcessPhase Phase,double PhaseSeconds,bool HoldingPanel=false);
+    EDarkFactoryProcessPhase GetPanelPhaseForAudio() const { return PanelPhase; }
+    double GetPanelPhaseSecondsForAudio() const { return PanelPhaseSeconds; }
     TSharedRef<FJsonObject> GetPanelAssemblyMetadata() const;
     FString GetPanelFramePath() const;
     double GetArrivalOffsetCm() const { return ArrivalOffset; }

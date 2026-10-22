@@ -2,6 +2,12 @@
 
 This implements elements **7 (spatial factory soundscape)** and **8 (production-status strip)** of the requested factory-detail pass. Both follow the imported welding simulation. They do not indicate inspection quality, live IQ9 telemetry or model decisions.
 
+The audio description and September validation below describe the original
+procedural path, retained for code-only checkouts and legacy fixtures. Interactive
+imported scenes now prefer the [approved recorded sound bank](audio_sound_design.md#unreal-integration),
+including recorded robot movement, physical-job sounds, camera captures and
+observer-mode cues. Its six-source mixer and validation are documented separately.
+
 ## 7. Spatial factory soundscape
 
 Factory machinery has multiple noise sources, and their physical mechanisms differ. HSE's engineering examples include vibration and conveyor-related noise; its noise guidance also describes sound from rotating fan blades. These support distinct drive and extractor layers rather than one undifferentiated room recording. The chosen pitches, levels and weld crackle remain authored demonstration sounds, not measurements or an exposure model. [HSE: noise in engineering](https://www.hse.gov.uk/engineering/noise.htm), [HSE: controlling noise at work](https://www.hse.gov.uk/pubns/priced/l108.pdf).

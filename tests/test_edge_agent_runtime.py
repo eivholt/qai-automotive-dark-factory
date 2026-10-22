@@ -233,6 +233,30 @@ class EdgeRuntimeTests(unittest.TestCase):
         self.runtime.exchange(packet)
         self.assertTrue(self.cell.closed)
 
+    def test_late_job_result_preserves_heartbeat_hold_until_explicit_resume(self):
+        self.arrive()
+        call = self.start('B')
+        requests = self.runtime.requests
+        self.now += er.LEASE_SECONDS
+        self.runtime.tick()
+        self.assertTrue(self.cell.held)
+        result = self.event('result', dict(status='completed',
+                            completed_steps=['apply_sealant', 'place_panel']), call)
+        reply = self.exchange([result], busy=False, paused=True, epoch=2)
+        self.assertEqual(reply['state'], 'held')
+        self.assertIn('heartbeat expired', reply['error'])
+        self.assertIsNone(self.cell.running)
+        self.assertEqual(len(self.cell.history), 3)
+        # Replayed completion is still acknowledged once, with no new action.
+        self.exchange([result])
+        self.runtime.tick()
+        self.assertEqual(self.runtime.requests, requests)
+        reply = self.exchange(paused=False, epoch=3)
+        self.assertEqual(reply['error'], '')
+        self.assertFalse(self.cell.held)
+        self.decide('C')
+        self.assertEqual(self.runtime.requests, requests+1)
+
     def test_model_error_and_turn_budget_hold_without_repair(self):
         self.arrive()
         self.runtime.call = lambda *_: dict(choices=[])

@@ -25,6 +25,27 @@ the existing image, adapter and freshness contracts intact.
 
 On the prepared EVK deployment, from the repository's PowerShell:
 
+User services must survive the startup shell closing. On this installation,
+enable user-service lingering once for both the WSL and EVK accounts:
+
+```powershell
+wsl.exe -d Ubuntu -u root -- loginctl enable-linger eivho
+wsl.exe -d Ubuntu -- ssh ubuntu@192.168.1.158 sudo loginctl enable-linger ubuntu
+```
+
+Without lingering, the service manager can stop the models and SSH tunnels
+shortly after these launch commands return. This setting keeps the user service
+manager alive; it does not install model boot autostart. WSL can still shut down
+the entire VM when no foreground WSL session remains. The Unreal PowerShell
+launcher now owns a hidden foreground WSL keepalive for live EVK runs, ensures
+the appropriate SSH tunnels, and releases its keepalive when the demo exits.
+It does not start the model hosts. Then start the stack:
+
+After a connection outage, pause/resume reconnects the same retained conversation
+through a new cancellation epoch. A late actual job result is recorded once but
+must not clear the heartbeat hold; only explicit resume can release it. A runtime
+service restart still requires a fresh demo session because history is in memory.
+
 ```powershell
 wsl.exe -d Ubuntu -- ssh ubuntu@192.168.1.158 bash /home/ubuntu/qai-dark-factory/repo/scripts/model/start_evk_qairt.sh --agent
 wsl.exe -d Ubuntu -- bash scripts/model/start_evk_tunnel.sh --agent

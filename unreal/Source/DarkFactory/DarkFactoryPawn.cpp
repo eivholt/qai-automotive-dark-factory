@@ -272,6 +272,7 @@ void ADarkFactoryPawn::SetObserverMode(int32 Mode) {
     auto* W=Cell(GetWorld());
     if (Mode<0 || Mode>3) Mode=0;
     if (Mode==2 && W && W->IsImportedScene() && !W->GetThermalRig()) Mode=0;
+    const bool ModeChanged=ObserverMode!=Mode;
     ObserverMode=Mode;
     UpdateObserverGraphics();
     const bool ColorView=Mode==3 || (W && W->IsImportedScene() && Mode==0);
@@ -279,6 +280,7 @@ void ADarkFactoryPawn::SetObserverMode(int32 Mode) {
     bThermalView=Mode==2; bAssistedView=Mode==1;
     UpdateObserverLighting();
     if (W) W->SetFactoryLightsEnabled(Mode==3);
+    if (ModeChanged && !bAutomation && W && W->GetSoundscape()) W->GetSoundscape()->NotifyObserverMode(Mode);
     if (NightVisionMaterial) Camera->AddOrUpdateBlendable(NightVisionMaterial.Get(),bAssistedView ? 1.f:0.f);
     if (ThermalMaterial) {
         if (W) if (auto* Thermal=W->GetThermalRig()) Thermal->ApplyObserverMaterial(ThermalMaterial,Thermal->DisplayPalette);

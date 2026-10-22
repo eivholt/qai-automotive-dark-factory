@@ -15,12 +15,56 @@
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "InputKeyEventArgs.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/InputSettings.h"
 #include "Materials/MaterialInstanceDynamic.h"
 
 ADarkFactoryGameMode::ADarkFactoryGameMode() {
     DefaultPawnClass=ADarkFactoryPawn::StaticClass();
     HUDClass=ADarkFactoryHUD::StaticClass();
+    PlayerControllerClass=ADarkFactoryPlayerController::StaticClass();
+}
+void ADarkFactoryPlayerController::BeginPlay() {
+    Super::BeginPlay();
+    // F11 belongs to the observer RT toggle. Also override older saved input
+    // settings so the viewport cannot consume it as a fullscreen transition.
+    GetMutableDefault<UInputSettings>()->bF11TogglesFullscreen=false;
+    // Start the idle interval on the first usable frame, after scene loading.
+    LastObserverInputSeconds=0;
+}
+bool ADarkFactoryPlayerController::InputKey(const FInputKeyEventArgs& Params) {
+    const FKey Key=Params.Key;
+    const bool Axis=Key.IsAxis1D() || Key.IsAxis2D() || Key.IsAxis3D();
+    // Ignore idle device reports and stick drift, not sustained intentional input.
+    const bool Trigger=Key==EKeys::Gamepad_LeftTriggerAxis || Key==EKeys::Gamepad_RightTriggerAxis;
+    const float Threshold=Key.IsGamepadKey() ? (Trigger ? .01f:.18f):.001f;
+    const bool Meaningful=Axis ? FMath::Abs(Params.AmountDepressed)>Threshold
+        : Params.Event==IE_Pressed || Params.Event==IE_Repeat || Params.Event==IE_Released;
+    if (Meaningful) {
+        LastObserverInputSeconds=FPlatformTime::Seconds();
+        bGamepadHints=Key.IsGamepadKey();
+    }
+    if (!Axis) {
+        if (Params.Event==IE_Pressed) HeldObserverKeys.Add(Key);
+        else if (Params.Event==IE_Released) HeldObserverKeys.Remove(Key);
+    }
+    return Super::InputKey(Params);
+}
+void ADarkFactoryPlayerController::PlayerTick(float DeltaTime) {
+    if (LastObserverInputSeconds==0) LastObserverInputSeconds=FPlatformTime::Seconds();
+    Super::PlayerTick(DeltaTime);
+    UpdateObserverWindow();
+    // Focus loss flushes PlayerInput; do not leave a phantom held key behind.
+    for (auto It=HeldObserverKeys.CreateIterator();It;++It)
+        if (!IsInputKeyDown(*It)) It.RemoveCurrent();
+    if (!HeldObserverKeys.IsEmpty()) LastObserverInputSeconds=FPlatformTime::Seconds();
+    TickControlsSmoke();
+}
+float ADarkFactoryPlayerController::GetControlsReveal() const {
+    if (LastObserverInputSeconds==0) return 0;
+    const float T=FMath::Clamp(float((FPlatformTime::Seconds()-LastObserverInputSeconds-5.)/.3),0.f,1.f);
+    return T*T*(3.f-2.f*T);
 }
 void ADarkFactoryGameMode::StartPlay() {
     // Editor preview actors never participate in runtime physics or sensor views.
@@ -102,10 +146,8 @@ void ADarkFactoryHUD::DrawThermalScale(int32 Palette,float MinC,float MaxC,float
 }
 void ADarkFactoryHUD::DrawObserverThermalScale(const ADarkFactoryThermalRig* Thermal,float X,float Y,float Width,float Scale) {
     if (!Thermal) return;
-    DrawRect(FLinearColor(.008f,.015f,.024f,.86f),X,Y,Width,82.f*Scale);
-    DrawHUDText(TEXT("Observer / apparent temperature"),FLinearColor(.85f,.9f,.94f),X+10*Scale,Y+7*Scale,GEngine->GetSmallFont(),.9f*Scale);
-    DrawThermalScale(Thermal->DisplayPalette,Thermal->GetObserverMinC(),Thermal->GetObserverMaxC(),X+10*Scale,Y+29*Scale,Width-20*Scale,Scale);
-    DrawHUDText(TEXT("Fixed 0-120 C   + saturated"),FLinearColor(.65f,.76f,.82f),X+10*Scale,Y+62*Scale,GEngine->GetSmallFont(),.78f*Scale);
+    DrawRect(FLinearColor(.008f,.015f,.024f,.86f),X,Y,Width,50.f*Scale);
+    DrawThermalScale(Thermal->DisplayPalette,Thermal->GetObserverMinC(),Thermal->GetObserverMaxC(),X+10*Scale,Y+9*Scale,Width-20*Scale,Scale);
 }
 namespace {
 const TCHAR* GateLabel(EDarkFactoryGateState State) {
@@ -254,7 +296,7 @@ void ADarkFactoryHUD::DrawProcessStatus(const ADarkFactoryProcessController* Pro
     Width=FMath::Min(Width,940.f);
     const float Scale=Width<580.f ? .76f:.90f;
     const FLinearColor Pale(.84f,.92f,.97f),Muted(.58f,.71f,.80f),Amber(1.f,.68f,.22f);
-    DrawRect(FLinearColor(.008f,.015f,.024f,.90f),X,Y,Width,252.f);
+    DrawRect(FLinearColor(.008f,.015f,.024f,.90f),X,Y,Width,State.bAgentControl ? 252.f:233.f);
     auto Fit=[&](const FString& Text,float MaxWidth,float TextScale) {
         FString Result=Text.Left(192).Replace(TEXT("\n"),TEXT(" ")).Replace(TEXT("\r"),TEXT(" ")).Replace(TEXT("\t"),TEXT(" ")); float W=0,H=0; MeasureHUDText(Result,W,H,GEngine->GetSmallFont(),TextScale);
         if (W>MaxWidth) {
@@ -270,12 +312,8 @@ void ADarkFactoryHUD::DrawProcessStatus(const ADarkFactoryProcessController* Pro
         State.bPaused ? TEXT("PAUSED / "):TEXT(""),ProcessPhaseLabel(State.Phase)),Width-20,Scale),State.bPaused ? Amber:Pale,X+10,Y+7,GEngine->GetSmallFont(),Scale);
     const FString Backend=State.Backend.IsEmpty() ? TEXT("CONNECTING"):State.Backend;
     if (Process->CanSwitchModelBackend()) {
-        float HintWidth=0,TextHeight=0,LabelWidth=0;
-        MeasureHUDText(TEXT("F4 / RS: switch EVK / GPU"),HintWidth,TextHeight,GEngine->GetSmallFont(),.82f*Scale);
-        const FString Label=Fit(Process->GetModelBackendLabel(),Width-40-HintWidth,.82f*Scale);
+        const FString Label=Fit(Process->GetModelBackendLabel(),Width-20,.82f*Scale);
         DrawHUDText(Label,Muted,X+10,Y+29,GEngine->GetSmallFont(),.82f*Scale);
-        MeasureHUDText(Label,LabelWidth,TextHeight,GEngine->GetSmallFont(),.82f*Scale);
-        DrawHUDControls(TEXT("[F4 / RS]: switch EVK / GPU"),X+30+LabelWidth,Y+29,.82f*Scale);
     } else DrawHUDText(Fit(TEXT("Inspection backend: ")+Backend,Width-20,.82f*Scale),Muted,X+10,Y+29,GEngine->GetSmallFont(),.82f*Scale);
     const TCHAR* Names[]={TEXT("Panel / NIR"),TEXT("Sealant / thermal"),TEXT("Seating / NIR"),TEXT("Weld / thermal")};
     const float Column=(Width-20.f)/4.f;
@@ -320,24 +358,22 @@ void ADarkFactoryHUD::DrawProcessStatus(const ADarkFactoryProcessController* Pro
     const FString Summary=State.bAgentControl ? FString::Printf(TEXT("Agent %.1f s | Reason2 %s | Audit errors %d | Exited %d"),State.AgentLatencyMs/1000.f,*Latency,State.AgentAuditFailures,State.PassedBodies)
         :FString::Printf(TEXT("%s   Last %s / %s   Exited %d"),Branch,*State.Decision,*Latency,State.PassedBodies);
     DrawHUDText(Fit(Summary,Width-20,.82f*Scale),Muted,X+10,Y+211,GEngine->GetSmallFont(),.82f*Scale);
-    DrawHUDText(Fit(State.bAgentControl ? State.AgentAction+TEXT(": ")+State.AgentReason:TEXT("R: missing panel -> assemble; hot -> wait; seating fault -> hold"),Width-20,.74f*Scale),Muted,X+10,Y+231,GEngine->GetSmallFont(),.74f*Scale);
+    if (State.bAgentControl)
+        DrawHUDText(Fit(State.AgentAction+TEXT(": ")+State.AgentReason,Width-20,.74f*Scale),Muted,X+10,Y+231,GEngine->GetSmallFont(),.74f*Scale);
 }
-void ADarkFactoryHUD::DrawProcessCaptures(const ADarkFactoryProcessController* Process,const ADarkFactoryWorld* World,float RightPanelX,float PanelWidth) {
+void ADarkFactoryHUD::DrawProcessCaptures(const ADarkFactoryProcessController* Process,const ADarkFactoryWorld* World,float RightPanelX,float PanelWidth,float MaxBottom) {
     if (!Process || !World || !Canvas) return;
     if (Process->IsInspectionReplayVisible()) { DrawInspectionReplay(Process,RightPanelX,PanelWidth); return; }
     const auto& State=Process->GetStatus();
     const bool NIR=State.bAgentControl ? (State.LastInspectionStage.IsEmpty() || State.LastInspectionStage==TEXT("panel_presence") || State.LastInspectionStage==TEXT("panel_seated")):
         (State.Phase<=EDarkFactoryProcessPhase::PanelPlacement || State.Phase==EDarkFactoryProcessPhase::PanelSeated);
     const int32 Count=3;
-    const float Margin=14.f,Header=58.f,Footer=28.f,Extra=NIR ? 36.f:62.f;
+    const float Margin=14.f,Header=12.f,Footer=12.f,Extra=NIR ? 36.f:62.f;
     const float Height=FMath::Min((PanelWidth-20.f)/1.75f,FMath::Max(32.f,
-        (Canvas->ClipY-2*Margin-70.f-Header-Footer-Count*Extra)/Count));
+        (MaxBottom-Margin-Header-Footer-Count*Extra)/Count));
     const float Width=Height*1.75f,ImageX=RightPanelX+(PanelWidth-Width)*.5f;
-    const FLinearColor Pale(.82f,.92f,.97f),Muted(.55f,.70f,.79f);
+    const FLinearColor Muted(.55f,.70f,.79f);
     DrawRect(FLinearColor(.008f,.015f,.024f,.88f),RightPanelX,Margin,PanelWidth,Header+Count*(Height+Extra)+Footer);
-    DrawHUDText(TEXT("Gate camera captures"),Pale,RightPanelX+10,Margin+9,GEngine->GetSmallFont(),1.f);
-    if (State.bPaused) DrawHUDText(TEXT("Paused / latest captured frames"),Muted,RightPanelX+10,Margin+31,GEngine->GetSmallFont(),.80f);
-    else DrawHUDControls(TEXT("Updates on inspection / [F5]: replay"),RightPanelX+10,Margin+31,.80f);
     float Y=Margin+Header;
     for (int32 I=0;I<Count;++I) {
         const FString Name=NIR ? FString::Printf(TEXT("R4 NIR / spot %d"),I+1):FString::Printf(TEXT("R4 thermal / spot %d / color"),I+1);
@@ -361,7 +397,50 @@ void ADarkFactoryHUD::DrawProcessCaptures(const ADarkFactoryProcessController* P
         }
         Y+=Height+(NIR ? 14.f:40.f);
     }
-    DrawHUDText(NIR ? TEXT("Raw grayscale model inputs"):TEXT("Model grayscale / 120+ is saturated"),Muted,RightPanelX+10,Y+3,GEngine->GetSmallFont(),.82f);
+}
+float ADarkFactoryHUD::DrawObserverControls(const ADarkFactoryProcessController* Process,float Margin) {
+    const auto* PC=Cast<ADarkFactoryPlayerController>(PlayerOwner);
+    if (!PC) return Canvas->ClipY-Margin-48.f;
+    const bool Gamepad=PC->UsesGamepadHints();
+    TArray<FString> Items;
+    if (Gamepad) {
+        Items={TEXT("[Left stick]: fly"),TEXT("[Right stick]: look"),TEXT("[LT / RT]: height"),
+            TEXT("[Y]: dim, NIR, thermal, bright"),TEXT("[D-pad left]: palette"),
+            TEXT("[View]: motion"),TEXT("[X]: viewpoint"),TEXT("[Menu]: home"),TEXT("[LS]: colliders")};
+        if (Process && Process->CanSwitchModelBackend()) Items.Add(TEXT("[RS]: switch EVK / GPU"));
+    } else {
+        const auto* Pawn=Cast<ADarkFactoryPawn>(PlayerOwner->GetPawn());
+        const TCHAR* Headlamp=Pawn && Pawn->IsFactoryLightsView() ? TEXT("[L]: headlamp disabled in bright view"):
+            Pawn && Pawn->IsObserverHeadlightEnabled() ? TEXT("[L]: headlamp on"):TEXT("[L]: headlamp off");
+        Items={TEXT("[WASD / mouse]: fly & look"),TEXT("[Q / E]: height"),TEXT("[Shift]: boost"),Headlamp,
+            TEXT("[Esc]: quit"),TEXT("[Tab]: dim, NIR, thermal, bright"),TEXT("[K]: palette"),
+            TEXT("[Space]: motion"),TEXT("[B]: viewpoint"),TEXT("[M]: sound"),TEXT("[Home]: home"),TEXT("[F8]: colliders"),
+            TEXT("[F6]: DLSS"),TEXT("[F7]: Lumen"),TEXT("[F11]: ray tracing")};
+        if (Process && Process->CanSwitchModelBackend()) Items.Add(TEXT("[F4]: switch EVK / GPU"));
+        if (Process) {
+            Items.Add(TEXT("[F5]: inspection replay"));
+            if (Process->IsInspectionReplayVisible()) Items.Add(TEXT("[PageUp / PageDown]: replay history"));
+        }
+    }
+    // Wrap whole bindings instead of shrinking text or clipping narrow windows.
+    TArray<FString> Lines; FString Line;
+    for (const FString& Item:Items) {
+        const FString Candidate=Line.IsEmpty() ? Item:Line+TEXT("   ")+Item;
+        FString Measured=Candidate.Replace(TEXT("["),TEXT("")).Replace(TEXT("]"),TEXT(""));
+        float Width=0,Height=0; MeasureHUDText(Measured,Width,Height,GEngine->GetSmallFont(),.95f);
+        if (!Line.IsEmpty() && Width>Canvas->ClipX-2*Margin-20) { Lines.Add(Line); Line=Item; }
+        else Line=Candidate;
+    }
+    if (!Line.IsEmpty()) Lines.Add(Line);
+    const float Height=Lines.Num()*20.f+8.f;
+    const float RestingTop=Canvas->ClipY-Margin-Height;
+    const float Reveal=PC->GetControlsReveal();
+    if (Reveal>0) {
+        const float Bottom=FMath::Lerp(Canvas->ClipY,RestingTop,Reveal);
+        DrawRect(FLinearColor(.008f,.015f,.024f,.75f),Margin,Bottom,Canvas->ClipX-2*Margin,Height);
+        for (int32 I=0;I<Lines.Num();++I) DrawHUDControls(Lines[I],Margin+10,Bottom+4+I*20.f,.95f);
+    }
+    return RestingTop;
 }
 void ADarkFactoryHUD::DrawHUD() {
     if (!bShowHUD) return;
@@ -403,10 +482,11 @@ void ADarkFactoryHUD::DrawHUD() {
         const float ImageX=RightX+(PanelWidth-ImageWidth)*.5f;
         const auto* Process=World->GetProcessController();
         const bool ProcessEnabled=Process && Process->GetStatus().bEnabled;
+        const float ControlsTop=DrawObserverControls(Process,Margin);
         if (ProcessEnabled) DrawProcessStatus(Process,RightX);
         else DrawProductionStatus(World->GetWeldingCell(),RightX);
         DrawColliderLegend(RightX,true);
-        if (ProcessEnabled) DrawProcessCaptures(Process,World,RightX,PanelWidth);
+        if (ProcessEnabled) DrawProcessCaptures(Process,World,RightX,PanelWidth,ControlsTop-(Pawn && Pawn->IsThermalView() ? 66.f:8.f));
         else {
         const float PanelHeight=3.f*ImageHeight+207.f;
         DrawRect(FLinearColor(.008f,.015f,.024f,.82f),RightX,Margin,PanelWidth,PanelHeight);
@@ -440,23 +520,8 @@ void ADarkFactoryHUD::DrawHUD() {
         const FString Phase=ProcessEnabled ? ProcessPhaseLabel(Process->GetStatus().Phase):World->GetWeldingCell()->GetCyclePhaseName();
         DrawHUDText(Phase,FLinearColor(.93f,.78f,.51f),RightX+10.f,LabelY,GEngine->GetSmallFont(),.95f);
         }
-        DrawRect(FLinearColor(.008f,.015f,.024f,.76f),Margin,Margin,260.f,82.f);
-        DrawHUDText(ProcessEnabled ? TEXT("Automotive inspection cell"):TEXT("Car-body welding cell"),FLinearColor(.87f,.94f,1.f),Margin+10.f,Margin+8.f,GEngine->GetSmallFont(),1.1f);
-        DrawHUDText(ObserverView,FLinearColor(.68f,.79f,.86f),Margin+10.f,Margin+31.f,GEngine->GetSmallFont(),1.f);
-        DrawHUDText(FrameRateText,FLinearColor(.78f,.90f,.80f),Margin+10.f,Margin+54.f,GEngine->GetSmallFont(),1.f);
-        if (Pawn && !Pawn->IsGraphicsLegacyFixture()) {
-            DrawRect(FLinearColor(.008f,.015f,.024f,.76f),Margin,Margin+90.f,260.f,68.f);
-            TArray<FString> GraphicsLines; Pawn->GetGraphicsStatus().ParseIntoArray(GraphicsLines,TEXT(" | "),true);
-            for (int32 I=0;I<FMath::Min(3,GraphicsLines.Num());++I) {
-                if (I==2) DrawHUDControls(TEXT("[F6]: DLSS / [F7]: Lumen / [F11]: RT"),Margin+10.f,Margin+98.f+19.f*I,.85f);
-                else DrawHUDText(GraphicsLines[I],FLinearColor(.68f,.79f,.86f),Margin+10.f,Margin+98.f+19.f*I,GEngine->GetSmallFont(),.85f);
-            }
-        }
-        if (Pawn && Pawn->IsThermalView()) DrawObserverThermalScale(World->GetThermalRig(),Margin,Canvas->ClipY-154.f,280.f);
-        const float Bottom=Canvas->ClipY-58.f;
-        DrawRect(FLinearColor(.008f,.015f,.024f,.75f),Margin,Bottom,Canvas->ClipX-2.f*Margin,44.f);
-        DrawHUDControls(FString::Printf(TEXT("[WASD / sticks]: fly & look   [Q/E / triggers]: height   [Shift]: boost   %s   [Esc]: quit"),HeadlightStatus),Margin+10.f,Bottom+5.f,.95f);
-        DrawHUDControls(TEXT("[Tab / Y]: dim, NIR, thermal, bright   [K / D-pad left]: palette   [Space / View]: motion   [B / X]: viewpoint   [M]: sound   [Home / Menu]: home   [F8 / LS]: colliders"),Margin+10.f,Bottom+24.f,.95f);
+        if (Pawn && Pawn->IsThermalView())
+            DrawObserverThermalScale(World->GetThermalRig(),RightX,ControlsTop-58.f,PanelWidth);
         return;
     }
     const float Scale=FMath::Clamp(Canvas->ClipX/1500.f,.7f,1.3f);

@@ -7,6 +7,8 @@ param(
     [ValidateRange(360,4320)][int]$Height = 1440,
     [ValidateRange(0,20000)][float]$RoofLightLumens = 80,
     [switch]$NoInference,
+    [ValidateRange(-12,18)][float]$FactorySoundGainDb = 10,
+    [switch]$RenderOffscreen,
     [switch]$Enhancements,
     [switch]$NoThermalReflections,
     [switch]$InspectionReplay,
@@ -15,6 +17,7 @@ param(
     [switch]$NoDLSS,
     [switch]$NoLumen,
     [switch]$NoHardwareRayTracing,
+    [switch]$NoTaskbarOverlay,
     [switch]$GraphicsSmoke,
     [ValidateSet('auto','procedural','welding')][string]$Scene = 'auto',
     [string]$SceneManifest = '',
@@ -222,11 +225,15 @@ $Exe = Join-Path $EngineRoot 'Engine\Binaries\Win64\UnrealEditor.exe'
 # Interactive windows use the project borderless style. Preserve the rendered
 # fixtures' established 1600x900 viewport unless explicitly overridden.
 $AutomatedRun = $GraphicsSmoke -or $CurtainSmoke -or $ProcessCapture -or $ProcessSmoke -or $ProcessPolicySmoke -or $WeldingSmoke -or $Smoke -or $NightVisionSmoke -or $ThermalSmoke -or $ModalityScreenshots -or $ReadbackSmoke -or $BridgeSmoke -or $Dataset -gt 0 -or $Plan
+if (-not $AutomatedRun -and -not $PSBoundParameters.ContainsKey('Enhancements')) { $Enhancements = $true }
 if ($AutomatedRun) {
     if (-not $PSBoundParameters.ContainsKey('Width')) { $Width = 1600 }
     if (-not $PSBoundParameters.ContainsKey('Height')) { $Height = 900 }
 }
 $Arguments = @($Project, '-game', '-windowed', '-ForceRes', "-ResX=$Width", "-ResY=$Height", '-NoSplash', "-DFEndpoint=$Endpoint", "-DFSeed=$Seed", "-DFRoofLightLumens=$RoofLightLumens")
+$Arguments += "-DFAudioGainDb=$FactorySoundGainDb"
+if ($RenderOffscreen) { $Arguments += '-RenderOffscreen' }
+if (-not $AutomatedRun -and -not $NoTaskbarOverlay) { $Arguments += '-DFTaskbarOverlay' }
 # Override older saved preferences while keeping offline fixtures independent
 # of the desktop refresh rate.
 $Arguments += $(if ($AutomatedRun) { '-novsync' } else { '-vsync' })
@@ -312,8 +319,27 @@ if ($ProcessSmoke -or $ProcessPolicySmoke) {
     if (Test-Path -LiteralPath $GraphicsReportPath) { throw 'GraphicsSmoke requires a fresh output; previous evidence is preserved.' }
     $Arguments += "-DFOutput=$GraphicsRunOutput"
 } elseif ($Output) { $Arguments += "-DFOutput=$([IO.Path]::GetFullPath($Output))" }
-& $Exe @Arguments | Out-Host
-$SimulationExitCode = $LASTEXITCODE
+$NeedsEvkSession = ($Process -or $ProcessSmoke) -and -not ($NoInference -or $ProcessCapture -or $ProcessPolicySmoke) -and (
+    $ProcessModelSource -eq 'evk_hexagon' -or $ProcessBackendSwitch -or ($ProcessControl -eq 'agent' -and $AgentRuntime -eq 'evk'))
+$WslKeepAlive = $null
+if ($NeedsEvkSession) {
+    . (Join-Path $PSScriptRoot '..\..\scripts\model\keep_wsl_alive.ps1')
+    $WslKeepAlive = Start-DarkFactoryWslKeepAlive
+}
+try {
+    if ($NeedsEvkSession) {
+        # Maintain transport only; model services are still started explicitly.
+        $RepositoryPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+        $TunnelArguments = @('-d','Ubuntu','--cd',$RepositoryPath,'--','bash','scripts/model/start_evk_tunnel.sh')
+        if ($ProcessControl -eq 'agent' -or $ProcessBackendSwitch) { $TunnelArguments += '--agent' }
+        & wsl.exe @TunnelArguments | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw 'EVK tunnel startup failed' }
+    }
+    & $Exe @Arguments | Out-Host
+    $SimulationExitCode = $LASTEXITCODE
+} finally {
+    if ($WslKeepAlive) { Stop-DarkFactoryWslKeepAlive $WslKeepAlive }
+}
 if ($SimulationExitCode -ne 0) { throw "Simulation exited with code $SimulationExitCode" }
 if ($ProcessSmoke -or $ProcessPolicySmoke) {
     # UE can record RequestExitWithStatus(1) yet return Windows exit code 0.

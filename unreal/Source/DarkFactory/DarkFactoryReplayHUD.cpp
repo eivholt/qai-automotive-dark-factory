@@ -16,7 +16,6 @@ void ADarkFactoryHUD::DrawInspectionReplay(const ADarkFactoryProcessController* 
         DrawHUDText(Fit,Color,X+10,Y,GEngine->GetSmallFont(),Scale); Y+=18;
     };
     Line(TEXT("INSPECTION REPLAY / historical"),Amber,.90f);
-    DrawHUDControls(TEXT("[F5]: live / [PgUp-PgDn]: history"),X+10,Y,.8f); Y+=18;
     const auto* Receipt=Process->GetInspectionReceipt();
     if (!Receipt) { Line(TEXT("No retained requests yet"),Pale); Line(TEXT("Launch with -Enhancements"),Muted); return; }
     Line((Receipt->Stage==TEXT("adhesive") ? FString(TEXT("sealant")):Receipt->Stage)+TEXT(" / ")+Receipt->Body.Right(12),Pale);

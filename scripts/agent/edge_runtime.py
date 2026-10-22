@@ -215,7 +215,9 @@ class Runtime:
                                      content=json.dumps(result, separators=(",", ":"))))
             cell.running = None
             cell.departed = tool == "finish_body" and result["status"] == "completed"
-            cell.held = tool == "hold" and result["status"] == "held"
+            # A genuine late completion records the job, but cannot release a
+            # heartbeat/model-error hold. Only an explicit new resume epoch may.
+            cell.held = cell.held or (tool == "hold" and result["status"] == "held")
         else:
             raise ValueError("Unsupported equipment event")
         cell.ack = seq

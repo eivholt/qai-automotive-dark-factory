@@ -1,4 +1,5 @@
 #include "DarkFactoryProcessController.h"
+#include "DarkFactorySoundscape.h"
 #include "DarkFactoryAgentProtocol.h"
 #include "DarkFactoryWorld.h"
 #include "DarkFactoryProcessScene.h"
@@ -530,6 +531,7 @@ void ADarkFactoryProcessController::CaptureTick() {
     }
 }
 void ADarkFactoryProcessController::RecordInspectionCapture(USceneCaptureComponent2D* Camera) {
+    if (WorldOwner.IsValid() && WorldOwner->GetSoundscape()) WorldOwner->GetSoundscape()->NotifyInspectionCapture();
     // Private capture audit only. No poses, source temperatures or labels enter
     // the allowlisted model request constructed in SubmitBatch.
     auto View=MakeShared<FJsonObject>();
@@ -906,6 +908,7 @@ TSharedRef<FJsonObject> ADarkFactoryProcessController::BuildMetadata() const {
     Report->SetBoolField(TEXT("sensor_resources_ready"),bSensorResourcesReady);
     Report->SetNumberField(TEXT("sensor_startup_wait_seconds"),SensorResourcesReadyAt>0 ? SensorResourcesReadyAt-SessionStarted:0.);
     Report->SetNumberField(TEXT("ground_truth_fields_sent_to_model"),0); Report->SetNumberField(TEXT("legacy_bridge_requests"),0);
+    if (WorldOwner.IsValid() && WorldOwner->GetSoundscape()) Report->SetObjectField(TEXT("audio"),WorldOwner->GetSoundscape()->BuildMetadata());
     AppendAgentMetadata(Report);
     return Report;
 }

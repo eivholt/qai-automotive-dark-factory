@@ -5,6 +5,7 @@
 #include "DarkFactorySoundscape.generated.h"
 
 class ADarkFactoryWeldingCell;
+class ADarkFactoryRecordedAudio;
 class FJsonObject;
 struct FDarkFactoryAudioControls;
 
@@ -30,12 +31,14 @@ class DARKFACTORY_API ADarkFactorySoundscape : public AActor {
     GENERATED_BODY()
 public:
     ADarkFactorySoundscape();
-    bool Initialize(ADarkFactoryWeldingCell* Cell);
+    bool Initialize(ADarkFactoryWeldingCell* Cell,bool PreferRecorded=false);
     virtual void Tick(float DeltaSeconds) override;
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;
     void UpdateFromCell();
     void SetEnabled(bool Enabled);
     void SetMuted(bool Muted);
+    void NotifyObserverMode(int32 Mode);
+    void NotifyInspectionCapture();
     bool IsMuted() const { return bMuted; }
     bool IsEnabled() const { return bEnabled; }
     TSharedRef<FJsonObject> BuildMetadata() const;
@@ -45,6 +48,7 @@ public:
 private:
     UPROPERTY() TObjectPtr<USceneComponent> SceneRoot;
     UPROPERTY() TArray<TObjectPtr<UDarkFactoryMachineSynth>> Sources;
+    UPROPERTY() TObjectPtr<ADarkFactoryRecordedAudio> Recorded;
     TWeakObjectPtr<ADarkFactoryWeldingCell> SourceCell;
     TArray<TWeakObjectPtr<USceneComponent>> RobotAnchors;
     bool bInitialized=false, bEnabled=true, bMuted=false;

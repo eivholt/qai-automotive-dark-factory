@@ -1,0 +1,182 @@
+{
+  "title": "Dark factory sound review — geared servo motors and shorter camera cues",
+  "model_id": "eleven_text_to_sound_v2",
+  "output_format": "mp3_44100_128",
+  "prompt_influence": 0.45,
+  "clips": [
+    {
+      "id": "sled_arrival",
+      "label": "Car sled arriving",
+      "category": "Motion",
+      "duration_seconds": 6,
+      "loop": false,
+      "text": "Isolated automotive factory body carriage arriving on steel rails. Electric drive rises into a smooth fast roll, restrained wheel chatter and heavy mechanical mass, then decelerates with a short servo whine and firm cushioned docking clunk. Close clean industrial sound, dry recording, no voices, no music, no alarms."
+    },
+    {
+      "id": "robot_travel",
+      "label": "Robot travel A — smooth geared AC servos",
+      "category": "Motion",
+      "duration_seconds": 5,
+      "loop": false,
+      "text": "A real full-size six-axis automotive robot arm making one smooth movement. Permanent-magnet AC servo motors and precision reduction gearboxes produce a restrained continuous electric whirr with a fine gear whine. Pitch rises smoothly on acceleration, holds briefly, then falls with controlled braking. Quiet clean documentary machine sound, dry isolated recording. No stepped notes, chatter, dramatic effects, music or voices.",
+      "preview_gain_db": -6,
+      "revision_note": "New industrial AC servo and reduction-gear reference: smooth continuous whirr."
+    },
+    {
+      "id": "robot_travel_alternative",
+      "label": "Robot travel B — heavier reducer texture",
+      "category": "Motion",
+      "duration_seconds": 5,
+      "loop": false,
+      "text": "Natural close recording of a large automotive welding robot moving across its work envelope. Smooth three-phase AC servo motor whine layered with a soft dense low gearbox whirr from lubricated cycloidal reducers. Two axes gently overlap, accelerate and decelerate into a soft stop. Heavy precise well-maintained machinery, restrained and dry. No rhythmic stepping, musical tones, toy servos, rattling, impacts, music or voices.",
+      "preview_gain_db": -6,
+      "revision_note": "Alternative for comparison: fuller low motor tone and slightly more mechanical gear texture."
+    },
+    {
+      "id": "robot_precision",
+      "label": "Robot precision — quiet geared AC servos",
+      "category": "Motion",
+      "duration_seconds": 4,
+      "loop": true,
+      "text": "Seamless isolated loop of a large industrial robot making slow precise positioning movements. Brushless AC servo drives and lubricated reduction gears make a subdued smooth electric hum and delicate continuous mechanical whirr with small gradual speed changes. Restrained clean well-maintained machine, dry close recording. No stepped musical tones, squeaks, rattles, chattering hobby servos, impacts, music or voices.",
+      "preview_gain_db": -8,
+      "revision_note": "Gentle low-speed servo positioning, matching the new industrial drive reference."
+    },
+    {
+      "id": "pinch_clamp",
+      "label": "Pinch welder closing",
+      "category": "Welding and sealant",
+      "duration_seconds": 1.8,
+      "loop": false,
+      "text": "Single industrial resistance spot welding gun closing its electrode jaws: short electric actuator whirr, compact heavy metallic contact click, brief pressure creak and solid clamp. Close dry isolated mechanical sound. No arc yet, no explosion, no hammering sequence, no voices, no music."
+    },
+    {
+      "id": "spot_welding",
+      "label": "Spot welding bursts and expulsion",
+      "category": "Welding and sealant",
+      "duration_seconds": 4,
+      "loop": false,
+      "text": "Automotive resistance spot welding, three distinct short electrical weld pulses. Each has a tight transformer buzz and sharp crackling metal expulsion with tiny hot sparks sizzling and scattering onto steel. Mechanical and energetic but brief, not a continuous MIG arc, no huge explosions, no voices, no music, close isolated recording."
+    },
+    {
+      "id": "inspection_shutter",
+      "label": "Inspection capture cue",
+      "category": "Camera and lighting cues",
+      "duration_seconds": 0.7,
+      "loop": false,
+      "text": "A single very short understated synthetic camera capture cue: crisp soft shutter-like double tick with a tiny electronic click, premium industrial inspection interface, clean dry sound, no ringing notification melody, no voice, no music, no ambience. Artificial UI cue rather than a large photographic mirror mechanism."
+    },
+    {
+      "id": "panel_pickup",
+      "label": "Panel suction pickup",
+      "category": "Motion",
+      "duration_seconds": 2.8,
+      "loop": false,
+      "text": "Isolated vacuum gripper picking up a thin stamped automotive steel panel. Soft rubber suction cups settle with a muted contact, a brief vacuum intake hiss, small valve click, then a slight sheet metal flex and rattle as it lifts. Controlled industrial machinery, close dry recording, no voices, no music."
+    },
+    {
+      "id": "panel_placement",
+      "label": "Panel seating on frame",
+      "category": "Motion",
+      "duration_seconds": 3,
+      "loop": false,
+      "text": "Thin stamped automotive steel panel lowered carefully onto its matching metal mounting frame. A light hollow sheet-metal settling clack followed by two soft contact ticks and slight damped flex, cushioned by sealant. Precise controlled placement, not dropping scrap metal. Close dry isolated recording, no voices, no music."
+    },
+    {
+      "id": "sealant_dispense",
+      "label": "Sealant dispensing",
+      "category": "Welding and sealant",
+      "duration_seconds": 6,
+      "loop": true,
+      "text": "Seamless steady loop of an industrial robotic sealant dispenser extruding a thick adhesive bead. Restrained electric metering pump whirr, fine pneumatic hiss and subtle viscous extrusion texture, close detailed dry sound, smooth and consistent. No water splashing, no spray painting, no voices, no music, no ambience."
+    },
+    {
+      "id": "weld_cooling",
+      "label": "Cooling sheet metal — subdued settling",
+      "category": "Welding and sealant",
+      "duration_seconds": 6,
+      "loop": false,
+      "text": "Thin stamped automotive sheet steel cooling and contracting after welding. Several irregular hollow metallic oil-canning pops and low boing-like panel buckles, short dry creaks and elastic sheet-metal flex, strongest at first then fewer softer settling pops. Real broad steel panel changing tension, not crumpling foil. Isolated close recording, no frying sizzle, no water or steam, no music or voices.",
+      "preview_gain_db": -9,
+      "revision_note": "Same buckling and settling take, reduced by 9 dB."
+    },
+    {
+      "id": "roof_lights",
+      "label": "Fluorescent tubes — flicker then stable",
+      "category": "Camera and lighting cues",
+      "duration_seconds": 7,
+      "loop": false,
+      "text": "A bank of old fluorescent tubes starting in a factory. Contactor clack, then staggered repeated starter ticks, fluttering electrical buzz and sputtering ballast chatter as several tubes flicker on and off unevenly for four seconds. Flickering gradually stops, all tubes strike and settle into a faint smooth steady ballast hum for the last two seconds. No power explosion, no music or voices."
+    },
+    {
+      "id": "nir_enable",
+      "label": "NIR — short flash-capacitor charge",
+      "category": "Camera and lighting cues",
+      "duration_seconds": 3,
+      "loop": false,
+      "text": "One vintage portable photographic flash charging its large capacitor. A tiny switch click, coarse pulsing inverter whine climbs in pitch into a smooth thin sustained high electrical charging tone, then tapers to silence when charged. Recognizable old camera flash power supply, dense and analog, dry close detail. No flash discharge, no ready beep, no sci-fi chirp, no music or voices.",
+      "preview_edit": {
+        "kind": "compact_charge",
+        "duration_seconds": 1.5,
+        "pitch_semitones": 0
+      },
+      "revision_note": "Existing charging recording shortened to exactly 1.5 seconds; original pitch retained."
+    },
+    {
+      "id": "thermal_enable",
+      "label": "Thermal — short related capacitor charge",
+      "category": "Camera and lighting cues",
+      "duration_seconds": 3,
+      "loop": false,
+      "text": "One vintage portable photographic flash charging its large capacitor. A tiny switch click, coarse pulsing inverter whine climbs in pitch into a smooth thin sustained high electrical charging tone, then tapers to silence when charged. Recognizable old camera flash power supply, dense and analog, dry close detail. No flash discharge, no ready beep, no sci-fi chirp, no music or voices.",
+      "source_clip_id": "nir_enable",
+      "preview_edit": {
+        "kind": "compact_charge",
+        "duration_seconds": 1.5,
+        "pitch_semitones": -2
+      },
+      "revision_note": "Derived from the same NIR source, two semitones lower and also 1.5 seconds."
+    },
+    {
+      "id": "factory_ambience",
+      "label": "Factory room ambience",
+      "category": "Ambience",
+      "duration_seconds": 12,
+      "loop": true,
+      "text": "Seamless room tone loop inside a large automated automotive factory at night. Deep restrained ventilation rumble, distant low machinery hum, spacious natural industrial reflections, a few very faint remote mechanical textures. Mostly steady and unobtrusive, no distinct foreground actions, no voices, no footsteps, no music, no alarms."
+    },
+    {
+      "id": "extraction_fan",
+      "label": "Extraction — soft heavy industrial fans",
+      "category": "Ambience",
+      "duration_seconds": 10,
+      "loop": true,
+      "text": "Seamless loop of large heavy industrial ventilation fans turning slowly. Soft deep rounded motor hum, low broad blade wash and faint slow rotor modulation, steady unhurried weight, smooth restrained bass, minimal upper frequency air noise. Subtle distant fan bed for a quiet automated factory. No shrill suction whistle, no harsh hiss, no rattling, no startup, no music or voices.",
+      "preview_gain_db": -8
+    },
+    {
+      "id": "cabinet_hum",
+      "label": "Control cabinet electronics",
+      "category": "Ambience",
+      "duration_seconds": 8,
+      "loop": true,
+      "text": "Seamless quiet close loop of a powered industrial robot control cabinet: subtle small cooling fans, low transformer hum and faint electrical switching texture. Stable and unobtrusive, dry isolated detail for layering, no alarm beeps, no clicks, no coil scream, no voices, no music, no room ambience."
+    },
+    {
+      "id": "gripper_release",
+      "label": "Panel gripper releasing",
+      "category": "Motion",
+      "duration_seconds": 2,
+      "loop": false,
+      "text": "Vacuum panel gripper disengaging from a fixed steel panel: small pneumatic solenoid click, gentle brief pressure-release hiss and four soft rubber suction cup pops close together, then silence. Restrained clean industrial detail, dry close recording, no metal drop, no voices, no music."
+    },
+    {
+      "id": "sled_departure",
+      "label": "Car sled departing",
+      "category": "Motion",
+      "duration_seconds": 5,
+      "loop": false,
+      "text": "Automotive factory body carriage departing on steel rails. A restrained drive engagement clunk, rising electric traction motor whine and accelerating steel wheel roll, mechanical rumble receding into the distance. Smooth heavy controlled industrial movement, no train horn, no voices, no music, no background factory."
+    }
+  ]
+}
