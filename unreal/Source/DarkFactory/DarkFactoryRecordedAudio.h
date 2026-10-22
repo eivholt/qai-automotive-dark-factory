@@ -20,6 +20,7 @@ public:
     void SetState(float Motor,float Sealant,float Bed,float Gate);
     bool Cue(int32 Clip,float Gain);
     void Invalidate();
+    void CancelRoofStartup();
     TSharedRef<FJsonObject> BuildMetadata() const;
 protected:
     virtual bool Init(int32& SampleRate) override;

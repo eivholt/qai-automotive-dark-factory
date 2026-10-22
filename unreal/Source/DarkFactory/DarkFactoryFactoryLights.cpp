@@ -1,4 +1,5 @@
 #include "DarkFactoryFactoryLights.h"
+#include "DarkFactoryFluorescentTiming.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/RectLightComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -8,27 +9,14 @@
 #include "Materials/MaterialInstanceDynamic.h"
 
 namespace {
-constexpr float StartupDurationSeconds=1.5f;
+constexpr float StartupDurationSeconds=DarkFactoryFluorescent::DurationSeconds;
 constexpr float RoofOutputScale=.6f;
 constexpr float NominalTubeEmission=12.f*RoofOutputScale;
-constexpr float StartDelays[]={0.f,.12f,.24f,.06f,.18f,.30f};
+constexpr auto& StartDelays=DarkFactoryFluorescent::Delays;
 const FLinearColor TubeColor(.82f,.91f,1.f);
 
 float BankGain(float Elapsed,int32 Bank) {
-    const float T=Elapsed-StartDelays[Bank];
-    // Authored cold-start strikes, not a simulation of mains frequency or a ballast.
-    // The final bank reaches full output at 1.5 seconds. No ongoing flicker cost.
-    if (T<.055f) return 0.f;
-    if (T<.105f) return .18f;
-    if (T<.175f) return 0.f;
-    if (T<.285f) return .85f;
-    if (T<.36f) return .04f;
-    if (T<.47f) return 1.f;
-    if (T<.56f) return .12f;
-    if (T<.67f) return .92f;
-    if (T<.75f) return .30f;
-    const float S=FMath::Clamp((T-.75f)/.45f,0.f,1.f);
-    return .72f+.28f*S*S*(3.f-2.f*S);
+    return DarkFactoryFluorescent::BankGain(Elapsed,Bank);
 }
 
 void IsolateFixture(UPrimitiveComponent* Mesh) {

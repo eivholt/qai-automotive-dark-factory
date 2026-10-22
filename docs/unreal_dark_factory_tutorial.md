@@ -12,14 +12,16 @@
 
 This tutorial simulates a fully automated factory with robotic arms controlled by an LLM-backed AI agent. The agent uses physics-aware VLM tools to determine current state and next steps. It all runs on a single Qualcomm Dragonwing IQ-9075 EVK, thanks to active concurrent model inference and some neat speed and accuracy tricks.
 
+
+See full [demo on YouTube](https://youtu.be/s01VTqjMf2k).
+
+
 >[System One](https://docs.typesafe.ai/concepts/system-one) models, coined by TypeSafe AI, are a class of AI models built to make fast, structured decisions that software can use directly. Their model Jev went viral in late September 2026, but unfortunately it's not open weight and nowhere close to sized to run on Edge AI hardware. By coincidence this article and it's predecessor, [**Physics-aware Edge AI: Simulation powered by QualComm IQ9 EVK serving NVIDIA Cosmos Reason2**](https://dragonwingdocs.qualcomm.com/tutorial), from August 2026, utilize similar principles to speed up the inference processes: With the **VLM** Cosmos Reason 2, we fine-tune to make the model associate certain states with a single token, while utilizing the model's base knowledge. We also drop auto-regressive token decode by just picking the token of interest with the highest probability (logit). For the **LLM** in this project we prompt to only return one of the tokens of interest, and then again only look for the logit of interest with the highest probability. On constrained hardware this can mean a 10 - 20 x speed difference.
 
 ![Factory floor](./media/image.gif)
 
 ## Dark factory
 [Dark factories, or lights-out manufacturing](https://en.wikipedia.org/wiki/Lights_out_(manufacturing)) denotes fully automated manufacturing, where lights and air-condition are redundant as a human workforce is not present. Think of the ending scenes of The Terminator (1984) where Sarah Connor fights for her life in an unattended, 24/7 assembly line. While literal dark factories do exist, this is more of a metaphor than about saving electricity bill.
-
-![Factory floor](./media/factory_floor_light_off.png)
 
 Often the production process still needs to keep humans in the loop due to visual quality assurance and other tasks that are hard to automate with traditional sensor technology. Keeping workers around is also often needed to handle unpredicted events, such as parts falling off, perhaps having to reset a rigid mechanical process. Advances in physics-aware visual language models (VLM) move visual computing beyond bounded object recognition, to being able to reason and answer questions about an image or short video clip. Additionally LLM-backed agentic AI allows for more dynamic process execution where policy and desired outcomes steer behavior, rather than rigid control flow instructions. This demo shows how all of this can be combined in a virtual factory, useful for smoking out problems before deployment in a real facility.
 
@@ -40,8 +42,6 @@ The robot-mounted inspection camera switches between **near-infrared (NIR) and t
 ![Factory floor](./media/factory_nir.png)
 
 NIR simulates a camera observing reflected light from an active infrared illuminator. Separate lighting channels isolate the inspection camera’s source from visible factory lighting and the observer’s camera-mounted infrared beam. Unreal materials provide an illustrative NIR response rather than measured infrared reflectance. The inspection images remain grayscale, while the observer’s night-vision view adds green phosphor coloring, grain and lens effects through display-only post-processing.
-
-![Factory floor](./media/factory_nir.png)
 
 Thermal imaging represents apparent surface temperature rather than reflected illumination. Assigned temperatures and emissivity feed GPU material shaders, which evaluate spatial temperature fields and an emission lookup table for the 8–14 µm thermal band. This rendering works independently of visible lighting and preserves opaque occlusion: the inspection camera sees heat on exposed surfaces, including heat conducted into the panel from sealant beneath it, rather than seeing through steel.
 

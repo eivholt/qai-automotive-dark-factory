@@ -69,14 +69,36 @@ timing is independent of the simulated assembly sequence.
 
 ## Unreal integration
 
-`scripts/audio/prepare_runtime_audio.py` packs 17 approved roles as mono 48 kHz
+`scripts/audio/prepare_runtime_audio.py` packs 20 roles from the approved sources as mono 48 kHz
 PCM in private `assets/audio/runtime/bank.dfau`, with source hashes and editing
 provenance in the adjacent manifest. Robot movement uses the cleaned recorded
 IRB6700 excerpt; it is looped without a pitch or speed change. Welding and clamp
-events select a single short pulse/contact from the approved longer takes.
+events fit the approved longer takes to the actual mechanism phases.
 The other accepted effects use their final review versions, including quieter
 cooling and the distinct octave-lower thermal cue. No paid API call is needed
 to rebuild the bank.
+
+The timing revision follows the existing pinch motion: 150 ms squeeze, 500 ms
+current, 80 ms pressure hold and 120 ms release. This separation is consistent
+with the squeeze/pulse/hold distinction in [AMADA's resistance welding
+fundamentals](https://amadaweldtech.com/wp-content/uploads/2023/04/Resistance-Welding-Fundamentals.pdf).
+Three recorded crackle excerpts have explicit current attacks/decays and a
+restrained synthesized 100/300 Hz transformer layer; they alternate across the
+six spots. Jaw opening has its own quieter cue, and the existing cooling effect
+starts after the final release. The added tonal layer is illustrative, rather
+than a measured signature of this gun or a weld-quality signal. There is no
+continuous arc audio between spot pulses. The private
+`weld_sequence_preview.wav` auditions the dry six-spot rhythm; live spatial
+attenuation and the mixer limiter still apply in Unreal.
+
+The fluorescent cue is compressed offline without a pitch shift to exactly the
+1.5-second visible startup, replacing the seven-second audition. The pure
+`DarkFactoryFluorescentTiming.h` curve drives both the original six light banks
+and a strike envelope baked into PCM during bank loading. No lighting values or
+runtime sensor paths change. Switching away from roof-lit mode cancels the cue
+with a short smoothed fade; its separate generation counter rejects queued old startups
+and allows a fresh retrigger. No extra audio sources or per-frame file reads
+are introduced. The original review recordings remain unchanged.
 
 With the local `numpy`/`imageio-ffmpeg` dependencies available:
 
@@ -96,7 +118,7 @@ integration while preserving the approved relative levels. Override it with
 `run.ps1 -FactorySoundGainDb 6` (supported range -12 to +18 dB), or pass
 `-DFAudioGainDb=6` directly to Unreal. This gain applies after each source's soft
 limiter; its 0.11 bound below describes the pre-gain signal, not the final master
-mix. The default-gain native recording measured 0.170 peak, 0.0267 RMS and zero
+mix. The final timing-revision native recording measured 0.150 peak, 0.0265 RMS and zero
 clipped samples, with an exactly silent muted tail. These measurements cover
 that fixture, rather than every possible spatial overlap.
 
@@ -107,7 +129,7 @@ or thermal hold does not keep playing a travel motor. Carriage sound follows
 actual carriage motion. Sealant follows active bead application; panel pickup,
 placement, gripper release and pinch closure follow the corresponding physical
 job times. Current pulses follow actual welding emitters. Subdued cooling plays
-after the last spot, independently of the model's cooling decision. These are
+after the last jaw release, independently of the model's cooling decision. These are
 audible presentation effects, not inspection results or readiness signals.
 
 Only a submitted settled-pose R4 readback triggers a shutter cue; the three

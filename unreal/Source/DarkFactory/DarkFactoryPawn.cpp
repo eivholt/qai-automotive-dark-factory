@@ -228,7 +228,7 @@ void ADarkFactoryPawn::BeginPlay() {
     }
 }
 void ADarkFactoryPawn::Home() {
-    bBookmarkMoving=false; ObserverBookmarkIndex=0;
+    bBookmarkMoving=false; ObserverBookmarkIndex=0; SmoothedUp=0;
     FVector Location; FRotator Rotation;
     if (const auto* W=Cell(GetWorld())) if (W->GetObserverHome(Location,Rotation)) { SetActorLocation(Location); SetActorRotation(Rotation); return; }
     SetActorLocation(FVector(-300,-780,380));
@@ -255,7 +255,13 @@ void ADarkFactoryPawn::Tick(float DeltaSeconds) {
             return;
         }
     }
-    const FVector Direction=GetActorForwardVector()*Forward+GetActorRightVector()*Right+FVector::UpVector*Up;
+    // Ease keyboard elevation and trigger input, with quicker braking on release.
+    // Exponential response keeps the feel consistent across frame rates.
+    const float TargetUp=FMath::Clamp(Up,-1.f,1.f);
+    const float Response=FMath::IsNearlyZero(TargetUp) ? 16.f:10.f;
+    SmoothedUp=FMath::Lerp(SmoothedUp,TargetUp,1.f-FMath::Exp(-Response*DeltaSeconds));
+    if (FMath::Abs(SmoothedUp)<.0001f) SmoothedUp=0;
+    const FVector Direction=GetActorForwardVector()*Forward+GetActorRightVector()*Right+FVector::UpVector*SmoothedUp;
     const auto* PC=Cast<APlayerController>(GetController());
     const bool bBoost=PC && (PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift));
     const float Speed=bBoost ? 2700.f:900.f;
@@ -358,6 +364,7 @@ void ADarkFactoryPawn::GrainUp() { NightVisionGrain=FMath::Min(.12f,NightVisionG
 bool ADarkFactoryPawn::SetObserverBookmark(int32 Index,bool Immediate) {
     const auto* W=Cell(GetWorld());
     if (!W || !W->IsImportedScene() || Index<0 || Index>=ObserverBookmarkCount) return false;
+    SmoothedUp=0;
     FVector HomePosition; FRotator HomeRotation;
     W->GetObserverHome(HomePosition,HomeRotation);
     const FVector Positions[]={HomePosition,FVector(580,-480,430),FVector(-980,-700,540),FVector(880,1040,580),FVector(1450,-1100,1040)};

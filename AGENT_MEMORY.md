@@ -2711,3 +2711,46 @@ The final offscreen EVK agent run also passes with the +10 dB mix: three bodies
 in 205.2 seconds, zero agent audits/rejected calls, 57 actual captures matched
 by 57 shutter cues, and no dropped audio events. The QA demo exited normally.
 verification-summary.json records both live runs and the native master levels.
+
+October 22 fluorescent/welding timing revision supersedes the initial audio
+bank edits. The private bank now has 20 clips: three shaped current variants
+and a separate pinch-jaw release, while retaining the six-source pool, +10 dB
+default and all source recordings. No additional API generation was needed.
+The old seven-second fluorescent audition is pitch-preservingly compressed to
+1.5 seconds. DarkFactoryFluorescentTiming.h contains the unchanged six-bank
+visible strike curve; it also bakes the startup sound envelope at bank load.
+The packer reads the same duration. Reject mismatched bank durations at load.
+Switching away from roof-lit mode cancels the sound with a short smoothed fade; a separate
+roof generation rejects stale queued starts and supports a clean retrigger.
+Keep the visible light outputs and all sensor isolation unchanged.
+
+Recorded foley now follows the authored 150 ms squeeze, 500 ms current, 80 ms
+hold and 120 ms jaw release. Alternate three crackle excerpts across six spots,
+with explicit pulse attacks/decays and a restrained illustrative 100/300 Hz body.
+Start the existing subdued cooling cue after final jaw release. Do not treat
+these sounds as measured gun acoustics, weld quality or thermal readiness.
+The private dry weld_sequence_preview.wav was shown in chat for audition.
+Native audio checks pass for all 20 roles, roof cancellation/stale rejection/
+retrigger, bounded output and exact muted silence; the recorded mix has no
+clipped samples. UE5.8 build, 304 Python tests (32 skips), 52 launcher checks,
+169 policy checks and the full legacy WeldingSmoke pass. The rendered lighting
+verifier passes with unchanged fixed NIR/thermal images. Private evidence is
+under artifacts/audio-timing-20261022; see docs/audio_sound_design.md.
+Both live EVK flow and agent runs pass three bodies with 12 squeeze cues, 12
+current pulses (four of each variant) and 12 jaw releases. No audio drops;
+the agent has zero audit failures/rejected calls. The lighting verifier passes
+2269 checks. Acquire published queue entries before sampling their generation
+controls so a newly queued roof startup cannot be rejected against an older
+counter snapshot. This callback ordering is covered by the final native check.
+The final 20-clip native run passes with peak 0.15005, RMS 0.02650, zero clipped
+samples and an exactly silent muted tail. All QA demos are closed.
+
+October 22 observer elevation: Q/E and the shared Xbox trigger axis now use
+exponential input smoothing (0.10 s acceleration time constant, 0.0625 s braking
+on release), retaining the existing maximum flight/boost speeds. Home, valid
+bookmark selection and SetCaptureAutomation clear residual elevation input;
+raw manual input still cancels bookmark travel immediately. Fixed/R4 cameras
+and process motion are unchanged. UE5.8 build, 304 Python tests (32 optional
+skips) and the rendered 681-check RealismSmoke/observer-bookmark and fixed-sensor
+parity regression pass. Evidence: artifacts/elevation-smoothing-20261022.
+The QA demo closed normally; subjective movement feel remains a user review.

@@ -50,7 +50,7 @@ public:
     bool SetObserverBookmark(int32 Index,bool Immediate=false);
     FString GetObserverBookmarkName() const;
     bool IsObserverBookmarkMoving() const { return bBookmarkMoving; }
-    void SetCaptureAutomation(bool Active) { bAutomation=Active; Forward=Right=Up=Yaw=Pitch=0; }
+    void SetCaptureAutomation(bool Active) { bAutomation=Active; Forward=Right=Up=SmoothedUp=Yaw=Pitch=0; }
     void SetNightVisionSmokeFrame(float Frame) { NightVisionFrameOverride = Frame; }
 private:
     UPROPERTY() TObjectPtr<UCameraComponent> Camera;
@@ -101,6 +101,7 @@ private:
     void NextInspectionReceipt();
     void CancelObserverBookmark();
     float Forward = 0, Right = 0, Up = 0, Yaw = 0, Pitch = 0;
+    float SmoothedUp = 0;
     void MoveForward(float V) { Forward = V; }
     void MoveRight(float V) { Right = V; }
     void MoveUp(float V) { Up = V; }

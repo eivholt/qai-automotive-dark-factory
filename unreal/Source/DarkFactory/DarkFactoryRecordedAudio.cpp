@@ -1,6 +1,7 @@
 #include "DarkFactoryRecordedAudio.h"
 #include "DarkFactoryWeldingCell.h"
 #include "DarkFactoryProcessTypes.h"
+#include "DarkFactoryFluorescentTiming.h"
 #include "AudioMixerBlueprintLibrary.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
@@ -16,11 +17,11 @@
 #include <atomic>
 
 namespace {
-enum EFactoryClip { Motor,Arrival,Departure,Clamp,Weld,Shutter,Pickup,Placement,Sealant,Cooling,Roof,NIR,Thermal,Room,Fan,Cabinet,Release,ClipCount };
+enum EFactoryClip { Motor,Arrival,Departure,Clamp,Weld,Shutter,Pickup,Placement,Sealant,Cooling,Roof,NIR,Thermal,Room,Fan,Cabinet,Release,PinchRelease,WeldAlt1,WeldAlt2,ClipCount };
 constexpr int32 VoiceCount=6,QueueSize=8,MaxShots=4;
 constexpr float PeakLimit=.11f;
-const TCHAR* Names[]={TEXT("motor"),TEXT("arrival"),TEXT("departure"),TEXT("clamp"),TEXT("weld"),TEXT("shutter"),TEXT("pickup"),TEXT("placement"),TEXT("sealant"),TEXT("cooling"),TEXT("roof"),TEXT("nir"),TEXT("thermal"),TEXT("room"),TEXT("fan"),TEXT("cabinet"),TEXT("release")};
-struct FRecordedCue { int32 Clip=-1; float Gain=0; uint32 Serial=0; };
+const TCHAR* Names[]={TEXT("motor"),TEXT("arrival"),TEXT("departure"),TEXT("clamp"),TEXT("weld"),TEXT("shutter"),TEXT("pickup"),TEXT("placement"),TEXT("sealant"),TEXT("cooling"),TEXT("roof"),TEXT("nir"),TEXT("thermal"),TEXT("room"),TEXT("fan"),TEXT("cabinet"),TEXT("release"),TEXT("pinch_release"),TEXT("weld_alt_1"),TEXT("weld_alt_2")};
+struct FRecordedCue { int32 Clip=-1; float Gain=0; uint32 Serial=0,RoofSerial=0; };
 }
 struct FFactoryAudioBank { int32 Rate=48000; TArray<float> Clips[ClipCount]; };
 struct FFactoryRecordedControls {
@@ -28,6 +29,7 @@ struct FFactoryRecordedControls {
     int32 Voice=0;
     std::atomic<float> Motor{0},Sealant{0},Bed{0},Gate{0},RMS{0},Peak{0};
     std::atomic<uint32> Write{0},Read{0},Reset{0},Dropped{0};
+    std::atomic<uint32> RoofSerial{0};
     std::atomic<uint64> Samples{0};
     std::atomic<bool> Finite{true};
     std::atomic<uint32> Started[ClipCount]{};
@@ -71,6 +73,26 @@ TSharedPtr<const FFactoryAudioBank,ESPMode::ThreadSafe> LoadBank() {
         }
     }
     if (Offset!=Bytes.Num()) return nullptr;
+    // Fail visibly to the procedural fallback if an old bank is still present.
+    auto DurationMatches=[&](int32 Clip,float Seconds) { return B->Clips[Clip].Num()==FMath::RoundToInt(Seconds*B->Rate); };
+    if (!DurationMatches(Roof,DarkFactoryFluorescent::DurationSeconds) || !DurationMatches(Clamp,.15f)
+        || !DurationMatches(PinchRelease,.12f) || !DurationMatches(Weld,.5f)
+        || !DurationMatches(WeldAlt1,.5f) || !DurationMatches(WeldAlt2,.5f)) return nullptr;
+    // Bake the actual six-bank strike envelope once on the game thread. No
+    // lighting/component access or envelope allocation occurs in the callback.
+    float Previous[6]{},Strike=0;
+    const float Decay=FMath::Exp(-1.f/(B->Rate*.022f));
+    for (int32 J=0;J<B->Clips[Roof].Num();++J) {
+        const float T=float(J)/B->Rate;
+        float Change=0,Mean=0;
+        for (int32 K=0;K<6;++K) {
+            const float G=DarkFactoryFluorescent::BankGain(T,K);
+            Change+=FMath::Abs(G-Previous[K]); Mean+=G/6.f; Previous[K]=G;
+        }
+        Strike=FMath::Min(1.f,Strike*Decay+Change*.7f);
+        const float Fade=FMath::Clamp((DarkFactoryFluorescent::DurationSeconds-T)/.08f,0.f,1.f);
+        B->Clips[Roof][J]*=(.12f+.68f*Strike+.20f*(1.f-Mean))*Fade;
+    }
     return B;
 }
 class FRecordedGenerator final : public ISoundGenerator {
@@ -83,19 +105,27 @@ public:
     virtual int32 GetNumChannels() const override { return 1; }
     virtual int32 GetDesiredNumSamplesToRenderPerCallback() const override { return 512; }
     virtual int32 OnGenerateAudio(float* Out,int32 N) override {
+        uint32 Read=Controls->Read.load(std::memory_order_relaxed);
+        const uint32 Write=Controls->Write.load(std::memory_order_acquire);
+        // Acquire published cues before sampling their generation controls. A
+        // concurrently queued fresh startup must not see an older generation.
         const float Target=Controls->Gate.load(std::memory_order_relaxed);
         const uint32 Reset=Controls->Reset.load(std::memory_order_acquire);
+        const uint32 RoofSerial=Controls->RoofSerial.load(std::memory_order_acquire);
+        if (RoofSerial!=SeenRoofSerial) {
+            for (auto& S:Shots) if (S.Clip==Roof) S.Cancelled=true;
+            SeenRoofSerial=RoofSerial;
+        }
         if (Reset!=SeenReset) {
             // Let an existing shot release under the mute envelope. A resume or
             // seek clears it, and queued events from earlier epochs are rejected.
             if (Target>0) for (auto& S:Shots) S.Clip=-1;
             SeenReset=Reset;
         }
-        uint32 Read=Controls->Read.load(std::memory_order_relaxed);
-        const uint32 Write=Controls->Write.load(std::memory_order_acquire);
         while (Read!=Write) {
             const auto Cue=Controls->Queue[Read%QueueSize]; ++Read;
-            if (Target>0 && Cue.Serial==Reset && Cue.Clip>=0 && Cue.Clip<ClipCount) {
+            if (Target>0 && Cue.Serial==Reset && Cue.Clip>=0 && Cue.Clip<ClipCount
+                && (Cue.Clip!=Roof || Cue.RoofSerial==RoofSerial)) {
                 int32 Index=-1;
                 for (int32 I=0;I<MaxShots;++I) if (Shots[I].Clip<0) { Index=I; break; }
                 if (Index<0) { Controls->Dropped.fetch_add(1); continue; }
@@ -119,10 +149,14 @@ public:
                 V+=B*(LoopSample(Room,Loop[0])*.025f+LoopSample(Fan,Loop[1])*.065f+LoopSample(Cabinet,Loop[2])*.012f);
             }
             for (auto& Shot:Shots) if (Shot.Clip>=0) {
+                if (Shot.Cancelled) {
+                    Shot.Fade+=(0.f-Shot.Fade)*Ramp;
+                    if (Shot.Fade<.00001f) { Shot.Clip=-1; continue; }
+                }
                 const auto& PCM=Controls->Bank->Clips[Shot.Clip];
                 if (Shot.Position>=PCM.Num()-1) { Shot.Clip=-1; continue; }
                 const float MotionGate=Controls->Voice==4 && (Shot.Clip==Arrival || Shot.Clip==Departure) ? MotorLevel:1.f;
-                V+=ReadSample(PCM,Shot.Position)*Shot.Gain*MotionGate; Shot.Position+=Step;
+                V+=ReadSample(PCM,Shot.Position)*Shot.Gain*MotionGate*Shot.Fade; Shot.Position+=Step;
             }
             V*=Gate;
             // Leave ordinary levels linear; soften rare overlapping transients
@@ -139,11 +173,11 @@ public:
         Controls->Peak.store(FMath::Max(Peak,Controls->Peak.load())); return N;
     }
 private:
-    struct FShot { int32 Clip=-1; float Gain=0; double Position=0; } Shots[MaxShots];
+    struct FShot { int32 Clip=-1; float Gain=0; double Position=0; float Fade=1; bool Cancelled=false; } Shots[MaxShots];
     TSharedPtr<FFactoryRecordedControls,ESPMode::ThreadSafe> Controls;
     double Step,Loop[4]{};
     float Ramp=0,Gate=0,MotorLevel=0,SealantLevel=0;
-    uint32 SeenReset=0;
+    uint32 SeenReset=0,SeenRoofSerial=0;
     float ReadSample(const TArray<float>& PCM,double Position) const {
         const int32 A=FMath::FloorToInt(Position),B=FMath::Min(A+1,PCM.Num()-1);
         return FMath::Lerp(PCM[A],PCM[B],static_cast<float>(Position-A));
@@ -171,10 +205,22 @@ TSharedRef<FJsonObject> RecordedCallbackCheck(TSharedPtr<const FFactoryAudioBank
     for (uint32 I=0;I<QueueSize;++I) C->Queue[(Read+I)%QueueSize]={NIR,.1f,3};
     C->Write.store(Read+QueueSize); G.OnGenerateAudio(Buffer.GetData(),512);
     const bool Bounded=C->Dropped.load()==QueueSize-MaxShots && C->Finite.load() && C->Peak.load()<=PeakLimit;
+    auto RoofC=MakeShared<FFactoryRecordedControls,ESPMode::ThreadSafe>(); RoofC->Bank=C->Bank; RoofC->Voice=5; RoofC->Gate.store(1);
+    RoofC->Queue[0]={Roof,.1f,0,0}; RoofC->Write.store(1);
+    FRecordedGenerator RoofG(RoofC,48000); RoofG.OnGenerateAudio(Buffer.GetData(),4096);
+    const bool RoofAudible=RoofC->RMS.load()>0;
+    RoofC->RoofSerial.store(1); RoofG.OnGenerateAudio(Buffer.GetData(),12000); RoofG.OnGenerateAudio(Buffer.GetData(),512);
+    const bool RoofCancelled=RoofAudible && RoofC->RMS.load()==0;
+    RoofC->Queue[1]={Roof,.1f,0,0}; RoofC->Write.store(2); RoofG.OnGenerateAudio(Buffer.GetData(),512);
+    const bool OldRoofRejected=RoofC->Started[Roof].load()==1;
+    RoofC->Queue[2]={Roof,.1f,0,1}; RoofC->Write.store(3); RoofG.OnGenerateAudio(Buffer.GetData(),4096);
+    const bool RoofRetrigger=RoofC->Started[Roof].load()==2 && RoofC->RMS.load()>0;
     auto O=MakeShared<FJsonObject>();
     O->SetBoolField(TEXT("stale_cue_rejected_after_pause_resume"),Stale); O->SetBoolField(TEXT("fresh_cue_plays"),Fresh);
     O->SetBoolField(TEXT("settled_mute_exact_silence"),Silent); O->SetBoolField(TEXT("overload_bounded"),Bounded);
-    O->SetBoolField(TEXT("passed"),Stale && Fresh && Silent && Bounded); return O;
+    O->SetBoolField(TEXT("roof_off_fades_to_silence"),RoofCancelled);
+    O->SetBoolField(TEXT("stale_roof_cue_rejected"),OldRoofRejected); O->SetBoolField(TEXT("roof_retrigger_plays"),RoofRetrigger);
+    O->SetBoolField(TEXT("passed"),Stale && Fresh && Silent && Bounded && RoofCancelled && OldRoofRejected && RoofRetrigger); return O;
 }
 }
 UDarkFactoryRecordedVoice::UDarkFactoryRecordedVoice(const FObjectInitializer& O) : Super(O) {
@@ -197,11 +243,12 @@ void UDarkFactoryRecordedVoice::SetState(float M,float S,float B,float G) {
     Controls->Bed.store(FMath::Clamp(B,0.f,1.f)); Controls->Gate.store(FMath::Clamp(G,0.f,1.f));
 }
 void UDarkFactoryRecordedVoice::Invalidate() { Controls->Reset.fetch_add(1,std::memory_order_release); }
+void UDarkFactoryRecordedVoice::CancelRoofStartup() { Controls->RoofSerial.fetch_add(1,std::memory_order_release); }
 bool UDarkFactoryRecordedVoice::Cue(int32 Clip,float Gain) {
     if (Clip<0 || Clip>=ClipCount || Controls->Gate.load()<=0) return false;
     const uint32 W=Controls->Write.load(),R=Controls->Read.load(std::memory_order_acquire);
     if (W-R>=QueueSize) { Controls->Dropped.fetch_add(1); return false; }
-    Controls->Queue[W%QueueSize]={Clip,FMath::Clamp(Gain,0.f,.5f),Controls->Reset.load(std::memory_order_acquire)};
+    Controls->Queue[W%QueueSize]={Clip,FMath::Clamp(Gain,0.f,.5f),Controls->Reset.load(std::memory_order_acquire),Controls->RoofSerial.load(std::memory_order_acquire)};
     Controls->Write.store(W+1,std::memory_order_release); return true;
 }
 TSharedRef<FJsonObject> UDarkFactoryRecordedVoice::BuildMetadata() const {
@@ -248,6 +295,7 @@ bool ADarkFactoryRecordedAudio::Queue(int32 Voice,int32 Clip,float Gain) {
 }
 void ADarkFactoryRecordedAudio::NotifyObserverMode(int32 Mode) {
     if (!Runtime) return;
+    Voices[5]->CancelRoofStartup();
     if (Mode==1) Queue(5,NIR,.11f); else if (Mode==2) Queue(5,Thermal,.11f); else if (Mode==3) Queue(5,Roof,.09f);
 }
 void ADarkFactoryRecordedAudio::NotifyInspectionCapture() { if (Runtime) Queue(3,Shutter,.11f); }
@@ -291,13 +339,18 @@ void ADarkFactoryRecordedAudio::UpdateFromCell(bool Enabled,bool Muted) {
         if (Phase==EDarkFactoryProcessPhase::HolderRetract && Crossed(.02)) Queue(2,Release,.12f);
         if (Phase==EDarkFactoryProcessPhase::Welding) for (int32 I=0;I<C->PanelWeldCount;++I) {
             if (Crossed(C->PanelWeldStartSeconds(I)-.15)) Queue(1,Clamp,.12f);
-            if (I==C->PanelWeldCount-1 && Crossed(C->PanelWeldStartSeconds(I)+.5)) Queue(1,Cooling,.07f);
+            if (Crossed(C->PanelWeldStartSeconds(I)+.58)) Queue(1,PinchRelease,.10f);
+            if (I==C->PanelWeldCount-1 && Crossed(C->PanelWeldStartSeconds(I)+.70)) Queue(1,Cooling,.07f);
         }
     }
     bool Active[4]{};
+    int32 WeldClips[4]={Weld,Weld,Weld,Weld};
+    const int32 Variants[]={Weld,WeldAlt1,WeldAlt2};
+    for (int32 I=0;I<C->PanelWeldCount && C->IsProcessControlled();++I)
+        if (Time>=C->PanelWeldStartSeconds(I) && Time<C->PanelWeldStartSeconds(I)+.5) WeldClips[1]=Variants[I%3];
     for (const auto& E:C->GetWeldEmitters()) if (E.EmitterIndex>=0 && E.EmitterIndex<4 && E.Intensity>0) Active[E.EmitterIndex]=true;
     for (int32 I=0;I<4;++I) {
-        if (Advance && Active[I] && !Runtime->WeldActive[I]) Queue(I,Weld,.13f);
+        if (Advance && Active[I] && !Runtime->WeldActive[I]) Queue(I,WeldClips[I],.16f);
         Runtime->WeldActive[I]=Active[I];
     }
     if (Dt<0 || Dt>.5) for (const auto& V:Voices) V->Invalidate();
@@ -305,12 +358,16 @@ void ADarkFactoryRecordedAudio::UpdateFromCell(bool Enabled,bool Muted) {
     Runtime->LastPhaseSeconds=Time; Runtime->HadFrame=true;
 }
 TSharedRef<FJsonObject> ADarkFactoryRecordedAudio::BuildMetadata() const {
-    auto O=MakeShared<FJsonObject>(); O->SetStringField(TEXT("model"),TEXT("approved-recorded-factory-audio-v1"));
+    auto O=MakeShared<FJsonObject>(); O->SetStringField(TEXT("model"),TEXT("approved-recorded-factory-audio-v2"));
     O->SetNumberField(TEXT("maximum_sources"),VoiceCount); O->SetNumberField(TEXT("maximum_shots_per_source"),MaxShots);
     O->SetNumberField(TEXT("queue_capacity_per_source"),QueueSize); O->SetNumberField(TEXT("peak_limit_per_source"),PeakLimit);
     O->SetBoolField(TEXT("callback_uobject_access"),false); O->SetNumberField(TEXT("sensor_readbacks"),0);
     O->SetNumberField(TEXT("sample_rate"),Runtime->Bank->Rate);
     O->SetNumberField(TEXT("output_gain_db"),Runtime->OutputGainDb);
+    O->SetNumberField(TEXT("roof_startup_seconds"),double(Runtime->Bank->Clips[Roof].Num())/Runtime->Bank->Rate);
+    O->SetNumberField(TEXT("weld_pulse_seconds"),double(Runtime->Bank->Clips[Weld].Num())/Runtime->Bank->Rate);
+    O->SetNumberField(TEXT("pinch_release_seconds"),double(Runtime->Bank->Clips[PinchRelease].Num())/Runtime->Bank->Rate);
+    O->SetNumberField(TEXT("weld_pulse_variants"),3);
     auto Events=MakeShared<FJsonObject>(); for (int32 I=0;I<ClipCount;++I) Events->SetNumberField(Names[I],Runtime->Events[I]);
     O->SetObjectField(TEXT("events"),Events);
     TArray<TSharedPtr<FJsonValue>> Rows; for (const auto& V:Voices) Rows.Add(MakeShared<FJsonValueObject>(V->BuildMetadata()));

@@ -29,6 +29,7 @@ The supporting research and implementation constraints for items 1-3, 4-6 and 7-
 
 - **B / Xbox X:** cycle line overview, weld inspection, opposite side, line exit and utilities overview.
 - **Home / Xbox Menu:** return to the observer home viewpoint.
+- **Q/E / Xbox triggers:** elevation eases in and brakes more quickly on release; home, bookmarks and automated captures clear residual elevation motion.
 - **M:** mute/unmute factory sounds.
 - Existing **Tab / Xbox Y**, **K / D-pad left**, and **Space / Xbox View** retain modality, palette and cycle-pause behavior.
 
